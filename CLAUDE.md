@@ -8,7 +8,8 @@ Enterprise PowerShell standards shared by GitHub Copilot and Claude Code. The st
 - Scoped standards: `.github/instructions/*.instructions.md`, loaded per file type by the other rules
   in `.claude/rules/powershell-standards/`. Each uses the same globs as its instruction file's `applyTo`.
 - The sync workflow mirrors `.github/`, `powershell-standards/`, and `.claude/rules/powershell-standards/`
-  into consuming projects. Anything an instruction file links to must live under one of those. Link to the rest of this repository by absolute GitHub URL.
+  into consuming projects. Anything an instruction file links to must live under one of those. Link to
+  the rest of this repository by absolute GitHub URL.
 - Copilot prompt files under `.github/prompts/` have no Claude equivalent. Read the matching one
   before a task it covers, for example `create-test.prompt.md` before writing a test suite.
 
