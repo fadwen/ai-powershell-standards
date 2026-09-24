@@ -9,9 +9,9 @@ text descriptions and standard ASCII characters only.
 ## Standard Unit Test Structure
 
 > Complete passing implementations of this template:
-> [Module-Structure-Example/Tests](../../../Documentation/Examples/Module-Structure-Example/Tests/)
+> [Module-Structure-Example/Tests](../../../powershell-standards/Examples/Module-Structure-Example/Tests/)
 > and
-> [Testing-Examples](../../../Documentation/Examples/Testing-Examples/).
+> [Testing-Examples](../../../powershell-standards/Examples/Testing-Examples/).
 
 Use this template for all unit tests:
 

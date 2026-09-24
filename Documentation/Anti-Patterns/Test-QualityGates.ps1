@@ -15,7 +15,7 @@
 #
 # Get-TestResult, at the bottom, is the one compliant function in the file and
 # is here as the contrast. It passes PSScriptAnalyzer clean. For fuller models
-# see Basic-Function-Example.ps1 or Module-Structure-Example/.
+# see powershell-standards/Examples/.
 #
 # Security issues are NOT among the deliberate violations - plaintext
 # credentials and interpolated SQL were removed, so this file is safe to keep in

@@ -70,7 +70,7 @@ InModuleScope MyModule {
 ```
 
 Worked instance:
-[Module-Structure-Example/Tests](../../../Documentation/Examples/Module-Structure-Example/Tests/)
+[Module-Structure-Example/Tests](../../../powershell-standards/Examples/Module-Structure-Example/Tests/)
 mocks a private function this way to exercise a per-item failure path.
 
 ## Global Mocks (Experimental)

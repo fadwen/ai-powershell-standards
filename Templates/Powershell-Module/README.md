@@ -46,7 +46,7 @@ Get-TemplateFunction -Name "ExampleItem"
 ## 📚 Documentation
 
 - **Functions**: See individual function help with `Get-Help Function-Name -Detailed`
-- **Examples**: Check the Documentation/Examples folder
+- **Examples**: Check the powershell-standards/Examples folder
 - **Troubleshooting**: See Troubleshooting folder for organized guides
 
 ### Generating Command Help

@@ -73,6 +73,9 @@ git clone https://github.com/fadwen/ai-powershell-standards.git
 # Copy files to your project
 Copy-Item -Path "ai-powershell-standards\.github\*" -Destination "YourProject\.github\" -Recurse -Force
 
+# Worked examples the instruction files link to (must keep this path)
+Copy-Item -Path "ai-powershell-standards\powershell-standards" -Destination "YourProject\" -Recurse -Force
+
 # Claude Code users: the entry point and the path-scoped rules live outside .github
 Copy-Item -Path "ai-powershell-standardsCLAUDE.md", "ai-powershell-standards.claude" -Destination "YourProject\" -Recurse -Force
 ```

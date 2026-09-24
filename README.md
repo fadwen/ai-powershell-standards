@@ -121,7 +121,9 @@ ai-powershell-standards/
 │   └── workflows/                       # Quality gates run on every pull request
 ├── .claude/
 │   └── rules/                           # 13 path-scoped Claude Code rules, one per instruction file
-├── Documentation/                       # Reference materials and worked examples
+├── Documentation/                       # Guides and the deliberate anti-pattern demo
+├── powershell-standards/
+│   └── Examples/                        # Worked examples the instructions link to; mirrored to consumers
 ├── Templates/                           # Module, script-collection, and application templates
 │   └── Workflows/                       # Workflows to copy into consuming projects
 ├── Tools/                               # Install-CopilotStandards, Test-StandardsCompliance
@@ -255,7 +257,7 @@ for yours:
   patterns like a hardcoded `-ComputerName 'MOCKSERVER'` are legitimate in a mock)
 - **Pester**: Fails on `FailedCount` _and_ `FailedContainersCount` — a file that fails discovery
   contributes zero failed tests and would otherwise read green
-- **Coverage**: Measured over `Tools/` and `Documentation/Examples/`, the code this repository ships
+- **Coverage**: Measured over `Tools/` and `powershell-standards/Examples/`, the code this repository ships
   and holds up as exemplary. Templates are excluded: they are scaffolding to copy, so covering a
   placeholder measures nothing
 - **Security Scanning**: Credential leak and vulnerability detection. Secret patterns apply to all
@@ -314,7 +316,7 @@ Create function for infrastructure management with:
 
 - **[Prompt Files Guide](./Documentation/Prompt-Files-Guide.md)**: How to use and create prompts
 - **[Troubleshooting](./Troubleshooting/)**: Organized problem-solving guides
-- **[Examples](./Documentation/Examples/)**: Real-world usage examples
+- **[Examples](./powershell-standards/Examples/)**: Real-world usage examples
 
 ## 🤝 Contributing
 

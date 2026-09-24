@@ -38,12 +38,13 @@ trigger the workflow manually once to confirm.
 | `.github/copilot-instructions.md` | Overwritten from upstream |
 | `.github/instructions/` | Mirrored — upstream deletions are applied |
 | `.github/prompts/` | Mirrored — upstream deletions are applied |
+| `powershell-standards/` | Mirrored — the worked examples the instruction files link to |
 | `.github/workflows/` | Never touched, including this workflow itself |
 | Everything else | Never touched |
 
 ### Mirror, not merge
 
-Local edits to the three mirrored paths are overwritten on the next run. This is deliberate: a copy
+Local edits to the four mirrored paths are overwritten on the next run. This is deliberate: a copy
 that drifts silently is the problem the workflow exists to solve.
 
 If you need a change to those files, make it upstream in the standards repository. If you need

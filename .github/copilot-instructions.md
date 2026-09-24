@@ -717,21 +717,28 @@ described above:
 
 | Need | Example |
 |---|---|
-| A complete advanced function | [Basic-Function-Example.ps1](../Documentation/Examples/Basic-Function-Example.ps1) |
-| Module layout and export boundary | [Module-Structure-Example](../Documentation/Examples/Module-Structure-Example/) |
-| Pester 6 tests, including private functions | [Module-Structure-Example/Tests](../Documentation/Examples/Module-Structure-Example/Tests/) |
-| Mocking CIM and typed parameters | [Testing-Examples](../Documentation/Examples/Testing-Examples/) |
-| A module template to copy | [Templates/Powershell-Module](../Templates/Powershell-Module/) |
+| A complete advanced function | [Basic-Function-Example.ps1](../powershell-standards/Examples/Basic-Function-Example.ps1) |
+| Module layout and export boundary | [Module-Structure-Example](../powershell-standards/Examples/Module-Structure-Example/) |
+| Pester 6 tests, including private functions | [Module-Structure-Example/Tests](../powershell-standards/Examples/Module-Structure-Example/Tests/) |
+| Mocking CIM and typed parameters | [Testing-Examples](../powershell-standards/Examples/Testing-Examples/) |
+| A module template to copy | [Templates/Powershell-Module](https://github.com/fadwen/ai-powershell-standards/tree/main/Templates/Powershell-Module) |
 
-[Test-QualityGates.ps1](../Documentation/Examples/Test-QualityGates.ps1) is the exception: it
-intentionally violates these standards so the gates have something to catch. Never use it as a model.
+[Test-QualityGates.ps1](https://github.com/fadwen/ai-powershell-standards/blob/main/Documentation/Anti-Patterns/Test-QualityGates.ps1)
+is the exception: it intentionally violates these standards so the gates have something to catch.
+Never use it as a model. It is not mirrored into consuming projects.
 
 ### Implementation Documentation
 
-- [Implementation Guide](../Documentation/Implementation-Guide.md): Step-by-step setup and adoption
-- [PowerShell Best Practices](../Documentation/PowerShell-Best-Practices.md): Comprehensive community standards
-- [Enterprise Extensions](../Documentation/Enterprise-Extensions.md): Organizational customizations
-- [Troubleshooting Guides](../Troubleshooting/): Organized problem-solving resources
+These live in the standards repository only and are not mirrored into consuming projects:
+
+- [Implementation Guide](https://github.com/fadwen/ai-powershell-standards/blob/main/Documentation/Implementation-Guide.md):
+  step-by-step setup and adoption
+- [PowerShell Best Practices](https://github.com/fadwen/ai-powershell-standards/blob/main/Documentation/PowerShell-Best-Practices.md):
+  comprehensive community standards
+- [Enterprise Extensions](https://github.com/fadwen/ai-powershell-standards/blob/main/Documentation/Enterprise-Extensions.md):
+  organizational customizations
+- [Troubleshooting Guides](https://github.com/fadwen/ai-powershell-standards/tree/main/Troubleshooting):
+  organized problem-solving resources
 
 ---
 

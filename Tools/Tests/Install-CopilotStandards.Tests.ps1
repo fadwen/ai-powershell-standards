@@ -69,6 +69,12 @@ Describe 'Install-CopilotStandards' -Tag 'Unit', 'Tools' {
             (Get-ChildItem $dir -Filter '*.prompt.md').Count | Should-BeGreaterThan 0
         }
 
+        It 'Copies the worked examples the instruction files link to' {
+            $dir = Join-Path $script:ProjectPath 'powershell-standards/Examples'
+            Test-Path $dir | Should-BeTrue
+            (Get-ChildItem $dir -Recurse -Filter '*.ps1').Count | Should-BeGreaterThan 0
+        }
+
         It 'Creates a .gitignore covering PowerShell and test artifacts' {
             $gitignore = Join-Path $script:ProjectPath '.gitignore'
             Test-Path $gitignore | Should-BeTrue
@@ -160,7 +166,7 @@ Describe 'Install-CopilotStandards' -Tag 'Unit', 'Tools' {
                 Should-BeTrue
         }
 
-        It 'Installs a workflow that mirrors the three instruction paths' {
+        It 'Installs a workflow that mirrors the four standards paths' {
             & $script:ScriptPath -ProjectPath $script:ProjectPath -IncludeSyncWorkflow `
                 -InformationAction SilentlyContinue -WarningAction SilentlyContinue
 
@@ -168,6 +174,7 @@ Describe 'Install-CopilotStandards' -Tag 'Unit', 'Tools' {
 
             $content | Should-MatchString 'copilot-instructions\.md'
             $content | Should-MatchString 'instructions prompts'
+            $content | Should-MatchString 'powershell-standards'
             $content | Should-MatchString 'workflow_dispatch'
         }
 
