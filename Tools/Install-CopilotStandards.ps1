@@ -137,8 +137,8 @@ process {
                         Write-Information "Copied prompt files" -InformationAction Continue
                     }
 
-                    # Worked examples. The instruction files link to them at
-                    # ../../powershell-standards/Examples/, so they must sit at the same path here.
+                    # Worked examples. The instruction files link to them by a relative path
+                    # two levels up, so the folder must sit at the project root under the same name.
                     $sourceExamplesDir = Join-Path $StandardsPath "powershell-standards"
                     $destExamplesDir = Join-Path $ProjectPath "powershell-standards"
 
@@ -283,8 +283,8 @@ coverage.xml
         Write-Information "PowerShell Copilot Standards installed successfully!" -InformationAction Continue
         Write-Information "Next steps:" -InformationAction Continue
         Write-Information "  1. No VS Code settings needed - .github/copilot-instructions.md," -InformationAction Continue
-        Write-Information "     .github/instructions/ and .github/prompts/ are picked up by default;
-                                                  powershell-standards/ holds the examples they link to" -InformationAction Continue
+        Write-Information "     .github/instructions/ and .github/prompts/ are picked up by default" -InformationAction Continue
+        Write-Information "     powershell-standards/ holds the worked examples they link to" -InformationAction Continue
         Write-Information "  2. Test with /new-function in Copilot Chat" -InformationAction Continue
         Write-Information "  3. Run .\Tools\Test-StandardsCompliance.ps1 to validate" -InformationAction Continue
         Write-Information "  4. Create your first function using enterprise standards" -InformationAction Continue
