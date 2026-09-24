@@ -54,9 +54,12 @@ ln -s .copilot-standards/.github/copilot-instructions.md .github/copilot-instruc
 
 ### 🧠 Claude Code Integration
 
-- **CLAUDE.md**: Imports the main instructions so every Claude Code session starts with the standards
-- **Path-Scoped Rules**: `.claude/rules/` mirrors each instruction file with the same globs as its
-  `applyTo`, so a standard loads only when Claude works on a matching file
+- **Always-On Rule**: `.claude/rules/powershell-standards/copilot-instructions.md` imports the main
+  instructions, so every Claude Code session starts with the standards
+- **Path-Scoped Rules**: the other files in that folder mirror each instruction file with the same globs
+  as its `applyTo`, so a standard loads only when Claude works on a matching file
+- **Synced Like Everything Else**: the sync workflow and installer mirror the rules folder, and never
+  touch a project's own `CLAUDE.md`
 - **Single Source**: The `.github/` files are the only copy. The Claude files reference them, never
   restate them
 
@@ -120,7 +123,8 @@ ai-powershell-standards/
 │   ├── prompts/                         # 10 `/prompt-name` files for Copilot Chat
 │   └── workflows/                       # Quality gates run on every pull request
 ├── .claude/
-│   └── rules/                           # 13 path-scoped Claude Code rules, one per instruction file
+│   └── rules/
+│       └── powershell-standards/        # Claude Code rules: 13 path-scoped, 1 always-on; mirrored to consumers
 ├── Documentation/                       # Guides and the deliberate anti-pattern demo
 ├── powershell-standards/
 │   └── Examples/                        # Worked examples the instructions link to; mirrored to consumers
@@ -129,7 +133,7 @@ ai-powershell-standards/
 ├── Tools/                               # Install-CopilotStandards, Test-StandardsCompliance
 ├── Troubleshooting/                     # Organized problem-solving guides
 ├── .markdownlint.json                   # Documentation lint rules enforced in CI
-├── CLAUDE.md                            # Claude Code entry point, imports copilot-instructions.md
+├── CLAUDE.md                            # Notes for working on this repository itself
 └── README.md                            # This file
 ```
 
@@ -157,13 +161,15 @@ You only need settings if you keep these files somewhere other than the defaults
 
 ### 2. Enable Claude Code
 
-Nothing to configure either. Claude Code reads `CLAUDE.md` at launch, which imports
-`.github/copilot-instructions.md`, and loads each rule in `.claude/rules/` when it touches a file
-matching that rule's `paths`. The rules import the instruction files rather than copying them, so
-there is one set of standards to maintain. Run `/memory` inside Claude Code to see what is loaded.
+Nothing to configure either. Claude Code discovers `.claude/rules/` recursively. The always-on rule in
+`.claude/rules/powershell-standards/` imports `.github/copilot-instructions.md` at launch, and each
+path-scoped rule imports one instruction file when Claude touches a matching file. The rules import
+rather than copy, so there is one set of standards to maintain. Run `/memory` inside Claude Code to
+see what is loaded.
 
-The installer and the sync workflow cover the `.github/` files only. Copy `CLAUDE.md` and `.claude/`
-into a consuming project yourself if it uses Claude Code.
+The installer and the sync workflow mirror that rules folder into consuming projects along with the
+`.github/` files and the examples. A project's own `CLAUDE.md` and any other rules it keeps under
+`.claude/rules/` are never touched.
 
 ### 3. Choose Your Integration Method
 

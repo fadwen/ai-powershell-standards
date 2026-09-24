@@ -146,6 +146,20 @@ process {
                         Copy-Item -Path $sourceExamplesDir -Destination $destExamplesDir -Recurse -Force
                         Write-Information "Copied worked examples" -InformationAction Continue
                     }
+
+                    # Claude Code rules. They import the instruction files by relative path, so
+                    # they must sit at this exact depth. An existing CLAUDE.md or any other rule
+                    # in the project is left alone.
+                    $sourceRulesDir = Join-Path $StandardsPath ".claude\rules\powershell-standards"
+                    $destRulesDir = Join-Path $ProjectPath ".claude\rules\powershell-standards"
+
+                    if (Test-Path $sourceRulesDir) {
+                        if (-not (Test-Path $destRulesDir)) {
+                            New-Item -ItemType Directory -Path $destRulesDir -Force | Out-Null
+                        }
+                        Copy-Item -Path (Join-Path $sourceRulesDir '*') -Destination $destRulesDir -Recurse -Force
+                        Write-Information "Copied Claude Code rules" -InformationAction Continue
+                    }
                 }
             }
 
@@ -285,6 +299,7 @@ coverage.xml
         Write-Information "  1. No VS Code settings needed - .github/copilot-instructions.md," -InformationAction Continue
         Write-Information "     .github/instructions/ and .github/prompts/ are picked up by default" -InformationAction Continue
         Write-Information "     powershell-standards/ holds the worked examples they link to" -InformationAction Continue
+        Write-Information "     Claude Code loads .claude/rules/powershell-standards/ with no setup" -InformationAction Continue
         Write-Information "  2. Test with /new-function in Copilot Chat" -InformationAction Continue
         Write-Information "  3. Run .\Tools\Test-StandardsCompliance.ps1 to validate" -InformationAction Continue
         Write-Information "  4. Create your first function using enterprise standards" -InformationAction Continue

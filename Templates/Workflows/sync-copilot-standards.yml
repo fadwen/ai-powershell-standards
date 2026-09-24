@@ -1,6 +1,6 @@
 name: Sync Copilot Standards
 
-# Keeps this repository's Copilot instruction files in sync with the standards
+# Keeps this repository's Copilot and Claude Code standards files in sync with the standards
 # repository, and opens a pull request whenever they drift.
 #
 # Copy to .github/workflows/sync-copilot-standards.yml in the consuming project.
@@ -48,7 +48,7 @@ jobs:
 
           # Mirror, not merge: files deleted upstream are deleted here too.
           # Local edits to these paths are overwritten. Customisations belong
-          # upstream, or in a file outside the four mirrored paths.
+          # upstream, or in a file outside the five mirrored paths.
           for dir in instructions prompts; do
             rm -rf ".github/$dir"
             cp -r "$src/$dir" ".github/$dir"
@@ -59,6 +59,13 @@ jobs:
           rm -rf powershell-standards
           cp -r .standards/powershell-standards powershell-standards
 
+          # Claude Code rules. They import the instruction files by relative path, so
+          # they must sit at this exact depth. The project's own CLAUDE.md and any other
+          # rules under .claude/rules/ are not touched.
+          mkdir -p .claude/rules
+          rm -rf .claude/rules/powershell-standards
+          cp -r .standards/.claude/rules/powershell-standards .claude/rules/powershell-standards
+
           rm -rf .standards
 
       - name: Detect drift
@@ -66,13 +73,13 @@ jobs:
         run: |
           # Stage first: a file added upstream is untracked here, and plain
           # `git diff` would not see it.
-          git add -A .github powershell-standards
-          if git diff --cached --quiet -- .github powershell-standards; then
+          git add -A .github powershell-standards .claude/rules/powershell-standards
+          if git diff --cached --quiet -- .github powershell-standards .claude/rules/powershell-standards; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Instruction files are already up to date."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            git diff --cached --stat -- .github powershell-standards
+            git diff --cached --stat -- .github powershell-standards .claude/rules/powershell-standards
           fi
 
       - name: Open pull request
@@ -81,14 +88,16 @@ jobs:
         with:
           branch: chore/sync-copilot-standards
           delete-branch: true
-          commit-message: 'chore: sync Copilot instructions from standards repo'
-          title: 'chore: sync Copilot instructions from standards repo'
+          commit-message: 'chore: sync Copilot and Claude Code standards from standards repo'
+          title: 'chore: sync Copilot and Claude Code standards from standards repo'
           body: |
             Automated sync from the AI PowerShell Standards repository.
 
             Covers `.github/copilot-instructions.md`, `.github/instructions/`,
-            `.github/prompts/` and `powershell-standards/` (the worked examples). Other workflows in `.github/workflows/` are
-            repo-specific and are not touched by this job.
+            `.github/prompts/`, `powershell-standards/` (the worked examples) and
+            `.claude/rules/powershell-standards/` (the Claude Code rules). Other
+            workflows in `.github/workflows/`, this repository's own `CLAUDE.md`, and
+            any other rules under `.claude/rules/` are not touched by this job.
 
             Review the diff before merging. Anything intended as a permanent local
             customisation belongs upstream, or this job will overwrite it again on

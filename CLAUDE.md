@@ -3,11 +3,13 @@
 Enterprise PowerShell standards shared by GitHub Copilot and Claude Code. The standards live under
 `.github/` and are the single source of truth. Nothing under `.claude/` restates them.
 
-- Always-on standards: @.github/copilot-instructions.md
-- Scoped standards: `.github/instructions/*.instructions.md`, loaded per file type by the rules in
-  `.claude/rules/`. Each rule uses the same globs as its instruction file's `applyTo`.
-- Anything an instruction file links to must live under `.github/` or `powershell-standards/`, the
-  paths the sync workflow mirrors. Link to the rest of this repository by absolute GitHub URL.
+- Always-on standards: `.claude/rules/powershell-standards/copilot-instructions.md` imports
+  `.github/copilot-instructions.md`. A rule with no `paths` loads at launch, like CLAUDE.md.
+- Scoped standards: `.github/instructions/*.instructions.md`, loaded per file type by the other rules
+  in `.claude/rules/powershell-standards/`. Each uses the same globs as its instruction file's `applyTo`.
+- The sync workflow mirrors `.github/`, `powershell-standards/`, and `.claude/rules/powershell-standards/`
+  into consuming projects. Anything an instruction file links to must live under one of those. Link to
+  the rest of this repository by absolute GitHub URL.
 - Copilot prompt files under `.github/prompts/` have no Claude equivalent. Read the matching one
   before a task it covers, for example `create-test.prompt.md` before writing a test suite.
 
@@ -26,4 +28,4 @@ Enterprise PowerShell standards shared by GitHub Copilot and Claude Code. The st
 - `Templates/` is scaffolding and stays out of coverage. `Documentation/Anti-Patterns/Test-QualityGates.ps1`
   demonstrates violations on purpose. Do not "fix" either.
 - When you add or rescope a file in `.github/instructions/`, add or update the matching
-  `.claude/rules/<name>.md` so its `paths` stay identical to `applyTo`.
+  `.claude/rules/powershell-standards/<name>.md` so its `paths` stay identical to `applyTo`.
