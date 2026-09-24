@@ -55,7 +55,7 @@ every sync.
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| `env.STANDARDS_REPO` | `fadwen/Powershell-Copilot-Standards` | The only line to change if you maintain a fork |
+| `env.STANDARDS_REPO` | `fadwen/ai-powershell-standards` | The only line to change if you maintain a fork |
 | `schedule.cron` | `0 6 * * 1` (Mondays, 06:00 UTC) | Stagger it if several repositories sync at once |
 | `branch` | `chore/sync-copilot-standards` | Reused and deleted after merge |
 

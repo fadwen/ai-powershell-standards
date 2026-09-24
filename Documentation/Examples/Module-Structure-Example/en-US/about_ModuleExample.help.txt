@@ -66,4 +66,4 @@ LONG DESCRIPTION
 
 SEE ALSO
     Get-ExampleData
-    https://github.com/fadwen/Powershell-Copilot-Standards
+    https://github.com/fadwen/ai-powershell-standards

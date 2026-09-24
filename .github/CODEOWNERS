@@ -33,6 +33,10 @@
 /.github/instructions/ @fadwen
 *instructions.md @fadwen
 
+# Claude Code memory and path-scoped rules (mirror the instruction files)
+/CLAUDE.md @fadwen
+/.claude/ @fadwen
+
 # Configuration files
 *.json @fadwen
 *.yml @fadwen

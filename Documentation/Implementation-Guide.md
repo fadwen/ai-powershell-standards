@@ -1,4 +1,4 @@
-# PowerShell Copilot Standards Implementation Guide
+# AI PowerShell Standards Implementation Guide
 
 ## 🚀 Quick Setup Guide
 
@@ -6,6 +6,7 @@
 
 - GitHub Copilot subscription
 - VS Code with GitHub Copilot extension
+- Claude Code (optional): reads `CLAUDE.md` and `.claude/rules/` with no configuration
 - PowerShell 7.6 (LTS) recommended; Windows PowerShell 5.1 supported for legacy estates
 - Git for version control
 
@@ -34,6 +35,9 @@ To open settings.json:
 > `github.copilot.chat.codeGeneration.useInstructionFiles`. Settings-based instructions were
 > deprecated in VS Code 1.102 in favour of the file-based layout above.
 
+Claude Code needs no setup either. `CLAUDE.md` imports `.github/copilot-instructions.md`, and each
+rule in `.claude/rules/` imports one instruction file using the same globs as its `applyTo`.
+
 ### Step 2: Choose Implementation Method
 
 #### Method A: New Project from Template
@@ -50,7 +54,7 @@ To open settings.json:
 cd /path/to/your/project
 
 # Add as submodule
-git submodule add https://github.com/fadwen/PowerShell-Copilot-Standards.git .copilot-standards
+git submodule add https://github.com/fadwen/ai-powershell-standards.git .copilot-standards
 
 # Create symbolic link to instructions
 # Windows:
@@ -64,10 +68,13 @@ ln -s .copilot-standards/.github/copilot-instructions.md .github/copilot-instruc
 
 ```powershell
 # Clone the standards repository
-git clone https://github.com/fadwen/PowerShell-Copilot-Standards.git
+git clone https://github.com/fadwen/ai-powershell-standards.git
 
 # Copy files to your project
-Copy-Item -Path "PowerShell-Copilot-Standards\.github\*" -Destination "YourProject\.github\" -Recurse -Force
+Copy-Item -Path "ai-powershell-standards\.github\*" -Destination "YourProject\.github\" -Recurse -Force
+
+# Claude Code users: the entry point and the path-scoped rules live outside .github
+Copy-Item -Path "ai-powershell-standardsCLAUDE.md", "ai-powershell-standards.claude" -Destination "YourProject\" -Recurse -Force
 ```
 
 ### Step 3: Verify Setup

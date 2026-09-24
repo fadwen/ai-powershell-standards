@@ -154,15 +154,15 @@ USE CASE: Batch check where one failure must not stop the rest.</maml:para>
       </maml:navigationLink>
       <maml:navigationLink>
         <maml:linkText>Module structure standards</maml:linkText>
-        <maml:uri>https://github.com/fadwen/Powershell-Copilot-Standards/blob/main/.github/instructions/module.instructions.md</maml:uri>
+        <maml:uri>https://github.com/fadwen/ai-powershell-standards/blob/main/.github/instructions/module.instructions.md</maml:uri>
       </maml:navigationLink>
       <maml:navigationLink>
         <maml:linkText>Help documentation standards</maml:linkText>
-        <maml:uri>https://github.com/fadwen/Powershell-Copilot-Standards/blob/main/.github/instructions/platyps.instructions.md</maml:uri>
+        <maml:uri>https://github.com/fadwen/ai-powershell-standards/blob/main/.github/instructions/platyps.instructions.md</maml:uri>
       </maml:navigationLink>
       <maml:navigationLink>
         <maml:linkText>Function troubleshooting</maml:linkText>
-        <maml:uri>https://github.com/fadwen/Powershell-Copilot-Standards/blob/main/Troubleshooting/Common/Function-Issues.md</maml:uri>
+        <maml:uri>https://github.com/fadwen/ai-powershell-standards/blob/main/Troubleshooting/Common/Function-Issues.md</maml:uri>
       </maml:navigationLink>
     </command:relatedLinks>
   </command:command>

@@ -23,7 +23,7 @@ permissions:
   pull-requests: write
 
 env:
-  STANDARDS_REPO: fadwen/Powershell-Copilot-Standards
+  STANDARDS_REPO: fadwen/ai-powershell-standards
 
 jobs:
   sync:
@@ -79,7 +79,7 @@ jobs:
           commit-message: 'chore: sync Copilot instructions from standards repo'
           title: 'chore: sync Copilot instructions from standards repo'
           body: |
-            Automated sync from the PowerShell Copilot Standards repository.
+            Automated sync from the AI PowerShell Standards repository.
 
             Covers `.github/copilot-instructions.md`, `.github/instructions/` and
             `.github/prompts/`. Other workflows in `.github/workflows/` are

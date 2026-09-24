@@ -175,7 +175,7 @@ process {
                             throw "Target directory is not a git repository. Initialize with 'git init' first."
                         }
 
-                        git submodule add https://github.com/fadwen/PowerShell-Copilot-Standards.git .copilot-standards 2>&1
+                        git submodule add https://github.com/fadwen/ai-powershell-standards.git .copilot-standards 2>&1
 
                         # Create symbolic link to main instructions
                         $submoduleInstructions = ".copilot-standards\.github\copilot-instructions.md"
