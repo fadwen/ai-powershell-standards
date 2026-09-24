@@ -17,6 +17,7 @@ on:
       - '.markdownlint.json'
       - '.github/workflows/**'
       - 'Documentation/**'
+      - 'powershell-standards/**'
       - 'Templates/**'
 
   # Allow manual trigger for testing
@@ -96,14 +97,14 @@ jobs:
             $coverageFiles = $productionFiles | Where-Object {
                 $_.Extension -in '.ps1', '.psm1' -and (
                     $_.FullName -like "*${sep}Tools${sep}*" -or
-                    $_.FullName -like "*${sep}Documentation${sep}Examples${sep}*"
+                    $_.FullName -like "*${sep}powershell-standards${sep}Examples${sep}*"
                 )
             }
 
             Write-Host "📊 Found $($allPsFiles.Count) total PowerShell files" -ForegroundColor Yellow
             Write-Host "📦 Production files: $($productionFiles.Count)" -ForegroundColor Green
             Write-Host "🧪 Test files: $($testFiles.Count)" -ForegroundColor Blue
-            Write-Host "📈 Coverage scope: $($coverageFiles.Count) file(s) under Tools/ and Documentation/Examples/" -ForegroundColor Blue
+            Write-Host "📈 Coverage scope: $($coverageFiles.Count) file(s) under Tools/ and powershell-standards/Examples/" -ForegroundColor Blue
 
             $totalIssues = 0
             $criticalIssues = 0

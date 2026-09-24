@@ -32,7 +32,7 @@ becomes a second copy that drifts.
 ## Help Generation Requirements
 
 > **Worked example**:
-> [Basic-Function-Example.ps1](../../Documentation/Examples/Basic-Function-Example.ps1) carries a
+> [Basic-Function-Example.ps1](../../powershell-standards/Examples/Basic-Function-Example.ps1) carries a
 > complete help block in the form described here - synopsis, description, per-parameter text,
 > multiple examples with expected output, and `.NOTES` with troubleshooting links but no change
 > history. It is a standalone function, so the whole block lives in the `.ps1`. In a module, that

@@ -11,8 +11,8 @@ Implement robust error handling and structured logging patterns for PowerShell c
 correlation tracking, and enterprise-grade diagnostic capabilities.
 
 > **Worked examples**:
-> [Basic-Function-Example.ps1](../../Documentation/Examples/Basic-Function-Example.ps1) and
-> [Get-ExampleData.ps1](../../Documentation/Examples/Module-Structure-Example/Public/Get-ExampleData.ps1)
+> [Basic-Function-Example.ps1](../../powershell-standards/Examples/Basic-Function-Example.ps1) and
+> [Get-ExampleData.ps1](../../powershell-standards/Examples/Module-Structure-Example/Public/Get-ExampleData.ps1)
 > both generate a correlation ID once in `begin`, carry it through every message, use `$_` in the
 > catch, and `continue` so one failed item does not abort the batch. Both failure paths are covered
 > by tests.

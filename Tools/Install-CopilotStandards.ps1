@@ -136,6 +136,16 @@ process {
                         Copy-Item -Path $sourcePromptsDir -Destination $destPromptsDir -Recurse -Force
                         Write-Information "Copied prompt files" -InformationAction Continue
                     }
+
+                    # Worked examples. The instruction files link to them by a relative path
+                    # two levels up, so the folder must sit at the project root under the same name.
+                    $sourceExamplesDir = Join-Path $StandardsPath "powershell-standards"
+                    $destExamplesDir = Join-Path $ProjectPath "powershell-standards"
+
+                    if (Test-Path $sourceExamplesDir) {
+                        Copy-Item -Path $sourceExamplesDir -Destination $destExamplesDir -Recurse -Force
+                        Write-Information "Copied worked examples" -InformationAction Continue
+                    }
                 }
             }
 
@@ -175,7 +185,7 @@ process {
                             throw "Target directory is not a git repository. Initialize with 'git init' first."
                         }
 
-                        git submodule add https://github.com/fadwen/PowerShell-Copilot-Standards.git .copilot-standards 2>&1
+                        git submodule add https://github.com/fadwen/ai-powershell-standards.git .copilot-standards 2>&1
 
                         # Create symbolic link to main instructions
                         $submoduleInstructions = ".copilot-standards\.github\copilot-instructions.md"
@@ -274,6 +284,7 @@ coverage.xml
         Write-Information "Next steps:" -InformationAction Continue
         Write-Information "  1. No VS Code settings needed - .github/copilot-instructions.md," -InformationAction Continue
         Write-Information "     .github/instructions/ and .github/prompts/ are picked up by default" -InformationAction Continue
+        Write-Information "     powershell-standards/ holds the worked examples they link to" -InformationAction Continue
         Write-Information "  2. Test with /new-function in Copilot Chat" -InformationAction Continue
         Write-Information "  3. Run .\Tools\Test-StandardsCompliance.ps1 to validate" -InformationAction Continue
         Write-Information "  4. Create your first function using enterprise standards" -InformationAction Continue

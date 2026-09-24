@@ -6,7 +6,7 @@
     by the manifest's FunctionsToExport rather than a wildcard here, so the public
     surface stays explicit.
 
-    Quality Standards: https://github.com/fadwen/Powershell-Copilot-Standards
+    Quality Standards: https://github.com/fadwen/ai-powershell-standards
 #>
 
 $ErrorActionPreference = 'Stop'

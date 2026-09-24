@@ -9,6 +9,7 @@
 
 # Documentation and guides
 /Documentation/ @fadwen
+/powershell-standards/ @fadwen
 *.md @fadwen
 
 # Templates and examples (high impact on adoption)
@@ -32,6 +33,10 @@
 # Instruction files (core standards enforcement)
 /.github/instructions/ @fadwen
 *instructions.md @fadwen
+
+# Claude Code memory and path-scoped rules (mirror the instruction files)
+/CLAUDE.md @fadwen
+/.claude/ @fadwen
 
 # Configuration files
 *.json @fadwen

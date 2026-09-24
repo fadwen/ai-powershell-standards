@@ -1,4 +1,4 @@
-# PowerShell Copilot Standards
+# AI PowerShell Standards
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Jeffrey_Stuhr-0077B5?style=flat-square&logo=linkedin)](https://www.linkedin.com/in/jeffrey-stuhr-034214aa/)
 [![BlueSky](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpublic.api.bsky.app%2Fxrpc%2Fapp.bsky.actor.getProfile%2F%3Factor%3Dtechbyjeff.net&query=%24.followersCount&style=social&logo=bluesky&label=Follow%20on%20BSky)](https://bsky.app/profile/techbyjeff.net)
@@ -6,9 +6,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.6_LTS-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![GitHub Copilot](https://img.shields.io/badge/GitHub%20Copilot-Optimized-green.svg)](https://github.com/features/copilot)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-Ready-blue.svg)](https://code.claude.com/docs/en/memory)
 
-Enterprise-grade PowerShell development standards and GitHub Copilot instructions for consistent, secure, and
-high-quality PowerShell code across teams and projects.
+Enterprise-grade PowerShell development standards, shipped as GitHub Copilot instructions and Claude Code
+rules, for consistent, secure, and high-quality PowerShell code across teams and projects.
 
 > **Target versions** (verified 2026-08-01): **PowerShell 7.6 (LTS)** is the default target,
 > supported through 14-Nov-2028. Windows PowerShell 5.1 remains supported as a compatibility
@@ -22,8 +23,8 @@ high-quality PowerShell code across teams and projects.
 
 ```bash
 # Use as template repository or clone
-git clone https://github.com/fadwen/PowerShell-Copilot-Standards.git
-cd PowerShell-Copilot-Standards
+git clone https://github.com/fadwen/ai-powershell-standards.git
+cd ai-powershell-standards
 
 # Install standards in your project
 ./Tools/Install-CopilotStandards.ps1 -ProjectPath "C:\YourProject" -StandardsType "Module"
@@ -33,7 +34,7 @@ cd PowerShell-Copilot-Standards
 
 ```bash
 # Add as submodule
-git submodule add https://github.com/fadwen/PowerShell-Copilot-Standards.git .copilot-standards
+git submodule add https://github.com/fadwen/ai-powershell-standards.git .copilot-standards
 
 # Link instructions (Windows)
 mklink .github\copilot-instructions.md .copilot-standards\.github\copilot-instructions.md
@@ -50,6 +51,14 @@ ln -s .copilot-standards/.github/copilot-instructions.md .github/copilot-instruc
 - **Prompt Files**: Quick-access prompts for common tasks
 - **Variable Prompts**: Interactive code generation
 - **Quality Gates**: Automated validation and enforcement
+
+### 🧠 Claude Code Integration
+
+- **CLAUDE.md**: Imports the main instructions so every Claude Code session starts with the standards
+- **Path-Scoped Rules**: `.claude/rules/` mirrors each instruction file with the same globs as its
+  `applyTo`, so a standard loads only when Claude works on a matching file
+- **Single Source**: The `.github/` files are the only copy. The Claude files reference them, never
+  restate them
 
 ### 📚 PowerShell Standards
 
@@ -100,7 +109,7 @@ ln -s .copilot-standards/.github/copilot-instructions.md .github/copilot-instruc
 ## 📁 Repository Structure
 
 ```text
-PowerShell-Copilot-Standards/
+ai-powershell-standards/
 ├── .github/
 │   ├── copilot-instructions.md          # Main Copilot instructions (applied automatically)
 │   ├── instructions/                    # 13 scoped instruction files, applied by `applyTo` glob
@@ -110,12 +119,17 @@ PowerShell-Copilot-Standards/
 │   │   └── pester-supporting-docs/              # 13 guides: mocking, assertions, CI, templates
 │   ├── prompts/                         # 10 `/prompt-name` files for Copilot Chat
 │   └── workflows/                       # Quality gates run on every pull request
-├── Documentation/                       # Reference materials and worked examples
+├── .claude/
+│   └── rules/                           # 13 path-scoped Claude Code rules, one per instruction file
+├── Documentation/                       # Guides and the deliberate anti-pattern demo
+├── powershell-standards/
+│   └── Examples/                        # Worked examples the instructions link to; mirrored to consumers
 ├── Templates/                           # Module, script-collection, and application templates
 │   └── Workflows/                       # Workflows to copy into consuming projects
 ├── Tools/                               # Install-CopilotStandards, Test-StandardsCompliance
 ├── Troubleshooting/                     # Organized problem-solving guides
 ├── .markdownlint.json                   # Documentation lint rules enforced in CI
+├── CLAUDE.md                            # Claude Code entry point, imports copilot-instructions.md
 └── README.md                            # This file
 ```
 
@@ -141,7 +155,17 @@ You only need settings if you keep these files somewhere other than the defaults
 > deprecated in VS Code 1.102 in favour of the file-based layout above; neither setting is required
 > now.
 
-### 2. Choose Your Integration Method
+### 2. Enable Claude Code
+
+Nothing to configure either. Claude Code reads `CLAUDE.md` at launch, which imports
+`.github/copilot-instructions.md`, and loads each rule in `.claude/rules/` when it touches a file
+matching that rule's `paths`. The rules import the instruction files rather than copying them, so
+there is one set of standards to maintain. Run `/memory` inside Claude Code to see what is loaded.
+
+The installer and the sync workflow cover the `.github/` files only. Copy `CLAUDE.md` and `.claude/`
+into a consuming project yourself if it uses Claude Code.
+
+### 3. Choose Your Integration Method
 
 #### Option A: Template Repository (New Projects)
 
@@ -152,7 +176,7 @@ You only need settings if you keep these files somewhere other than the defaults
 #### Option B: Git Submodule (Existing Projects)
 
 ```bash
-git submodule add https://github.com/fadwen/PowerShell-Copilot-Standards.git .copilot-standards
+git submodule add https://github.com/fadwen/ai-powershell-standards.git .copilot-standards
 ```
 
 #### Option C: Direct Copy (Simple Projects)
@@ -176,7 +200,7 @@ create and approve pull requests"** enabled on the target repository, and it ove
 to the mirrored paths. See [Templates/Workflows/](Templates/Workflows/README.md) for both caveats in
 full.
 
-### 3. Verify Setup
+### 4. Verify Setup
 
 ```powershell
 # Test standards compliance
@@ -233,7 +257,7 @@ for yours:
   patterns like a hardcoded `-ComputerName 'MOCKSERVER'` are legitimate in a mock)
 - **Pester**: Fails on `FailedCount` _and_ `FailedContainersCount` — a file that fails discovery
   contributes zero failed tests and would otherwise read green
-- **Coverage**: Measured over `Tools/` and `Documentation/Examples/`, the code this repository ships
+- **Coverage**: Measured over `Tools/` and `powershell-standards/Examples/`, the code this repository ships
   and holds up as exemplary. Templates are excluded: they are scaffolding to copy, so covering a
   placeholder measures nothing
 - **Security Scanning**: Credential leak and vulnerability detection. Secret patterns apply to all
@@ -292,7 +316,7 @@ Create function for infrastructure management with:
 
 - **[Prompt Files Guide](./Documentation/Prompt-Files-Guide.md)**: How to use and create prompts
 - **[Troubleshooting](./Troubleshooting/)**: Organized problem-solving guides
-- **[Examples](./Documentation/Examples/)**: Real-world usage examples
+- **[Examples](./powershell-standards/Examples/)**: Real-world usage examples
 
 ## 🤝 Contributing
 

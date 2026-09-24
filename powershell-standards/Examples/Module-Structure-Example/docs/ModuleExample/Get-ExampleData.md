@@ -156,7 +156,7 @@ TROUBLESHOOTING:
 ## RELATED LINKS
 
 - [about_ModuleExample]()
-- [Module structure standards](https://github.com/fadwen/Powershell-Copilot-Standards/blob/main/.github/instructions/module.instructions.md)
-- [Help documentation standards](https://github.com/fadwen/Powershell-Copilot-Standards/blob/main/.github/instructions/platyps.instructions.md)
-- [Function troubleshooting](https://github.com/fadwen/Powershell-Copilot-Standards/blob/main/Troubleshooting/Common/Function-Issues.md)
+- [Module structure standards](https://github.com/fadwen/ai-powershell-standards/blob/main/.github/instructions/module.instructions.md)
+- [Help documentation standards](https://github.com/fadwen/ai-powershell-standards/blob/main/.github/instructions/platyps.instructions.md)
+- [Function troubleshooting](https://github.com/fadwen/ai-powershell-standards/blob/main/Troubleshooting/Common/Function-Issues.md)
 

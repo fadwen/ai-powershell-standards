@@ -26,8 +26,8 @@
     PrivateData = @{
         PSData = @{
             Tags       = @('PowerShell', 'Example', 'Standards', 'Reference')
-            ProjectUri = 'https://github.com/fadwen/Powershell-Copilot-Standards'
-            LicenseUri = 'https://github.com/fadwen/Powershell-Copilot-Standards/blob/main/LICENSE'
+            ProjectUri = 'https://github.com/fadwen/ai-powershell-standards'
+            LicenseUri = 'https://github.com/fadwen/ai-powershell-standards/blob/main/LICENSE'
             ReleaseNotes = 'Reference implementation accompanying the PowerShell Copilot Standards.'
         }
     }

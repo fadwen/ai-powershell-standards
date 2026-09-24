@@ -4,7 +4,7 @@ A minimal but working module showing the layout the standards expect, and - more
 export boundary that layout exists to create.
 
 Small enough to read in one sitting. For a fuller starting point to copy, use
-[Templates/Powershell-Module](../../../Templates/Powershell-Module/).
+[Templates/Powershell-Module](https://github.com/fadwen/ai-powershell-standards/tree/main/Templates/Powershell-Module).
 
 ## Layout
 

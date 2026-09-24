@@ -214,13 +214,14 @@ tests. Reach into the module instead.
 These are complete, passing implementations of the patterns above. Prefer matching them over
 inventing a structure:
 
-- [Module-Structure-Example/Tests](../../Documentation/Examples/Module-Structure-Example/Tests/) -
+- [Module-Structure-Example/Tests](../../powershell-standards/Examples/Module-Structure-Example/Tests/) -
   module contract, class assertions, `InModuleScope` for two private functions, and a per-item
   failure path
-- [Testing-Examples/Basic-Function.Tests.ps1](../../Documentation/Examples/Testing-Examples/Basic-Function.Tests.ps1) -
+- [Basic-Function.Tests.ps1](../../powershell-standards/Examples/Testing-Examples/Basic-Function.Tests.ps1) -
   CIM mocking, `-RemoveParameterType`, `-TestCases`, and mock scoping across contexts
-- [Tools/Tests](../../Tools/Tests/) - tests for the repository's own tooling, including fixture
-  files written per test and error-path coverage
+- [Tools/Tests](https://github.com/fadwen/ai-powershell-standards/tree/main/Tools/Tests) - tests for the standards
+  repository's own tooling, including fixture files written per test and error-path coverage. Not
+  mirrored into consuming projects
 
 ### Documentation Integration
 

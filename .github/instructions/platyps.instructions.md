@@ -279,7 +279,7 @@ working the moment the repository moves or goes private. Reserve URLs for materi
 lives outside the module, remembering that a user who installed from the Gallery has no repository
 checkout — which is also why a relative path would be useless even if `Get-Help` accepted it.
 
-[Module-Structure-Example](../../Documentation/Examples/Module-Structure-Example/docs/ModuleExample/Get-ExampleData.md)
+[Module-Structure-Example](../../powershell-standards/Examples/Module-Structure-Example/docs/ModuleExample/Get-ExampleData.md)
 shows both forms in one file.
 
 Also fail the build on leftover placeholders — `Test-MarkdownCommandHelp` checks structure, not

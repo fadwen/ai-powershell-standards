@@ -23,7 +23,7 @@ permissions:
   pull-requests: write
 
 env:
-  STANDARDS_REPO: fadwen/Powershell-Copilot-Standards
+  STANDARDS_REPO: fadwen/ai-powershell-standards
 
 jobs:
   sync:
@@ -48,11 +48,16 @@ jobs:
 
           # Mirror, not merge: files deleted upstream are deleted here too.
           # Local edits to these paths are overwritten. Customisations belong
-          # upstream, or in a file outside the three mirrored paths.
+          # upstream, or in a file outside the four mirrored paths.
           for dir in instructions prompts; do
             rm -rf ".github/$dir"
             cp -r "$src/$dir" ".github/$dir"
           done
+
+          # The instruction files link to worked examples at ../../powershell-standards/Examples/.
+          # Mirror that folder too, or every one of those links dangles here.
+          rm -rf powershell-standards
+          cp -r .standards/powershell-standards powershell-standards
 
           rm -rf .standards
 
@@ -61,13 +66,13 @@ jobs:
         run: |
           # Stage first: a file added upstream is untracked here, and plain
           # `git diff` would not see it.
-          git add -A .github
-          if git diff --cached --quiet -- .github; then
+          git add -A .github powershell-standards
+          if git diff --cached --quiet -- .github powershell-standards; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Instruction files are already up to date."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            git diff --cached --stat -- .github
+            git diff --cached --stat -- .github powershell-standards
           fi
 
       - name: Open pull request
@@ -79,10 +84,10 @@ jobs:
           commit-message: 'chore: sync Copilot instructions from standards repo'
           title: 'chore: sync Copilot instructions from standards repo'
           body: |
-            Automated sync from the PowerShell Copilot Standards repository.
+            Automated sync from the AI PowerShell Standards repository.
 
-            Covers `.github/copilot-instructions.md`, `.github/instructions/` and
-            `.github/prompts/`. Other workflows in `.github/workflows/` are
+            Covers `.github/copilot-instructions.md`, `.github/instructions/`,
+            `.github/prompts/` and `powershell-standards/` (the worked examples). Other workflows in `.github/workflows/` are
             repo-specific and are not touched by this job.
 
             Review the diff before merging. Anything intended as a permanent local
