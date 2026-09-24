@@ -133,6 +133,26 @@ jobs:
                 }
             }
 
+            # Everything under powershell-standards/ is mirrored into consuming projects, whose
+            # gates may analyse it with full rules and no relaxation for test files. Hold the
+            # shipped examples, tests included, to that bar so a sync never breaks a consumer.
+            $mirroredFiles = $allPsFiles | Where-Object { $_.FullName -like "*${sep}powershell-standards${sep}*" }
+            if ($mirroredFiles.Count -gt 0) {
+                Write-Host "`n📦 Running PSScriptAnalyzer on mirrored examples (full rules, tests included)..." -ForegroundColor Cyan
+
+                $mirroredResults = $mirroredFiles | ForEach-Object {
+                    Invoke-ScriptAnalyzer -Path $_.FullName -Severity @('Error', 'Warning') -IncludeDefaultRules
+                }
+
+                if ($mirroredResults) {
+                    Write-Host "❌ Mirrored example issues (these would break a consumer's gate):" -ForegroundColor Red
+                    $mirroredResults | Format-Table RuleName, Severity, ScriptName, Message -AutoSize
+                    $criticalIssues += $mirroredResults.Count
+                } else {
+                    Write-Host "✅ Mirrored examples pass full-rule analysis" -ForegroundColor Green
+                }
+            }
+
             # Run PSScriptAnalyzer on test files with relaxed rules
             if ($testFiles.Count -gt 0) {
                 Write-Host "`n🧪 Running PSScriptAnalyzer on test files (relaxed rules)..." -ForegroundColor Cyan
