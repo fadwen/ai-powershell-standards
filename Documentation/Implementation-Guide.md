@@ -6,7 +6,7 @@
 
 - GitHub Copilot subscription
 - VS Code with GitHub Copilot extension
-- Claude Code (optional): reads `CLAUDE.md` and `.claude/rules/` with no configuration
+- Claude Code (optional): reads `.claude/rules/` with no configuration
 - PowerShell 7.6 (LTS) recommended; Windows PowerShell 5.1 supported for legacy estates
 - Git for version control
 
@@ -35,8 +35,9 @@ To open settings.json:
 > `github.copilot.chat.codeGeneration.useInstructionFiles`. Settings-based instructions were
 > deprecated in VS Code 1.102 in favour of the file-based layout above.
 
-Claude Code needs no setup either. `CLAUDE.md` imports `.github/copilot-instructions.md`, and each
-rule in `.claude/rules/` imports one instruction file using the same globs as its `applyTo`.
+Claude Code needs no setup either. The rules under `.claude/rules/powershell-standards/` import
+`.github/copilot-instructions.md` at launch and each instruction file on demand, using the same globs
+as its `applyTo`. Your own `CLAUDE.md`, if you keep one, loads alongside them.
 
 ### Step 2: Choose Implementation Method
 
@@ -76,8 +77,8 @@ Copy-Item -Path "ai-powershell-standards\.github\*" -Destination "YourProject\.g
 # Worked examples the instruction files link to (must keep this path)
 Copy-Item -Path "ai-powershell-standards\powershell-standards" -Destination "YourProject\" -Recurse -Force
 
-# Claude Code users: the entry point and the path-scoped rules live outside .github
-Copy-Item -Path "ai-powershell-standardsCLAUDE.md", "ai-powershell-standards.claude" -Destination "YourProject\" -Recurse -Force
+# Claude Code rules (must keep this path; your own CLAUDE.md is unaffected)
+Copy-Item -Path "ai-powershell-standards\.claude\rules\powershell-standards" -Destination "YourProject\.claude\rules\" -Recurse -Force
 ```
 
 ### Step 3: Verify Setup

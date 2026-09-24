@@ -75,6 +75,20 @@ Describe 'Install-CopilotStandards' -Tag 'Unit', 'Tools' {
             (Get-ChildItem $dir -Recurse -Filter '*.ps1').Count | Should-BeGreaterThan 0
         }
 
+        It 'Copies the Claude Code rules under .claude/rules/powershell-standards' {
+            $dir = Join-Path $script:ProjectPath '.claude/rules/powershell-standards'
+            Test-Path $dir | Should-BeTrue
+            (Get-ChildItem $dir -Filter '*.md').Count | Should-BeGreaterThan 0
+            Test-Path (Join-Path $dir 'copilot-instructions.md') | Should-BeTrue
+        }
+
+        It 'Leaves an existing CLAUDE.md alone' {
+            $claudeMd = Join-Path $script:ProjectPath 'CLAUDE.md'
+            Set-Content -Path $claudeMd -Value 'hand-written, keep me'
+            & $script:ScriptPath -ProjectPath $script:ProjectPath -StandardsType Basic -LinkType Copy
+            Get-Content $claudeMd -Raw | Should-MatchString 'hand-written, keep me'
+        }
+
         It 'Creates a .gitignore covering PowerShell and test artifacts' {
             $gitignore = Join-Path $script:ProjectPath '.gitignore'
             Test-Path $gitignore | Should-BeTrue
@@ -166,7 +180,7 @@ Describe 'Install-CopilotStandards' -Tag 'Unit', 'Tools' {
                 Should-BeTrue
         }
 
-        It 'Installs a workflow that mirrors the four standards paths' {
+        It 'Installs a workflow that mirrors the five standards paths' {
             & $script:ScriptPath -ProjectPath $script:ProjectPath -IncludeSyncWorkflow `
                 -InformationAction SilentlyContinue -WarningAction SilentlyContinue
 
@@ -175,6 +189,7 @@ Describe 'Install-CopilotStandards' -Tag 'Unit', 'Tools' {
             $content | Should-MatchString 'copilot-instructions\.md'
             $content | Should-MatchString 'instructions prompts'
             $content | Should-MatchString 'powershell-standards'
+            $content | Should-MatchString '\.claude/rules/powershell-standards'
             $content | Should-MatchString 'workflow_dispatch'
         }
 
