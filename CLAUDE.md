@@ -6,7 +6,10 @@ Enterprise PowerShell standards shared by GitHub Copilot and Claude Code. The st
 - Always-on standards: `.claude/rules/powershell-standards/copilot-instructions.md` imports
   `.github/copilot-instructions.md`. A rule with no `paths` loads at launch, like CLAUDE.md.
 - Scoped standards: `.github/instructions/*.instructions.md`, loaded per file type by the other rules
-  in `.claude/rules/powershell-standards/`. Each uses the same globs as its instruction file's `applyTo`.
+  in `.claude/rules/powershell-standards/`. Each uses the same globs as its instruction file's `applyTo`,
+  except that `applyTo: '**'` becomes a rule with no `paths`, which loads at launch.
+- Pull requests: branch, commit, and PR conventions live in
+  `.github/instructions/pull-requests.instructions.md` and load in every session.
 - Prompts: each file in `.github/prompts/` has a command in `.claude/commands/powershell-standards/`
   that attaches it, for example `/powershell-standards:create-test`.
 - The sync workflow mirrors `.github/`, `powershell-standards/`, and the two `powershell-standards/`
