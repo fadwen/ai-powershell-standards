@@ -160,6 +160,19 @@ process {
                         Copy-Item -Path (Join-Path $sourceRulesDir '*') -Destination $destRulesDir -Recurse -Force
                         Write-Information "Copied Claude Code rules" -InformationAction Continue
                     }
+
+                    # Claude Code slash commands, one per prompt file. Each attaches its prompt
+                    # from .github/prompts/ rather than copying it, so the two must travel together.
+                    $sourceCommandsDir = Join-Path $StandardsPath ".claude\commands\powershell-standards"
+                    $destCommandsDir = Join-Path $ProjectPath ".claude\commands\powershell-standards"
+
+                    if (Test-Path $sourceCommandsDir) {
+                        if (-not (Test-Path $destCommandsDir)) {
+                            New-Item -ItemType Directory -Path $destCommandsDir -Force | Out-Null
+                        }
+                        Copy-Item -Path (Join-Path $sourceCommandsDir '*') -Destination $destCommandsDir -Recurse -Force
+                        Write-Information "Copied Claude Code slash commands" -InformationAction Continue
+                    }
                 }
             }
 
@@ -300,6 +313,7 @@ coverage.xml
         Write-Information "     .github/instructions/ and .github/prompts/ are picked up by default" -InformationAction Continue
         Write-Information "     powershell-standards/ holds the worked examples they link to" -InformationAction Continue
         Write-Information "     Claude Code loads .claude/rules/powershell-standards/ with no setup" -InformationAction Continue
+        Write-Information "     and offers the prompts as /powershell-standards:<name> commands" -InformationAction Continue
         Write-Information "  2. Test with /new-function in Copilot Chat" -InformationAction Continue
         Write-Information "  3. Run .\Tools\Test-StandardsCompliance.ps1 to validate" -InformationAction Continue
         Write-Information "  4. Create your first function using enterprise standards" -InformationAction Continue

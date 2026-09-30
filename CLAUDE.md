@@ -7,11 +7,12 @@ Enterprise PowerShell standards shared by GitHub Copilot and Claude Code. The st
   `.github/copilot-instructions.md`. A rule with no `paths` loads at launch, like CLAUDE.md.
 - Scoped standards: `.github/instructions/*.instructions.md`, loaded per file type by the other rules
   in `.claude/rules/powershell-standards/`. Each uses the same globs as its instruction file's `applyTo`.
-- The sync workflow mirrors `.github/`, `powershell-standards/`, and `.claude/rules/powershell-standards/`
-  into consuming projects. Anything an instruction file links to must live under one of those. Link to
-  the rest of this repository by absolute GitHub URL.
-- Copilot prompt files under `.github/prompts/` have no Claude equivalent. Read the matching one
-  before a task it covers, for example `create-test.prompt.md` before writing a test suite.
+- Prompts: each file in `.github/prompts/` has a command in `.claude/commands/powershell-standards/`
+  that attaches it, for example `/powershell-standards:create-test`.
+- The sync workflow mirrors `.github/`, `powershell-standards/`, and the two `powershell-standards/`
+  folders under `.claude/rules/` and `.claude/commands/` into consuming projects. Anything an
+  instruction file links to must live under one of those. Link to the rest of this repository by
+  absolute GitHub URL.
 
 ## Working in this repository
 
@@ -29,3 +30,5 @@ Enterprise PowerShell standards shared by GitHub Copilot and Claude Code. The st
   demonstrates violations on purpose. Do not "fix" either.
 - When you add or rescope a file in `.github/instructions/`, add or update the matching
   `.claude/rules/powershell-standards/<name>.md` so its `paths` stay identical to `applyTo`.
+- When you add a prompt file, add the matching command. `Tools/Tests/ClaudeMirror.Tests.ps1` fails
+  when either mirror drifts from `.github/`.
