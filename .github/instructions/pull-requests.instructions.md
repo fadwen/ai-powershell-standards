@@ -110,5 +110,44 @@ What changed and why, in a few sentences. Lead with the problem it solves.
 ## After Opening
 
 - Watch the PR's checks. When one fails, read its log, fix the cause, and push to the same branch.
+- Annotate the diff, as described below.
 - Do not merge your own PR, force-push a branch someone else has reviewed, or delete a branch unless
   asked.
+
+## Annotate the Diff
+
+Once the PR is open, read its diff as a reviewer would and leave inline review comments on the lines
+whose reason the code does not make plain. They explain the change to the reviewer now and stay
+attached to the PR for anyone tracing the line's history later.
+
+Decide first where each explanation belongs:
+
+- **Why the code is the way it is** belongs in a code comment, because it must stay true as long as
+  the code does. Add the code comment rather than a review comment.
+- **Why the code changed** belongs in a review comment, because it describes this change and would
+  go stale in the code. That covers a deleted guard, a changed default, a test expectation that
+  moved, a workaround for a tool's behavior, a value chosen from several reasonable ones, or a line
+  that fixes a bug found elsewhere.
+
+Skip lines whose reason is already plain from the code, a code comment, or the PR body. Do not
+restate what a line does. A PR with nothing that needs explaining needs no annotations.
+
+Post all the annotations as a single review with the `COMMENT` event, so they arrive together and
+do not approve or block the PR. The same audience rules apply as for the PR body. `gh pr review`
+cannot comment on lines, so use the REST API:
+
+```powershell
+$review = @{
+    commit_id = (gh pr view <number> --json headRefOid --jq .headRefOid)
+    event     = 'COMMENT'
+    body      = 'Notes on the lines whose reason the diff does not show.'
+    comments  = @(
+        @{ path = 'Public/Get-Thing.ps1'; line = 42; side = 'RIGHT'; body = 'Why this line changed.' }
+    )
+}
+# ConvertTo-Json stops at a depth of 2 by default, which would turn each comment into a string
+$review | ConvertTo-Json -Depth 5 | gh api --method POST repos/<owner>/<repo>/pulls/<number>/reviews --input -
+```
+
+`line` is the line number in the file as the PR leaves it, with `side = 'RIGHT'`. For a deleted line,
+use its number in the old file with `side = 'LEFT'`. A comment must sit on a line inside the diff.
