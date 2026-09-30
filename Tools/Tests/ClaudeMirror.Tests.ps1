@@ -58,6 +58,13 @@ Describe 'Claude Code rules mirror the Copilot instruction files' -Tag 'Unit', '
             Where-Object { $_ -match '^\s+-\s' } |
             ForEach-Object { ($_ -replace '^\s+-\s*', '').Trim().Trim('"', "'") }
 
+        # applyTo '**' means every file. The Claude equivalent is a rule with no paths, which loads
+        # at launch instead of waiting for a file read that some tasks, like opening a PR, never make.
+        if (($expected -join ',') -eq '**') {
+            ($actual -join ', ') | Should-Be ''
+            return
+        }
+
         # Joined so a mismatch prints both glob lists side by side
         ($actual -join ', ') | Should-Be ($expected -join ', ')
     }

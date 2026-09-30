@@ -117,10 +117,11 @@ ln -s .copilot-standards/.github/copilot-instructions.md .github/copilot-instruc
 ai-powershell-standards/
 ├── .github/
 │   ├── copilot-instructions.md          # Main Copilot instructions (applied automatically)
-│   ├── instructions/                    # 13 scoped instruction files, applied by `applyTo` glob
+│   ├── instructions/                    # 14 scoped instruction files, applied by `applyTo` glob
 │   │   ├── powershell-version.instructions.md   # Version baseline, lifecycle, breaking changes
 │   │   ├── pester.instructions.md               # Pester 6.2 core testing standards
 │   │   ├── platyps.instructions.md              # Help docs: PlatyPS Markdown to MAML
+│   │   ├── pull-requests.instructions.md        # Branch, commit, and PR conventions
 │   │   └── pester-supporting-docs/              # 13 guides: mocking, assertions, CI, templates
 │   ├── prompts/                         # 10 `/prompt-name` files for Copilot Chat
 │   └── workflows/                       # Quality gates run on every pull request
@@ -128,7 +129,7 @@ ai-powershell-standards/
 │   ├── commands/
 │   │   └── powershell-standards/        # 10 slash commands, one per prompt file; mirrored to consumers
 │   └── rules/
-│       └── powershell-standards/        # Claude Code rules: 13 path-scoped, 1 always-on; mirrored to consumers
+│       └── powershell-standards/        # Claude Code rules: 13 path-scoped, 2 always-on; mirrored to consumers
 ├── Documentation/                       # Guides and the deliberate anti-pattern demo
 ├── powershell-standards/
 │   └── Examples/                        # Worked examples the instructions link to; mirrored to consumers
