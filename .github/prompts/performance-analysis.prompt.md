@@ -1,7 +1,7 @@
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Detailed performance analysis and benchmarking'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Perform comprehensive performance analysis of PowerShell code in ${fileBasename}:

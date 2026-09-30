@@ -1,7 +1,5 @@
 ---
-mode: 'agent'
 applyTo: "**/*.psm1,**/*.psd1,**/Public/*.ps1,**/Private/*.ps1"
-tools: ['codebase', 'githubRepo']
 description: 'Creates enterprise-grade PowerShell modules with proper structure, security, and functionality'
 ---
 

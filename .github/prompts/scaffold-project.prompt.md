@@ -1,7 +1,7 @@
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Creates complete project scaffold with CI/CD'
-tools: ['codebase', 'githubRepo']
+tools: ['search/codebase', 'githubRepo']
 ---
 
 Generate complete project scaffold for ${input:projectName:PowerShell-Project}:

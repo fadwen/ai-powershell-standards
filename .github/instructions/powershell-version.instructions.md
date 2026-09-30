@@ -1,6 +1,5 @@
 ---
 applyTo: "**/*.ps1,**/*.psm1,**/*.psd1"
-tools: ['codebase', 'githubRepo']
 description: 'PowerShell version baseline, support lifecycle, and version-dependent language/cmdlet features'
 ---
 

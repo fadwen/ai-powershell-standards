@@ -302,7 +302,7 @@ Add custom prompts for your specific use cases:
 
 ```markdown
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Creates infrastructure automation function'
 ---
 Create function for infrastructure management with:

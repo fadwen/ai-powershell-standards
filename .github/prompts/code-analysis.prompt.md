@@ -1,7 +1,7 @@
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Comprehensive code quality analysis with expert-reviewed standards'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Perform thorough analysis of this PowerShell code against modern best practices:

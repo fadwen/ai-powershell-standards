@@ -1,7 +1,5 @@
 ---
-mode: 'agent'
 applyTo: "**/.github/workflows/*.yml,**/.github/workflows/*.yaml,**/azure-pipelines.yml,**/build.ps1,**/deploy.ps1"
-tools: ['codebase', 'githubRepo']
 description: 'Sets up comprehensive CI/CD pipelines for PowerShell projects with automated testing and deployment'
 ---
 

@@ -1,5 +1,5 @@
 ---
-mode: 'edit'
+agent: 'agent'
 description: 'Validates code against PowerShell community standards'
 ---
 

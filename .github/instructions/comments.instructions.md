@@ -1,5 +1,4 @@
 ---
-mode: 'edit'
 applyTo: "**/*.ps1,**/*.psm1"
 description: 'Defines help content standards for PowerShell functions - comment-based help and PlatyPS Markdown'
 ---

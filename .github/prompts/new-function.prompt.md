@@ -1,7 +1,7 @@
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Creates enterprise-standard PowerShell function with modern best practices'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Create a PowerShell function with these specifications:
