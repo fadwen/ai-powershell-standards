@@ -1,7 +1,5 @@
 ---
-mode: 'agent'
 applyTo: "**/*.ps1,**/*.psm1,**/Security/**/*.ps1"
-tools: ['codebase', 'githubRepo']
 description: 'Implements security controls and compliance-support patterns for PowerShell solutions'
 ---
 

@@ -1,7 +1,5 @@
 ---
-mode: 'agent'
 applyTo: "**/*.psm1,**/module.json,**/README.md"
-tools: ['codebase', 'githubRepo']
 description: 'Designs enterprise-grade PowerShell architecture using proven design patterns and best practices'
 ---
 

@@ -1,6 +1,5 @@
 ---
 applyTo: "**/docs/**/*.md,**/Public/*.ps1,**/*.psd1"
-tools: ['codebase', 'githubRepo']
 description: 'Generates and maintains module help documentation with Microsoft.PowerShell.PlatyPS, shipping MAML external help'
 ---
 

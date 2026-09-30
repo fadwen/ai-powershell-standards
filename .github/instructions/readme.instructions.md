@@ -1,5 +1,4 @@
 ---
-mode: 'edit'
 applyTo: "**/README.md,**/readme.md,**/Readme.md"
 description: 'Creates comprehensive, enterprise-grade README documentation for PowerShell projects'
 ---

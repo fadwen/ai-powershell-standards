@@ -1,6 +1,5 @@
 ---
 applyTo: "**/Tests/**/*.ps1,**/*.Tests.ps1"
-tools: ['codebase', 'githubRepo']
 description: 'Creates comprehensive Pester 6 test suites for PowerShell code with enterprise testing standards'
 ---
 

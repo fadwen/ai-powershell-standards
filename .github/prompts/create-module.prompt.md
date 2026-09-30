@@ -1,7 +1,7 @@
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Generates complete PowerShell module structure'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Create a complete PowerShell module for ${workspaceFolderBasename} with enterprise standards:

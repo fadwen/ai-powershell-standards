@@ -1,7 +1,7 @@
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Generate comprehensive tests following modern PowerShell patterns'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Create Pester tests for this PowerShell code:

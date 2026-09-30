@@ -1,7 +1,5 @@
 ---
-mode: 'agent'
 applyTo: "**/*.ps1,**/*.psm1,**/*.psd1"
-tools: ['codebase', 'githubRepo']
 description: 'Performs comprehensive PowerShell code analysis for quality, security, and performance'
 ---
 

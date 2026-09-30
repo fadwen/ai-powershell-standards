@@ -1,7 +1,7 @@
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'PowerShell performance optimization with specific targets'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Analyze and optimize this PowerShell code from ${fileBasename} in the ${workspaceFolderBasename} project:

@@ -1,5 +1,5 @@
 ---
-mode: 'edit'
+agent: 'agent'
 description: 'Security analysis with modern PowerShell patterns'
 ---
 

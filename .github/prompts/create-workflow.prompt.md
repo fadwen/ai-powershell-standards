@@ -1,7 +1,7 @@
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Generates business workflow automation'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Create PowerShell workflow automation for ${workspaceFolderBasename}:

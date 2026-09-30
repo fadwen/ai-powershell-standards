@@ -1,7 +1,5 @@
 ---
-mode: 'agent'
 applyTo: "**/*.ps1,**/*.psm1"
-tools: ['codebase', 'githubRepo']
 description: 'Implements comprehensive error handling and structured logging for PowerShell solutions'
 ---
 

@@ -11,9 +11,9 @@ They allow you to create interactive, customizable code generation experiences.
 
 ```markdown
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Brief description of what this prompt does'
-tools: ['codebase', 'githubRepo']  # Optional: tools Copilot can use
+tools: ['search/codebase', 'githubRepo']  # Optional: restricts the prompt to these tools
 ---
 
 # Prompt Title
@@ -24,18 +24,33 @@ Variables: ${input:variableName:defaultValue}
 Context: ${file}, ${workspaceFolder}, ${selection}
 ```
 
-### Available Modes
+### Available Agents
 
-- **`agent`**: Generates new content or performs complex analysis
-- **`edit`**: Modifies existing selected code
-- **`ask`**: Answers questions about code or provides guidance
+The `agent` field replaced `mode`. It names the agent that runs the prompt:
+
+- **`agent`**: Works autonomously - generates content, edits files, and runs tools
+- **`ask`**: Answers questions about code or provides guidance without changing files
+- **`plan`**: Produces an implementation plan before any change is made
+- The name of a **custom agent** defined for the project
+
+`edit` is no longer a value; a prompt that used `mode: 'edit'` now uses `agent: 'agent'`. When the
+field is omitted the prompt runs in the current agent, or in `agent` if it lists `tools`.
+
+The other supported header fields are `description`, `name`, `argument-hint`, and `model`. VS Code
+flags anything else.
 
 ### Available Tools
 
-- **`codebase`**: Access to your entire codebase for context
-- **`githubRepo`**: Access to repository information and history
-- **`terminal`**: Can suggest terminal commands
-- **`web`**: Can search for additional information
+Write tool names as they appear when you type `#` in chat, including the tool set prefix:
+
+- **`search/codebase`**: Semantic search across the workspace
+- **`githubRepo`**: Semantic search of a GitHub repository, given as `owner/repo`
+- **`web/fetch`**: Fetch the content of a web page
+- **`execute/runInTerminal`**: Run a terminal command
+- A whole tool set, such as **`search`**, **`edit`**, or **`execute`**
+
+A `tools` list restricts the prompt to exactly those tools. A prompt that must create or change files
+needs `edit` in the list, or no list at all so the agent keeps its defaults.
 
 ## 🔧 Variable Types
 
@@ -58,6 +73,10 @@ ${workspaceFolderBasename} # Workspace folder name
 ${selection}              # Currently selected text
 ${selectedText}           # Same as selection
 ```
+
+> The current VS Code documentation lists only `${selection}` and the `${input:...}` forms. The
+> workspace and file variables above date from earlier releases. Confirm they still resolve in your
+> VS Code version before relying on them in a new prompt.
 
 ## 📝 Creating Effective Prompts
 
@@ -95,7 +114,7 @@ Function specifications:
 
 ```markdown
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Creates a basic PowerShell function'
 ---
 
@@ -109,7 +128,7 @@ Create a PowerShell function named ${input:functionName:Get-Data} that:
 
 ````markdown
 ---
-mode: 'edit'
+agent: 'agent'
 description: 'Performs security analysis on selected code'
 ---
 
@@ -134,9 +153,9 @@ Provide specific remediation recommendations.
 
 ```markdown
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Creates module structure for current workspace'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Create a PowerShell module for ${workspaceFolderBasename}:
@@ -295,7 +314,7 @@ Use the ${workspaceFolderBasename} project template:
 
 ```markdown
 ---
-mode: 'agent'
+agent: 'agent'
 description: 'Creates infrastructure automation function for our team'
 ---
 
@@ -310,9 +329,9 @@ Create PowerShell function for infrastructure team:
 
 ```markdown
 ---
-mode: 'agent'  
+agent: 'agent'
 description: 'Creates function specific to this project architecture'
-tools: ['codebase']
+tools: ['search/codebase']
 ---
 
 Analyze ${workspaceFolderBasename} codebase patterns and create function:
