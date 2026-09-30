@@ -37,7 +37,8 @@ To open settings.json:
 
 Claude Code needs no setup either. The rules under `.claude/rules/powershell-standards/` import
 `.github/copilot-instructions.md` at launch and each instruction file on demand, using the same globs
-as its `applyTo`. Your own `CLAUDE.md`, if you keep one, loads alongside them.
+as its `applyTo`. Your own `CLAUDE.md`, if you keep one, loads alongside them. The prompt files appear
+as `/powershell-standards:<name>` slash commands, from `.claude/commands/powershell-standards/`.
 
 ### Step 2: Choose Implementation Method
 
@@ -77,8 +78,10 @@ Copy-Item -Path "ai-powershell-standards\.github\*" -Destination "YourProject\.g
 # Worked examples the instruction files link to (must keep this path)
 Copy-Item -Path "ai-powershell-standards\powershell-standards" -Destination "YourProject\" -Recurse -Force
 
-# Claude Code rules (must keep this path; your own CLAUDE.md is unaffected)
+# Claude Code rules and slash commands (must keep these paths; your own CLAUDE.md is unaffected)
+New-Item -ItemType Directory -Force -Path "YourProject\.claude\rules", "YourProject\.claude\commands" | Out-Null
 Copy-Item -Path "ai-powershell-standards\.claude\rules\powershell-standards" -Destination "YourProject\.claude\rules\" -Recurse -Force
+Copy-Item -Path "ai-powershell-standards\.claude\commands\powershell-standards" -Destination "YourProject\.claude\commands\" -Recurse -Force
 ```
 
 ### Step 3: Verify Setup

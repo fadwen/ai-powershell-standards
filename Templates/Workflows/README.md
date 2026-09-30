@@ -40,13 +40,14 @@ trigger the workflow manually once to confirm.
 | `.github/prompts/` | Mirrored — upstream deletions are applied |
 | `powershell-standards/` | Mirrored — the worked examples the instruction files link to |
 | `.claude/rules/powershell-standards/` | Mirrored — the Claude Code rules that import the instruction files |
-| `CLAUDE.md`, other `.claude/rules/` files | Never touched |
+| `.claude/commands/powershell-standards/` | Mirrored — Claude Code slash commands that run the prompt files |
+| `CLAUDE.md`, other files under `.claude/rules/` and `.claude/commands/` | Never touched |
 | `.github/workflows/` | Never touched, including this workflow itself |
 | Everything else | Never touched |
 
 ### Mirror, not merge
 
-Local edits to the five mirrored paths are overwritten on the next run. This is deliberate: a copy
+Local edits to the six mirrored paths are overwritten on the next run. This is deliberate: a copy
 that drifts silently is the problem the workflow exists to solve.
 
 If you need a change to those files, make it upstream in the standards repository. If you need

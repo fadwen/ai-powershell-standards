@@ -58,8 +58,10 @@ ln -s .copilot-standards/.github/copilot-instructions.md .github/copilot-instruc
   instructions, so every Claude Code session starts with the standards
 - **Path-Scoped Rules**: the other files in that folder mirror each instruction file with the same globs
   as its `applyTo`, so a standard loads only when Claude works on a matching file
-- **Synced Like Everything Else**: the sync workflow and installer mirror the rules folder, and never
-  touch a project's own `CLAUDE.md`
+- **Slash Commands**: `.claude/commands/powershell-standards/` offers each prompt file as
+  `/powershell-standards:<name>`, attaching the prompt rather than copying it
+- **Synced Like Everything Else**: the sync workflow and installer mirror both folders, and never touch
+  a project's own `CLAUDE.md`, rules, or commands
 - **Single Source**: The `.github/` files are the only copy. The Claude files reference them, never
   restate them
 
@@ -123,6 +125,8 @@ ai-powershell-standards/
 │   ├── prompts/                         # 10 `/prompt-name` files for Copilot Chat
 │   └── workflows/                       # Quality gates run on every pull request
 ├── .claude/
+│   ├── commands/
+│   │   └── powershell-standards/        # 10 slash commands, one per prompt file; mirrored to consumers
 │   └── rules/
 │       └── powershell-standards/        # Claude Code rules: 13 path-scoped, 1 always-on; mirrored to consumers
 ├── Documentation/                       # Guides and the deliberate anti-pattern demo
@@ -167,9 +171,13 @@ path-scoped rule imports one instruction file when Claude touches a matching fil
 rather than copy, so there is one set of standards to maintain. Run `/memory` inside Claude Code to
 see what is loaded.
 
-The installer and the sync workflow mirror that rules folder into consuming projects along with the
-`.github/` files and the examples. A project's own `CLAUDE.md` and any other rules it keeps under
-`.claude/rules/` are never touched.
+The prompt files are slash commands in Claude Code too. `.claude/commands/powershell-standards/` holds
+one command per prompt, so `/new-function` in Copilot Chat is `/powershell-standards:new-function`
+here. The `/` menu matches on any part of a name, so typing `/new-func` is enough to find it.
+
+The installer and the sync workflow mirror both folders into consuming projects along with the
+`.github/` files and the examples. A project's own `CLAUDE.md` and anything else it keeps under
+`.claude/rules/` or `.claude/commands/` are never touched.
 
 ### 3. Choose Your Integration Method
 

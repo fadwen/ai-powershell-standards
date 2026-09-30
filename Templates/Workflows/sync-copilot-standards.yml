@@ -48,7 +48,7 @@ jobs:
 
           # Mirror, not merge: files deleted upstream are deleted here too.
           # Local edits to these paths are overwritten. Customisations belong
-          # upstream, or in a file outside the five mirrored paths.
+          # upstream, or in a file outside the six mirrored paths.
           for dir in instructions prompts; do
             rm -rf ".github/$dir"
             cp -r "$src/$dir" ".github/$dir"
@@ -66,6 +66,13 @@ jobs:
           rm -rf .claude/rules/powershell-standards
           cp -r .standards/.claude/rules/powershell-standards .claude/rules/powershell-standards
 
+          # Claude Code slash commands, one per prompt file. Each attaches its prompt from
+          # .github/prompts/ rather than copying it. Other commands under .claude/commands/
+          # are not touched.
+          mkdir -p .claude/commands
+          rm -rf .claude/commands/powershell-standards
+          cp -r .standards/.claude/commands/powershell-standards .claude/commands/powershell-standards
+
           rm -rf .standards
 
       - name: Detect drift
@@ -73,13 +80,13 @@ jobs:
         run: |
           # Stage first: a file added upstream is untracked here, and plain
           # `git diff` would not see it.
-          git add -A .github powershell-standards .claude/rules/powershell-standards
-          if git diff --cached --quiet -- .github powershell-standards .claude/rules/powershell-standards; then
+          git add -A .github powershell-standards .claude/rules/powershell-standards .claude/commands/powershell-standards
+          if git diff --cached --quiet -- .github powershell-standards .claude/rules/powershell-standards .claude/commands/powershell-standards; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Instruction files are already up to date."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            git diff --cached --stat -- .github powershell-standards .claude/rules/powershell-standards
+            git diff --cached --stat -- .github powershell-standards .claude/rules/powershell-standards .claude/commands/powershell-standards
           fi
 
       - name: Open pull request
@@ -94,10 +101,11 @@ jobs:
             Automated sync from the AI PowerShell Standards repository.
 
             Covers `.github/copilot-instructions.md`, `.github/instructions/`,
-            `.github/prompts/`, `powershell-standards/` (the worked examples) and
-            `.claude/rules/powershell-standards/` (the Claude Code rules). Other
-            workflows in `.github/workflows/`, this repository's own `CLAUDE.md`, and
-            any other rules under `.claude/rules/` are not touched by this job.
+            `.github/prompts/`, `powershell-standards/` (the worked examples),
+            `.claude/rules/powershell-standards/` (the Claude Code rules) and
+            `.claude/commands/powershell-standards/` (the Claude Code slash commands).
+            Other workflows in `.github/workflows/`, this repository's own `CLAUDE.md`,
+            and any other rules or commands under `.claude/` are not touched by this job.
 
             Review the diff before merging. Anything intended as a permanent local
             customisation belongs upstream, or this job will overwrite it again on
