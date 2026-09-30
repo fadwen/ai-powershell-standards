@@ -38,6 +38,29 @@ as the commit, because a squash merge turns the title into the commit on the def
 - **Attribution**: no `Co-Authored-By` trailer, "Generated with" footer, or any other AI tool
   attribution in commits, PR titles, PR bodies, or files.
 
+## Write for a Reader Who Was Not There
+
+Commit messages and PRs are permanent records. They are read months later by reviewers, maintainers,
+and auditors who never saw the conversation that produced the change. Write every one so it stands on
+its own for that reader.
+
+- **Describe the change, not the session.** State what the code does now and why. Leave out how the
+  work unfolded: the approaches tried and dropped, the order things were done in, what was fixed
+  along the way. Mention a rejected approach only when a reviewer would otherwise ask why it was not
+  used.
+- **No conversational voice.** No "as discussed", "per your request", "you asked", "I noticed",
+  "let me know", "happy to", or "we decided". Write in the third person about the code: "Adds",
+  "Fixes", "The gate now fails when".
+- **No references a stranger cannot resolve.** No "the earlier issue", "the approach above", "option
+  B", "the second fix", or names coined during the session. Link an issue, PR, commit, or file, or
+  describe the thing itself.
+- **No assistant artifacts.** No mention of an AI tool, prompts, or chat. No hedging written for the
+  person at the keyboard, such as "should work now" or "hopefully".
+- **Explain the domain.** Expand acronyms on first use and name the command or setting involved, so
+  a reviewer outside the team can follow.
+
+A quick test: if the text would read oddly pasted into a changelog or a release note, rewrite it.
+
 ## Before Opening the PR
 
 1. Run the repository's gates locally. At minimum PSScriptAnalyzer and Pester, plus markdownlint
