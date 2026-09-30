@@ -70,10 +70,13 @@ A quick test: if the text would read oddly pasted into a changelog or a release 
    `Fixed`, `Removed`, `Deprecated`, or `Security`. Write it for someone using the module.
 3. When a public function's signature changed, update its PlatyPS Markdown under `docs/`, as
    [platyps.instructions.md](./platyps.instructions.md) describes.
-4. Do not edit paths the standards sync mirrors: `.github/copilot-instructions.md`,
-   `.github/instructions/`, `.github/prompts/`, `powershell-standards/`,
-   `.claude/rules/powershell-standards/`, and `.claude/commands/powershell-standards/`. The next sync
-   overwrites them. Change the standards repository instead.
+4. In a repository that consumes these standards, one with
+   `.github/workflows/sync-copilot-standards.yml`, do not edit the paths that workflow mirrors:
+   `.github/copilot-instructions.md`, `.github/instructions/`, `.github/prompts/`,
+   `powershell-standards/`, `.claude/rules/powershell-standards/`, and
+   `.claude/commands/powershell-standards/`. The next sync overwrites them, so change
+   [ai-powershell-standards](https://github.com/fadwen/ai-powershell-standards) instead. In
+   ai-powershell-standards itself those paths are the source, and editing them is the point.
 
 Open the PR as a draft when a gate fails and you cannot fix it, and say which gate in the body.
 
