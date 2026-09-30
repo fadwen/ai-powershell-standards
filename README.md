@@ -335,19 +335,9 @@ Create function for infrastructure management with:
 
 ## 🤝 Contributing
 
-### Adding New Standards
-
-1. Create feature branch: `git checkout -b feature/new-standard`
-2. Add instruction files with comprehensive examples
-3. Include validation tests and documentation
-4. Submit pull request with impact assessment
-
-### Improving Existing Standards
-
-1. Test changes with real-world scenarios
-2. Validate backward compatibility
-3. Update documentation and examples
-4. Include performance impact analysis
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how the repository is laid out, the conventions that are
+easy to break, the checks to run, and how pull requests are written. Every change here reaches each
+consuming repository on its next sync, so open an issue first for anything larger than a fix.
 
 ## 📊 Measuring Adoption
 
@@ -365,12 +355,10 @@ Track these before and after adoption if you want a real before/after comparison
 
 ## 🆘 Support
 
-### Getting Help
-
-- **Issues**: Report bugs or request features via GitHub Issues
-- **Discussions**: Ask questions in GitHub Discussions
-- **Documentation**: Check the Documentation folder
-- **Troubleshooting**: See organized guides in Troubleshooting folder
+- **Questions, bugs, and outdated standards**: open a GitHub Issue
+- **Security vulnerabilities**: report privately, as [SECURITY.md](SECURITY.md) describes
+- **Documentation**: see the Documentation folder
+- **Troubleshooting**: see the organized guides in the Troubleshooting folder
 
 ## 📄 License
 
