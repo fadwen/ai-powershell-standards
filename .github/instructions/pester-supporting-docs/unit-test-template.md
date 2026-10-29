@@ -22,14 +22,17 @@ BeforeDiscovery {
     # Pester 6 discovers and runs one file at a time, so this file must set up
     # anything it needs at DISCOVERY time - it cannot rely on another file.
     # Only needed when -ForEach data comes from the module itself.
-    $ModulePath = Join-Path $PSScriptRoot '..\..\ModuleName.psd1'
-    Import-Module $ModulePath -Force
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module (Join-Path $PSScriptRoot '..\..\ModuleName.psd1')
+    }
 }
 
 BeforeAll {
-    # Import module under test
-    $ModulePath = Join-Path $PSScriptRoot '..\..\ModuleName.psd1'
-    Import-Module $ModulePath -Force
+    # Import the module under test, once per run. -Force belongs in the module
+    # contract test alone; here it would cost every file a re-import.
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module (Join-Path $PSScriptRoot '..\..\ModuleName.psd1')
+    }
 
     # Import test helpers
     . $PSScriptRoot\..\TestHelpers\TestHelpers.ps1

@@ -30,7 +30,7 @@ Use this standardized configuration for consistent test execution:
         Parallel              = $false
         ParallelThrottleLimit = 0
 
-        # EXPERIMENTAL. Off by default. See "Shuffled Test Order" below.
+        # EXPERIMENTAL and off by default, but turn it on in CI. See "Shuffled Test Order" below.
         Shuffle     = $false
         ShuffleSeed = 0                    # 0 picks a new seed per run and prints it
     }
@@ -428,6 +428,33 @@ test file.
 
 The option is experimental and may change. Enabling it changes only ordering, never which tests run
 or how they are filtered.
+
+### Run It in CI
+
+Turn shuffling on in the CI unit-test job, with a fresh seed each run and the seed named in the
+failure message. The first shuffled run of one 1,300-test suite failed three tests under seed 1 that
+file order had always hidden: each wrote into a folder an earlier test in the same file had created.
+Two other seeds passed. The same suite later moved to importing the module once per run instead of
+in every file, which makes state visible across files; the shuffled run is what keeps that trade
+honest, because a test that passes only after a fresh import fails there with a seed to replay.
+
+```powershell
+$config = New-PesterConfiguration
+$config.Run.Path = './Tests/Unit'
+$config.Run.PassThru = $true
+$config.Run.Shuffle = $true          # ShuffleSeed stays 0: a new seed each run, printed at the start
+
+$result = Invoke-Pester -Configuration $config
+
+if ($result.FailedCount -gt 0 -or $result.FailedContainersCount -gt 0) {
+    $seed = $result.Configuration.Run.ShuffleSeed.Value
+    throw "Tests failed: $($result.FailedCount) test(s), $($result.FailedContainersCount) container(s). " +
+        "Replay this order with Run.ShuffleSeed = $seed"
+}
+```
+
+Document the replay command in the tests README, so whoever reads the failing log knows what to do
+with the number.
 
 ## Global Mocks (Experimental)
 

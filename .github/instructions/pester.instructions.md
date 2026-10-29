@@ -74,6 +74,10 @@ A second `BeforeAll` (or `BeforeEach`, `AfterAll`, `AfterEach`) in one block thr
   its input to one result runs different code on each path
 - [ ] **Documented Examples**: Every usage example in the README and in help has a test that runs it as written
 - [ ] **Non-Empty Test Cases**: No `-ForEach`/`-TestCases` expression can yield `$null` or `@()`
+- [ ] **Mock Scope**: A mock that a `BeforeAll` depends on is defined in an enclosing `BeforeAll`, and
+  `Should-Invoke` for a call made in setup passes `-Scope Context`
+- [ ] **One Import**: Only the module contract test imports with `-Force`; every other file imports only when
+  the module is not already loaded, and none removes it afterwards
 
 ### Configuration & Execution
 
@@ -83,13 +87,17 @@ A second `BeforeAll` (or `BeforeEach`, `AfterAll`, `AfterEach`) in one block thr
 
 ### Experimental Options
 
-Three configuration options are experimental, off by default, and may change. Do not enable them in
-generated code unless asked; when a project does enable one, these are the consequences:
+Three configuration options are experimental, off by default, and may change. Do not enable
+`Run.Parallel` or `Mock.Global` in generated code unless asked. `Run.Shuffle` is the exception: turn
+it on in CI with the seed printed, as
+[Shuffled Test Order](./pester-supporting-docs/pester-configuration.md#shuffled-test-order-experimental)
+describes, because it is what makes importing the module once per run safe. When a project enables
+one, these are the consequences:
 
 | Option | Effect | Note |
 | --- | --- | --- |
 | `Run.Parallel` | One test file per runspace | Requires file-based containers. Runs on PowerShell 7 and, from 6.2, on Windows PowerShell 5.1. Coverage works from 6.1 but is forced onto slower breakpoint mode |
-| `Run.Shuffle` | Randomizes file, block, and test order | Fails tests that depend on declaration order. Prints a seed; `Run.ShuffleSeed` replays it. Opt a file out with `#pester:no-shuffle` |
+| `Run.Shuffle` | Randomizes file, block, and test order | Fails tests that depend on declaration order. Prints a seed; `Run.ShuffleSeed` replays it. Opt a file out with `#pester:no-shuffle`. Recommended in CI: it found three tests in one suite that passed only because an earlier test had created their folder |
 | `Mock.Global` | A mock applies to calls from any module in the runspace | `-ModuleName` becomes a resolution hint, not a scope. Does **not** reinstate fall-through - a `-ParameterFilter` guard still needs a default mock |
 
 All three are per-run configuration, not per-file, apart from the `#pester:no-parallel` and
@@ -127,14 +135,32 @@ Each test file must import the modules it needs and perform its own discovery-ti
 
 BeforeDiscovery {
     # Anything needed to BUILD the test tree (-ForEach data, helper commands)
-    Import-Module "$PSScriptRoot/../../ModuleName.psd1" -Force
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module "$PSScriptRoot/../../ModuleName.psd1"
+    }
 }
 
 BeforeAll {
     # Anything needed to RUN the tests
-    Import-Module "$PSScriptRoot/../../ModuleName.psd1" -Force
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module "$PSScriptRoot/../../ModuleName.psd1"
+    }
 }
 ```
+
+Self-contained does not mean re-imported. `Import-Module -Force` costs about 190 ms warm and 800 ms
+cold; importing a module that is already loaded costs about 9 ms. One suite of 111 files that forced
+the import in every `BeforeAll` and removed the module in every `AfterAll` spent 21 seconds of an
+80-second run doing nothing else. Import only when the module is not loaded, and do not remove it
+afterwards. Keep the forced import in exactly one file, the module contract test, which asserts what
+a freshly imported module looks like.
+
+The trade is that state one file leaves in module scope is visible to the next. That is what the
+shuffled CI run exists to catch: a test that passes only after a fresh import, or only before another
+file connected, fails there with a seed to replay. The other consequence is local: CI starts a fresh
+process, but an interactive session that already holds the module keeps serving the code it loaded,
+so after editing the module import it once with `-Force` before `Invoke-Pester`, or run the suite in
+a fresh process the way CI does.
 
 When several files share bootstrap, put it in a `Pester.BeforeContainer.ps1` rather than relying on
 another file having run first. From 6.2 every such file from `Run.RepoRoot` down to the test file's

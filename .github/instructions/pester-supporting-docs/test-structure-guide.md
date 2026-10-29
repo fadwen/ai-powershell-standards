@@ -73,13 +73,18 @@ discovery-time setup. It cannot rely on a file that happened to be discovered ea
 
 BeforeDiscovery {
     # Only what is needed to BUILD the test tree: -ForEach data, helper commands
-    Import-Module "$PSScriptRoot/../../../ModuleName.psd1" -Force
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module "$PSScriptRoot/../../../ModuleName.psd1"
+    }
     $script:PublicCommands = (Get-Module ModuleName).ExportedFunctions.Keys
 }
 
 BeforeAll {
-    # What is needed to RUN the tests
-    Import-Module "$PSScriptRoot/../../../ModuleName.psd1" -Force
+    # What is needed to RUN the tests. Import once per run: -Force in every file
+    # re-imports the module as many times as there are files.
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module "$PSScriptRoot/../../../ModuleName.psd1"
+    }
     . "$PSScriptRoot/../../TestHelpers/TestHelpers.ps1"
 }
 ```
@@ -97,11 +102,16 @@ tests need at **run** time goes in a `BeforeAll`:
 # Pester.BeforeContainer.ps1 at the repository root
 
 # Discovery only - keep this only where a -ForEach or BeforeDiscovery needs it
-Import-Module "$PSScriptRoot/Source/ModuleName.psd1" -Force
+if (-not (Get-Module -Name ModuleName)) {
+    Import-Module "$PSScriptRoot/Source/ModuleName.psd1"
+}
 
-# Run time - what the tests themselves need
+# Run time - what the tests themselves need. This file runs before every container,
+# so a forced import here costs the same as one in every test file.
 BeforeAll {
-    Import-Module "$PSScriptRoot/Source/ModuleName.psd1" -Force
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module "$PSScriptRoot/Source/ModuleName.psd1"
+    }
     . "$PSScriptRoot/Tests/TestHelpers/TestHelpers.ps1"
 }
 ```
