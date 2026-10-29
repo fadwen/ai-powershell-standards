@@ -69,7 +69,10 @@ A second `BeforeAll` (or `BeforeEach`, `AfterAll`, `AfterEach`) in one block thr
 - [ ] **Mocking**: Mock all external dependencies appropriately
 - [ ] **Performance**: Include timing and memory usage validation
 - [ ] **Security**: Test input sanitization and credential handling
-- [ ] **Pipeline Support**: Verify pipeline input/output functionality
+- [ ] **Pipeline Support**: For every `ValueFromPipeline` parameter, test both `$collection | Verb-Noun` and
+  `-Parameter $collection`, piping the shape the real upstream command produces. A function that reduces
+  its input to one result runs different code on each path
+- [ ] **Documented Examples**: Every usage example in the README and in help has a test that runs it as written
 - [ ] **Non-Empty Test Cases**: No `-ForEach`/`-TestCases` expression can yield `$null` or `@()`
 
 ### Configuration & Execution
