@@ -77,7 +77,9 @@
             Tags = @('Enterprise', 'PowerShell', 'Automation', 'Security')
             LicenseUri = 'https://github.com/YourOrg/ModuleName/blob/main/LICENSE'
             ProjectUri = 'https://github.com/YourOrg/ModuleName'
+            # Omit IconUri when there is no icon. '' aborts the pack with "IconUrl cannot be empty".
             IconUri = 'https://github.com/YourOrg/ModuleName/blob/main/icon.png'
+            # Current release only. The Gallery refuses more than 10,600 characters, at upload.
             ReleaseNotes = 'See CHANGELOG.md for detailed release notes'
 
             # External module dependencies (not available in PowerShell Gallery)
@@ -100,7 +102,8 @@
         }
     }
 
-    # Help Info URI for updatable help
+    # Help Info URI for updatable help. Leave the key out rather than setting it to '',
+    # which fails the pack the same way an empty IconUri does.
     # HelpInfoURI = 'https://docs.yourorg.com/powershell/modulename/help'
 
     # Default command prefix (use sparingly to avoid conflicts)

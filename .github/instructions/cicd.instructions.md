@@ -179,6 +179,13 @@ Configure automated publishing with:
 - Pre-release versions for development branches
 - Release notes generation from changelog
 - API key management through secure secret storage
+- A release rehearsal, `Publish-Module.ps1 -WhatIf`, that stages the allowlisted package, imports it
+  in a fresh process, verifies exports and help, measures the Gallery's metadata limits, and stops
+  before the upload. Run it on every pull request; the tag-driven release re-runs it and publishes.
+- The rules the rehearsal exists to enforce are in
+  [module.instructions.md](./module.instructions.md#releasing-to-the-powershell-gallery): never
+  publish the repository root, the `ReleaseNotes`, `Description` and tag limits, no empty URI keys,
+  and `$WhatIfPreference` reaching every child scope of the release script.
 
 ## Security Integration
 
