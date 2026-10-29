@@ -139,7 +139,11 @@ Implement comprehensive error handling:
 
 ### Scalability Patterns
 
-- **Parallel Processing**: ForEach-Object -Parallel for PowerShell 7+
+- **Parallel Processing**: ForEach-Object -Parallel for PowerShell 7+. A parallel block, a runspace
+  worker, and a `Start-Job` body all start without the caller's `$script:` state; pass what they need
+  through `$using:`, a parameter, or `-ArgumentList`, and keep a contract test that refuses a `$script:`
+  read inside one. Measure before adopting: a cmdlet that keeps one session per process, such as the
+  RSAT `ActiveDirectory` module, fails under runspaces in ways a process per batch does not
 - **Batch Processing**: Chunked operations for large datasets
 - **Streaming**: Pipeline-based processing for memory efficiency
 - **Caching**: Multi-level caching strategies

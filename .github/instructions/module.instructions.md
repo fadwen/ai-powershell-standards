@@ -347,7 +347,14 @@ written. See the [Unit Test Template](./pester-supporting-docs/unit-test-templat
 
 ### Class Development
 
-Create PowerShell classes with proper validation and methods:
+Create PowerShell classes with proper validation and methods. One constraint comes with the dot-source
+loader above: **a class or enum defined in `Classes/` must not appear as a type constraint in any
+`param()` block.** A type literal in a parameter attribute is resolved when the file is parsed, and a
+dot-sourced file cannot see a class defined by a sibling file at that moment. Casts and `::new()` calls
+in a function body are fine, because they resolve at run time. One `[ModuleConfiguration]$Config`
+parameter breaks the import for every command in the module, not only the one that declares it. Take
+`[object]` or `[PSCustomObject]` at the boundary and validate the type in the body, or build the module
+into a single file whose classes precede the functions.
 
 ```powershell
 # Classes/ModuleConfiguration.ps1

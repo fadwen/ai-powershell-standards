@@ -52,6 +52,29 @@ expert feedback for accuracy:
   calls where empty strings matter
 - **Output**: Don't use misleading `[OutputType([PSCustomObject])]` declarations
 - **Documentation**: Don't use broken comment-based help (missing `<#` opener)
+- **Block Scoping**: Don't `return` from `begin` to stop a command. `return` ends the `begin` block and nothing
+  else; `process` still runs. A teardown that did this printed "cancelled" and deleted everything. Record the
+  decision in a variable and test it at the top of `process`
+- **Confirmation Gates**: Don't rely on `Read-Host` or `ShouldContinue` to stop an unattended run. `Read-Host`
+  reads end-of-file in a non-interactive session and never matches the confirmation word; `ShouldContinue` hangs
+  a console and is refused in CI. Treat a session that cannot answer as a refusal, and require `-Force` for an
+  unattended destructive run
+- **Parameter Shadowing**: Don't name a local after a parameter in any letter case. Variable names are
+  case-insensitive, so a body-level `$settings = @{}` silently overwrites `-Settings`. Inside a nested function
+  `$PSBoundParameters` is that function's own, so capture what it needs into a plain variable before defining it
+- **WhatIf Reach**: Don't enumerate with `ForEach-Object -MemberName` in a command that supports `-WhatIf`; that
+  parameter set honours `ShouldProcess`, so the enumeration returns nothing under `-WhatIf`. Use a script block.
+  `$WhatIfPreference` is also inherited by every child scope, which is why a release rehearsal has to pin its
+  non-destructive steps; see
+  [module.instructions.md](./instructions/module.instructions.md#the-rehearsal-under--whatif)
+- **Background Scope**: Don't read `$script:` state, or call the module's own functions, inside `Start-Job`, a
+  runspace worker, or a `ForEach-Object -Parallel` block. A job starts without this session's state and
+  functions, and a worker without its state; neither fails loudly. A seed that did this created 688 computers
+  with no prefix and silently created none of its 296 users. Pass values through `-ArgumentList`, `$using:`, or a
+  parameter, and remember that Pester mocks do not reach a worker either
+- **Empty Collections**: Don't rely on a nested helper returning `@()`. PowerShell unrolls an empty array on
+  the way out of a function, so the caller receives `$null` and a splatted `[object[]]` parameter fails to
+  bind. Wrap the call site with `@(...)`, or return with `Write-Output -NoEnumerate`
 
 ### Script Development Guidelines
 

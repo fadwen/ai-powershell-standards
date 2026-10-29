@@ -210,6 +210,90 @@ else {
 }
 ```
 
+## Windows PowerShell 5.1 differences to code around
+
+Everything here was found by running a module that declares `CompatiblePSEditions = @('Desktop', 'Core')`
+on 5.1 after its suite had passed on 7. When a module declares the Desktop edition, run the suite under
+5.1 in CI; a 5.1 trap otherwise shows on a device before it shows in a pull request.
+
+### Syntax that parses on 7 and breaks every command on 5.1
+
+A single use of any of these in any file the root module dot-sources fails the whole import, so one
+convenience in one helper takes every command with it:
+
+| Construct | 5.1 replacement |
+| --- | --- |
+| Ternary `$a ? $b : $c` | `if ($a) { $b } else { $c }` |
+| Null-coalescing `??` and `??=`, null-conditional `?.` and `?[]` | explicit `if ($null -eq ...)` |
+| `ForEach-Object -Parallel` | `Start-Job`, a runspace pool, or sequential |
+| `Join-Path a b c` (several child paths) | nested `Join-Path` |
+| A 7-only parameter such as `-SkipHttpErrorCheck` | detect it on the cmdlet and branch; see below |
+
+Two run-time differences the same suites hit: `Group-Object` orders its groups differently, so sort
+explicitly before relying on order; and .NET Framework's `ZipFile::CreateFromDirectory` writes
+backslash entry names, so build an archive entry by entry with forward slashes when it must open
+elsewhere.
+
+### Reading a failed HTTP response
+
+`Invoke-WebRequest` and `Invoke-RestMethod` return a 4xx or 5xx response on PowerShell 7 when asked to
+with `-SkipHttpErrorCheck`; the body is decoded like any other. On 5.1 the cmdlet throws, the body is
+readable once from the exception's response stream, and TLS 1.2 is not negotiated by default. Detect
+the capability on the cmdlet, never from a version number, and give callers one error shape:
+
+```powershell
+# Detected once at import and cached in module scope
+$script:CanSkipHttpErrorCheck = (Get-Command Invoke-WebRequest).Parameters.ContainsKey('SkipHttpErrorCheck')
+if (-not $script:CanSkipHttpErrorCheck) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor
+        [Net.SecurityProtocolType]::Tls12
+}
+
+function Invoke-ModuleWebRequest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Request   # splatted into Invoke-WebRequest
+    )
+
+    if ($script:CanSkipHttpErrorCheck) {
+        $response = Invoke-WebRequest @Request -SkipHttpErrorCheck
+        $status = [int]$response.StatusCode
+        $body = $response.Content
+    } else {
+        try {
+            $response = Invoke-WebRequest @Request
+            $status = [int]$response.StatusCode
+            $body = $response.Content
+        } catch [System.Net.WebException] {
+            if ($null -eq $_.Exception.Response) {
+                throw   # a transport failure with no response propagates untouched
+            }
+            # .NET Framework's HttpStatusCode has no 429 member; read the integer, not the name
+            $status = [int]$_.Exception.Response.StatusCode
+            $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+            try {
+                $body = $reader.ReadToEnd()   # readable once; keep it
+            } finally {
+                $reader.Dispose()
+            }
+        }
+    }
+
+    if ($status -ge 400) {
+        $message = "HTTP $status from $($Request.Uri): $body"
+        Write-Error -Message $message -ErrorAction Stop
+    }
+    $body
+}
+```
+
+Two more things the suite for that function has to know. A `WebHeaderCollection` assigned from an
+`if` expression arrives as an array of its key names, because a statement's output is enumerated on
+the way out, so assign it inside the branch. Windows PowerShell rewraps a bare thrown exception and
+drops any member added to it, so a test fake that needs `Response` on its exception throws an
+`ErrorRecord`.
+
 ## Detecting version at runtime
 
 ```powershell
