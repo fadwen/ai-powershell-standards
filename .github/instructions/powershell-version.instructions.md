@@ -191,7 +191,8 @@ instructions should use the PSResourceGet verbs.
 # ✅ Preferred
 Install-PSResource -Name Pester -Scope CurrentUser -TrustRepository
 Find-PSResource -Name PSScriptAnalyzer
-Publish-PSResource -Path ./MyModule -ApiKey $env:NUGET_KEY
+# Publish a staged allowlist, never the repository root - see module.instructions.md
+Publish-PSResource -Path ./out/MyModule -ApiKey $env:NUGET_KEY
 
 # ⚠️ PowerShellGet v2 - still functional, use only when targeting 5.1 without PSResourceGet installed
 Install-Module -Name Pester -Scope CurrentUser -Force -SkipPublisherCheck

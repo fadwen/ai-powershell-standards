@@ -130,7 +130,11 @@ helpers internal:
             Tags = @('PowerShell', 'Enterprise', 'Automation', 'Management')
             LicenseUri = 'https://github.com/organization/modulename/blob/main/LICENSE'
             ProjectUri = 'https://github.com/organization/modulename'
+            # Omit IconUri when there is no icon. An empty string is not "no icon": NuGet
+            # aborts the pack with "IconUrl cannot be empty" and names neither file nor key.
             IconUri = 'https://github.com/organization/modulename/raw/main/Assets/icon.png'
+            # The current release only, ending with a pointer to CHANGELOG.md. The Gallery
+            # refuses more than 10,600 characters, and only at upload.
             ReleaseNotes = 'Initial release with core functionality'
             RequireLicenseAcceptance = $false
         }
@@ -139,7 +143,8 @@ helpers internal:
     # Help Information
     # Only set this if you actually publish an Updatable Help package to that location.
     # Update-Help reports an error against a HelpInfoURI with no HelpInfo.xml behind it.
-    # Shipping MAML in en-US/ does not require this key.
+    # Shipping MAML in en-US/ does not require this key. Omit it rather than setting it
+    # to '' - an empty value fails the pack the same way an empty IconUri does.
     HelpInfoURI = 'https://docs.organization.com/powershell/modulename'
 }
 ```
@@ -622,6 +627,146 @@ Troubleshooting/
     └── External-Dependencies.md
 ```
 
+## Releasing to the PowerShell Gallery
+
+A Gallery version is consumed the moment it uploads. It can be unlisted but never deleted, and the
+`.nupkg` stays downloadable at its direct URL afterwards. Each rule below comes from a release of a
+module built to these standards that passed every local gate and then shipped the wrong thing or
+failed at the upload.
+
+### Stage an allowlist, never publish the repository root
+
+When the repository is the module root, `Publish-PSResource -Path .` packages the working tree:
+`.git`, the tests and their fixtures, the build scripts, and anything else on disk. Measured on one
+module: 313 files and 975 KB, all 213 files of `.git` among them, against 46 files and 507 KB for
+the module itself.
+
+Publish from a staging folder that an allowlist fills. A new folder does not ship until it is named,
+and the staged copy is imported in a fresh process and checked before anything uploads:
+
+```powershell
+# Build/Publish-Module.ps1 - [CmdletBinding(SupportsShouldProcess)] with -WhatIf as the rehearsal
+$shipFiles = 'ModuleName.psd1', 'ModuleName.psm1', 'README.md', 'CHANGELOG.md', 'LICENSE'
+$shipFolders = 'Classes', 'Private', 'Public', 'en-US', 'Troubleshooting'
+
+# out/ is git-ignored. Every step but the publish is pinned -WhatIf:$false; see below for why.
+$stage = Join-Path (Join-Path $PSScriptRoot '..\out') 'ModuleName'
+if (Test-Path $stage) {
+    Remove-Item -Path $stage -Recurse -Force -WhatIf:$false
+}
+New-Item -Path $stage -ItemType Directory -Force -WhatIf:$false | Out-Null
+foreach ($item in $shipFiles + $shipFolders) {
+    Copy-Item -Path (Join-Path $PSScriptRoot "..\$item") -Destination $stage -Recurse -WhatIf:$false
+}
+
+# A fresh process proves the staged copy imports on its own and exports what the manifest says
+$exported = pwsh -NoProfile -Command "Import-Module '$stage' -Force; (Get-Module ModuleName).ExportedFunctions.Keys"
+
+if ($PSCmdlet.ShouldProcess("ModuleName $($manifest.ModuleVersion)", 'Publish to PSGallery')) {
+    Publish-PSResource -Path $stage -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY
+}
+```
+
+Pass the API key through an environment variable or a SecretManagement secret, never on the command
+line of a workflow step, where it lands in the run log.
+
+### Metadata the Gallery refuses at upload
+
+Three fields carry a limit that is enforced only on upload, so every local gate passes until the
+publish step returns 400:
+
+| Field | Limit | Whose limit |
+|---|---|---|
+| `ReleaseNotes` | 10,600 characters | The Gallery's, stated in its error response |
+| `Description` | 4,000 characters | NuGet's |
+| Package tags | 4,000 characters | NuGet's, applied to the full tag list, not to the manifest's `Tags` key alone |
+
+The tag list the Gallery stores is the manifest's `Tags` plus what the publish adds: `PSModule`, a
+`PSEdition_` tag per compatible edition, `PSIncludes_Function`, and `PSFunction_` and `PSCommand_`
+for every exported function. A module with 27 commands carries 61 tags and about 1,900 characters,
+so each new command costs about twice its name and a module that keeps adding commands reaches the
+limit without its `Tags` key changing.
+
+`ReleaseNotes` grows the same way when every release prepends its paragraph and none removes one.
+Two modules built to these standards were refused at 11,319 and 12,699 characters, each after every
+other gate had passed and the tag had been pushed. Keep the current release's notes in the manifest
+and end them with a pointer to `CHANGELOG.md`, which ships in the package and already holds the
+history.
+
+Measure all three in the release rehearsal and in a contract test, so a pull request fails rather
+than the tag-driven release:
+
+```powershell
+$manifest = Import-PowerShellDataFile -Path ./ModuleName.psd1
+$module = Get-Module -Name ModuleName   # the staged copy
+$tags = @($manifest.PrivateData.PSData.Tags) + 'PSModule' + 'PSIncludes_Function' +
+    @($manifest.CompatiblePSEditions | ForEach-Object { "PSEdition_$_" }) +
+    @($module.ExportedFunctions.Keys | ForEach-Object { "PSFunction_$_"; "PSCommand_$_" })
+
+$limits = @{
+    Description  = @{ Length = $manifest.Description.Length; Limit = 4000 }
+    Tags         = @{ Length = ($tags -join ' ').Length; Limit = 4000 }
+    ReleaseNotes = @{ Length = $manifest.PrivateData.PSData.ReleaseNotes.Length; Limit = 10600 }
+}
+foreach ($field in $limits.Keys) {
+    $measured = $limits[$field]
+    if ($measured.Length -gt $measured.Limit) {
+        $message = "The manifest's $field is $($measured.Length) characters; " +
+            "the Gallery accepts at most $($measured.Limit)"
+        Write-Error $message -ErrorAction Stop
+    }
+}
+```
+
+A module that exports cmdlets or DSC resources gains further automatic tags (`PSCmdlet_`,
+`PSDscResource_`); build the list the way the publish does for what the module ships.
+
+### Omit a URI key rather than leaving it empty
+
+`IconUri = ''` is not "no icon". The nuspec writer emits an empty `<iconUrl>` and NuGet aborts the
+pack with `IconUrl cannot be empty`, naming neither the manifest nor the key. `HelpInfoURI = ''`
+fails the same way. Leave the key out until there is a value, and have the rehearsal check for an
+empty one. Setting `IconUri` has no visible effect on the Gallery in any case: the package page
+renders the default PowerShell logo and does not fetch the icon.
+
+### The rehearsal under `-WhatIf`
+
+`-WhatIf` sets `$WhatIfPreference`, and preference variables are inherited by every child scope:
+the cmdlets a script calls and the scripts it calls. In a release script that declares
+`SupportsShouldProcess`, `-WhatIf` therefore reaches the staging `Copy-Item`, the help build's
+`Export-MamlCommandHelp`, and everything else downstream, not only the publish. The rehearsal then
+copies nothing and compiles nothing, and either fails on the empty folder or passes while having
+verified nothing. One module's release broke this way twice.
+
+- Only the publish is gated by `ShouldProcess`. Every other step is pinned `-WhatIf:$false` or runs
+  with the preference cleared. When adding a step, decide whether it is destructive; if not, pin it.
+- A called script that declares `[CmdletBinding()]` without `SupportsShouldProcess` has no `-WhatIf`
+  parameter to pin. Save and clear the preference around the call:
+
+  ```powershell
+  $savedWhatIf = $WhatIfPreference
+  $WhatIfPreference = $false
+  try {
+      & (Join-Path $PSScriptRoot 'Build-Help.ps1')
+  } finally {
+      $WhatIfPreference = $savedWhatIf
+  }
+  ```
+
+- Test `-WhatIf` in combination with the script's other switches, not each alone. Both failures
+  above survived testing because `-WhatIf` and `-SkipHelpBuild` had only ever been exercised
+  separately.
+- A stale local intermediate (a `maml/` left by an earlier run) hides a step that now produces
+  nothing. Rehearse from a clean checkout, or delete the intermediate first.
+
+### Tag-driven release
+
+The release workflow runs on `git tag v<ModuleVersion> && git push origin v<ModuleVersion>`,
+re-runs every gate, refuses a tag that disagrees with the manifest's `ModuleVersion`, stages,
+verifies, and publishes. When the upload fails for a reason the rehearsal did not measure, nothing
+has been consumed: fix the manifest, move the tag to the new merge commit, and release under the same
+number.
+
 ## Quality Assurance Requirements
 
 ### Pre-Release Checklist
@@ -644,10 +789,17 @@ Ensure module meets all quality standards:
 
 Prepare module for publication:
 
-- [ ] Module manifest includes all required metadata
+- [ ] Module manifest includes all required metadata, and no URI key is set to an empty string
 - [ ] License file included and referenced
 - [ ] README provides clear installation and usage instructions
-- [ ] Release notes document changes and improvements
+- [ ] `ReleaseNotes` covers the current release and points to `CHANGELOG.md` for the rest
+- [ ] `Description`, the full tag list and `ReleaseNotes` are measured against the Gallery's limits
+      in the rehearsal and in a contract test
+- [ ] The publish stages an allowlist into a git-ignored folder; `Publish-PSResource` is never
+      pointed at the repository root
+- [ ] `Publish-Module.ps1 -WhatIf` stages, imports and verifies the package with every
+      non-destructive step pinned against the inherited preference, and has been run together with
+      the script's other switches
 - [ ] Version follows semantic versioning principles
 - [ ] Dependencies clearly documented and available
 

@@ -622,6 +622,12 @@ Describe "Get-ExampleData" -Tag "Unit" {
 }
 ```
 
+Before the first publish, read
+[Releasing to the PowerShell Gallery](./instructions/module.instructions.md#releasing-to-the-powershell-gallery).
+A Gallery version can never be deleted, so the publish stages an allowlist rather than the
+repository root, the Gallery's metadata limits are measured locally, no URI key is left empty, and
+the release script is written knowing that `-WhatIf` reaches every child scope it calls.
+
 ## 🎯 Community Standards Integration
 
 ### Automatic Validation
