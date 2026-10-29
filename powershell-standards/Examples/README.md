@@ -6,7 +6,7 @@ tests. This folder is mirrored into consuming projects by the sync workflow.
 ## What is here
 
 | Example | Demonstrates |
-|---|---|
+| --- | --- |
 | [Basic-Function-Example.ps1](./Basic-Function-Example.ps1) | A complete advanced function: pipeline input, parameter validation, correlation IDs, per-item error handling, and a named `[OutputType]` |
 | [Module-Structure-Example/](./Module-Structure-Example/) | A minimal working module - the Public/Private/Classes layout and the export boundary it creates |
 | [Testing-Examples/](./Testing-Examples/) | Pester 6 tests for `Basic-Function-Example.ps1`, including CIM mocking and `-RemoveParameterType` |

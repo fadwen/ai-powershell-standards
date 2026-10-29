@@ -388,7 +388,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Lint Markdown
-      uses: DavidAnson/markdownlint-cli2-action@v14
+      uses: DavidAnson/markdownlint-cli2-action@v25
       with:
         # PlatyPS-generated command help is excluded. The generator emits an
         # unlabelled code fence in SYNTAX (MD040) and writes the module page

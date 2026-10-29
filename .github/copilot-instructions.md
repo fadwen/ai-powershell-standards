@@ -745,7 +745,7 @@ Prefer matching these over inventing a shape. Each is complete, runs, and passes
 described above:
 
 | Need | Example |
-|---|---|
+| --- | --- |
 | A complete advanced function | [Basic-Function-Example.ps1](../powershell-standards/Examples/Basic-Function-Example.ps1) |
 | Module layout and export boundary | [Module-Structure-Example](../powershell-standards/Examples/Module-Structure-Example/) |
 | Pester 6 tests, including private functions | [Module-Structure-Example/Tests](../powershell-standards/Examples/Module-Structure-Example/Tests/) |

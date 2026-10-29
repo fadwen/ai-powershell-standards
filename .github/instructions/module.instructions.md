@@ -683,7 +683,7 @@ Three fields carry a limit that is enforced only on upload, so every local gate 
 publish step returns 400:
 
 | Field | Limit | Whose limit |
-|---|---|---|
+| --- | --- | --- |
 | `ReleaseNotes` | 10,600 characters | The Gallery's, stated in its error response |
 | `Description` | 4,000 characters | NuGet's |
 | Package tags | 4,000 characters | NuGet's, applied to the full tag list, not to the manifest's `Tags` key alone |

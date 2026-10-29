@@ -21,7 +21,7 @@ The original `platyPS` v0.14.2 is **no longer supported**. It is a different mod
 cmdlet names, and its Markdown uses an older schema. Never generate `platyPS` 0.14 commands:
 
 | Do not use (platyPS 0.14.2) | Use instead (Microsoft.PowerShell.PlatyPS 1.x) |
-|---|---|
+| --- | --- |
 | `New-MarkdownHelp` | `New-MarkdownCommandHelp` |
 | `Update-MarkdownHelp` | `Update-MarkdownCommandHelp` |
 | `New-ExternalHelp` | `Export-MamlCommandHelp` |
@@ -133,7 +133,7 @@ keyword. When a separate `<# #>` block follows, that block then wins and the key
 Tested against PowerShell 7.6, with the same MAML present in `en-US/` in every case:
 
 | Arrangement | MAML used |
-|---|---|
+| --- | --- |
 | `.EXTERNALHELP` inside the `<# #>` block with `.SYNOPSIS` | yes |
 | `# .EXTERNALHELP` alone, no other help block | yes |
 | `# .EXTERNALHELP` alone, then a separate `<# .SYNOPSIS #>` block | yes |
@@ -267,7 +267,7 @@ Select-String -Path ./docs/ModuleName/*.md -Pattern '^\s*-?\s*\[.+\]\((?!https?:
 Both forms are legal, and they are not interchangeable:
 
 | Target | Form | Renders as |
-|---|---|---|
+| --- | --- | --- |
 | A command in this module, or an `about_` topic | `- [Get-Thing]()` | the plain name |
 | Anything outside the installed module | `- [Title](https://...)` | the URL |
 
@@ -305,7 +305,7 @@ next regeneration and then reappears in the diff. Exclude the generated help ins
 
 ```yaml
 - name: Lint Markdown
-  uses: DavidAnson/markdownlint-cli2-action@v14
+  uses: DavidAnson/markdownlint-cli2-action@v25
   with:
     globs: |
       **/*.md
