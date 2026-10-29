@@ -345,6 +345,74 @@ once the input is enumerable, and the piped test must pipe the shape the real up
 produces. A usage example in the README or in help is a test case until one exists that runs it as
 written. See the [Unit Test Template](./pester-supporting-docs/unit-test-template.md).
 
+### Responses That Arrive as Hashtables or PSObjects
+
+The same JSON reaches a function in two shapes. `Invoke-MgGraphRequest` returns hashtables unless
+`-OutputType PSObject` is passed; `ConvertFrom-Json` returns PSObjects unless `-AsHashtable` is
+passed (PowerShell 7); a baseline or fixture read back from disk comes through `ConvertFrom-Json`. A
+function that reads response data with one syntax is correct for one shape and silently wrong for
+the other. Measured on PowerShell 7.6 and Windows PowerShell 5.1 alike:
+
+| Read | Hashtable | PSObject |
+|---|---|---|
+| `$response['value']` | the value | `$null` with no error; an error only under `Set-StrictMode` |
+| `$response.value` | the value | the value |
+| `$response.Count` | the key `Count` when one exists, otherwise the number of entries | the property when one exists, otherwise `1` |
+| `$response.missing` | `$null` | `$null` |
+
+Index syntax reads only the hashtable. Member syntax reads both, but a key named like a hashtable
+member (`Count`, `Keys`, `Values`) comes back as the hashtable's own property when the key is absent,
+and a scalar's `Count` is `1`, so neither is `$null` when the data is missing. CaOutcome computed
+Conditional Access outcomes from nulls, with no error, until every read of response data went
+through one accessor:
+
+```powershell
+function Get-ResponseProperty {
+    <#
+    .SYNOPSIS
+        Reads one property from response data in either shape it can arrive in.
+
+    .DESCRIPTION
+        Private helper. Graph SDK responses are hashtables by default and PSObjects with
+        -OutputType PSObject; ConvertFrom-Json is the reverse. Indexing a PSObject with a key
+        returns $null with no error, so every read of anything that came from an API or a file
+        goes through this function.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory)]
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory)]
+        [string]$Name
+    )
+
+    if ($null -eq $InputObject) {
+        return $null
+    }
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        if ($InputObject.Contains($Name)) {
+            return $InputObject[$Name]
+        }
+        return $null
+    }
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($property) {
+        return $property.Value
+    }
+    return $null
+}
+```
+
+Use it for every read of anything that came from an API or a file. Like any function, it unrolls a
+one-element collection on the way out, so wrap a read of a collection such as `value` in `@(...)`
+before indexing or counting it. Test the public function with both shapes: the fixture parsed with
+`ConvertFrom-Json`, and again with `ConvertFrom-Json -AsHashtable` or through the SDK's hashtable
+form. Keep fixtures real: a recorded response with identifiers rewritten, because every shape defect
+found this way came from a shape the API returned rather than one anybody imagined.
+
 ### Class Development
 
 Create PowerShell classes with proper validation and methods. One constraint comes with the dot-source

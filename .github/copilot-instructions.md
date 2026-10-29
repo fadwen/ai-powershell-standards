@@ -75,6 +75,10 @@ expert feedback for accuracy:
 - **Empty Collections**: Don't rely on a nested helper returning `@()`. PowerShell unrolls an empty array on
   the way out of a function, so the caller receives `$null` and a splatted `[object[]]` parameter fails to
   bind. Wrap the call site with `@(...)`, or return with `Write-Output -NoEnumerate`
+- **Response Shapes**: Don't index response data with `['key']` or assume one shape. Graph SDK responses are
+  hashtables by default and PSObjects with `-OutputType PSObject`; `ConvertFrom-Json` is the reverse, and
+  `$psobject['key']` returns `$null` with no error. Read through one accessor that handles both; see
+  [module.instructions.md](./instructions/module.instructions.md#responses-that-arrive-as-hashtables-or-psobjects)
 
 ### Script Development Guidelines
 
