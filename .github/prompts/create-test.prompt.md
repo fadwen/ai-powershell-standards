@@ -42,7 +42,10 @@ ${selection}
 - Edge cases and boundary conditions
 - Error handling verification (using $_ patterns)
 - Parameter validation testing
-- Pipeline input and output behaviour (ValueFromPipeline binding, per-item emission)
+- Pipeline input and output behaviour (ValueFromPipeline binding, per-item emission, and for a function
+  that reduces its input to one result, that `$collection | Verb-Noun` gives the same single answer as
+  `-Parameter $collection`)
+- Every usage example in the README and in help, run as written
 
 **3. Enterprise Test Standards ✅**
 

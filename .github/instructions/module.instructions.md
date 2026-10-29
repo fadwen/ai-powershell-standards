@@ -271,6 +271,75 @@ function Verb-Noun {
 }
 ```
 
+### Functions That Reduce Their Input to One Result
+
+`ValueFromPipeline` changes what `process` receives. Passed by parameter, a collection arrives in
+`process` once, as one argument. Piped, PowerShell unrolls it and `process` runs once per element. A
+function that reduces its input to a single result, such as folding a set of policy evaluations into
+one outcome, gives a different answer on each path unless it handles both: by parameter it folds the
+whole collection, piped it folds each element on its own and emits one wrong result per element. No
+error is raised, and every result has the declared output type.
+
+For such a function:
+
+- Collect in `process` and fold in `end`. Elements arriving one at a time go into a `List[object]`
+  and the set is folded once the pipeline closes.
+- Decide what a single element arriving alone means, and write that decision into the function. A
+  whole input that is itself one object (an envelope with a `value` property, a JSON string) is
+  folded as it arrives, so piping several whole inputs still yields one result each.
+- Exclude `[string]` before any `IEnumerable` check. A string enumerates as characters.
+- A hashtable is `IEnumerable` too, and is one object rather than a collection.
+
+```powershell
+function ConvertTo-Outcome {
+    [CmdletBinding()]
+    [OutputType('Module.Outcome')]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [AllowNull()]
+        [object]$InputObject
+    )
+
+    begin {
+        # Elements piped in one at a time are held here and folded together in end
+        $loose = [System.Collections.Generic.List[object]]::new()
+    }
+
+    process {
+        # A lone element is a single object without the envelope's value property. A string is
+        # IEnumerable (of characters) and a hashtable is IEnumerable (of entries), so both are
+        # settled before the enumerable check.
+        $isLoneElement = $null -ne $InputObject -and $InputObject -isnot [string] -and
+            ($InputObject -is [hashtable] -or $InputObject -isnot [System.Collections.IEnumerable])
+        if ($isLoneElement) {
+            if ($InputObject -is [hashtable]) {
+                $isLoneElement = -not $InputObject.ContainsKey('value')
+            } else {
+                $isLoneElement = -not $InputObject.PSObject.Properties['value']
+            }
+        }
+
+        if ($isLoneElement) {
+            $loose.Add($InputObject)
+        } else {
+            # A whole input arrived at once: a collection by parameter, an envelope, a JSON string
+            Get-FoldedOutcome -Response $InputObject
+        }
+    }
+
+    end {
+        if ($loose.Count -gt 0) {
+            Get-FoldedOutcome -Response $loose.ToArray()
+        }
+    }
+}
+```
+
+Test both paths. `-InputObject $collection` and `$collection | ConvertTo-Outcome` run different code
+once the input is enumerable, and the piped test must pipe the shape the real upstream command
+produces. A usage example in the README or in help is a test case until one exists that runs it as
+written. See the [Unit Test Template](./pester-supporting-docs/unit-test-template.md).
+
 ### Class Development
 
 Create PowerShell classes with proper validation and methods:

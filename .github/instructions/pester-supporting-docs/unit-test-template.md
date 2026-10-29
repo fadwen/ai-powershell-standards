@@ -63,6 +63,17 @@ Describe "Function-Name" -Tag "Unit", "Public" {
             $results | Should-BeCollection -Count 3
         }
 
+        It "Should fold a piped collection into the same single result as the by-parameter call" {
+            # PowerShell unrolls a piped array, so process runs once per element. A function that
+            # reduces its input to one result has to collect in process and fold in end, and only
+            # a piped test proves it does; the by-parameter test above passes either way. The @()
+            # makes the count read the same whether one object or several come back.
+            $items = @('Value1', 'Value2', 'Value3')
+            $piped = @($items | ConvertTo-Summary)
+            $piped | Should-BeCollection -Count 1
+            $piped[0].ItemCount | Should-Be (ConvertTo-Summary -InputObject $items).ItemCount
+        }
+
         It "Should declare ParameterName as a mandatory string" {
             Get-Command Function-Name |
                 Should-HaveParameter -ParameterName ParameterName -Type ([string]) -Mandatory
@@ -249,7 +260,8 @@ Test all parameter validation scenarios:
 
 - Valid input variations
 - Invalid input rejection
-- Pipeline support
+- Pipeline support: piped and by parameter, since a function that reduces its input to one result runs
+  different code on each path
 - Parameter binding and metadata (`Should-HaveParameter`)
 - Mandatory parameter enforcement
 
