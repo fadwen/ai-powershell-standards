@@ -63,13 +63,12 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Install Pester
       shell: pwsh
       run: |
-        Set-PSRepository PSGallery -InstallationPolicy Trusted
-        Install-Module Pester -MinimumVersion $env:PESTER_VERSION -Force -Scope CurrentUser
+        Install-PSResource Pester -Version "[$env:PESTER_VERSION,)" -Scope CurrentUser -TrustRepository
 
     - name: Discovery-only pass
       shell: pwsh
@@ -129,7 +128,7 @@ jobs:
             shell: powershell
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Cache PowerShell Modules
       uses: actions/cache@v4
@@ -213,7 +212,7 @@ jobs:
         }
 
     - name: Upload Test Results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: test-results-${{ matrix.os }}-${{ matrix.shell }}
@@ -227,13 +226,12 @@ jobs:
     needs: validate
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Install Pester
       shell: pwsh
       run: |
-        Set-PSRepository PSGallery -InstallationPolicy Trusted
-        Install-Module Pester -MinimumVersion $env:PESTER_VERSION -Force -Scope CurrentUser
+        Install-PSResource Pester -Version "[$env:PESTER_VERSION,)" -Scope CurrentUser -TrustRepository
 
     - name: Run Tests with Coverage
       shell: pwsh
@@ -279,7 +277,7 @@ jobs:
         }
 
     - name: Upload Coverage
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: coverage
@@ -298,7 +296,7 @@ jobs:
     runs-on: windows-latest
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Install Dependencies
       shell: pwsh
@@ -370,13 +368,12 @@ jobs:
     runs-on: windows-latest
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Install Dependencies
       shell: pwsh
       run: |
-        Set-PSRepository PSGallery -InstallationPolicy Trusted
-        Install-Module Pester -MinimumVersion $env:PESTER_VERSION -Force -Scope CurrentUser
+        Install-PSResource Pester -Version "[$env:PESTER_VERSION,)" -Scope CurrentUser -TrustRepository
 
     - name: Run Performance Tests
       shell: pwsh
@@ -414,7 +411,7 @@ jobs:
         $metrics | ConvertTo-Json | Out-File performance-metrics.json
 
     - name: Upload Performance Results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: performance-results
         path: |
@@ -583,8 +580,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-PSRepository PSGallery -InstallationPolicy Trusted
-          Install-Module Pester -MinimumVersion 6.2.0 -Force -Scope CurrentUser
+          Install-PSResource Pester -Version '[6.2.0,)' -Scope CurrentUser -TrustRepository
         pwsh: true
 
     - task: PowerShell@2
@@ -622,7 +618,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Install-Module Pester -Force -Scope CurrentUser
+          Install-PSResource Pester -Version '[6.2.0,)' -Scope CurrentUser -TrustRepository
 
           $config = New-PesterConfiguration
           $config.Run.Path = './Tests/Security'
@@ -705,8 +701,7 @@ pipeline {
                     agent { label 'pwsh' }
                     steps {
                         pwsh '''
-                            Set-PSRepository PSGallery -InstallationPolicy Trusted
-                            Install-Module Pester -MinimumVersion 6.2.0 -Force -Scope CurrentUser
+                            Install-PSResource Pester -Version '[6.2.0,)' -Scope CurrentUser -TrustRepository
 
                             ./Invoke-Tests.ps1 -TestType All -Environment CI -CodeCoverage
                         '''
