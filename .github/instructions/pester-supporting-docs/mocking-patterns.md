@@ -828,6 +828,41 @@ blocks, run in declaration order, so a second group of mocks can be its own bloc
 merged into the first. Separate `Context` blocks remain the better split when the two groups serve
 different tests; 6.0 and 6.1 throw on a second `BeforeEach` in the _same_ block.
 
+### Mocks and Setup Blocks Run at Different Times
+
+A `BeforeEach` runs before each `It`. A `BeforeAll` in a child `Context` runs once, before the first
+`It` in that `Context`, which is before any `BeforeEach` has run. A mock defined in the parent's
+`BeforeEach` is therefore not active while the child's `BeforeAll` executes, and a command the setup
+calls runs for real, or fails as unmocked, with nothing pointing at the mock one block up. Define a
+mock that setup code depends on in an enclosing `BeforeAll`; keep `BeforeEach` for mocks that only
+the tests themselves call.
+
+`Should-Invoke` counts calls made in the current `It` by default. A call made in `BeforeAll` is
+outside every `It`, so the assertion reports zero invocations even though the command ran. Assert
+it with `-Scope Context` (or `-Scope Describe`), which counts every call made inside that block,
+its setup included:
+
+```powershell
+Describe 'Get-ServerHealth' -Tag 'Unit' {
+    BeforeAll {
+        # Defined here so the Context's BeforeAll below can rely on it
+        Mock Get-CimInstance { [PSCustomObject]@{ FreePhysicalMemory = 4GB } } -ModuleName ModuleName
+    }
+
+    Context 'A server queried once for the whole Context' {
+        BeforeAll {
+            # Runs before any BeforeEach; only mocks from enclosing BeforeAll blocks are active here
+            $script:Health = Get-ServerHealth -ComputerName 'SERVER01'
+        }
+
+        It 'Queried the server once' {
+            # The default scope is this It, where nothing was called; the call lives in BeforeAll
+            Should-Invoke Get-CimInstance -ModuleName ModuleName -Times 1 -Exactly -Scope Context
+        }
+    }
+}
+```
+
 ### Mocks Do Not Cross Files
 
 Pester 6 discovers and runs one file at a time, and under `Run.Parallel` each file gets its own

@@ -1,12 +1,11 @@
 #Requires -Module Pester
 
 BeforeAll {
+    # The module contract test is the one file that imports with -Force: it asserts
+    # what a freshly imported module looks like. Other files import only when the
+    # module is not already loaded, and no file removes it afterwards.
     $script:ManifestPath = Join-Path $PSScriptRoot '..' 'ModuleExample.psd1' | Resolve-Path
     Import-Module $script:ManifestPath -Force
-}
-
-AfterAll {
-    Remove-Module ModuleExample -Force -ErrorAction SilentlyContinue
 }
 
 Describe 'ModuleExample' -Tag 'Unit', 'Example' {

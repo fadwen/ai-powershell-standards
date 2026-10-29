@@ -243,6 +243,9 @@ jobs:
         $config = New-PesterConfiguration
         $config.Run.Path = './Tests/Unit'
         $config.Run.PassThru = $true
+        # Sequential job, so it is the one that runs shuffled: a fresh seed each run, printed
+        # at the start and named below when the run fails
+        $config.Run.Shuffle = $true
         $config.CodeCoverage.Enabled = $true
         $config.CodeCoverage.Path = './Public/*.ps1', './Private/*.ps1'
         # Profiler-based coverage is the v6 default and far faster than breakpoints
@@ -257,7 +260,8 @@ jobs:
         $result = Invoke-Pester -Configuration $config
 
         if ($result.FailedCount -gt 0 -or $result.FailedContainersCount -gt 0) {
-          throw "Tests failed"
+          $seed = $result.Configuration.Run.ShuffleSeed.Value
+          throw "Tests failed: $($result.FailedCount) test(s), $($result.FailedContainersCount) container(s). Replay with Run.ShuffleSeed = $seed"
         }
 
         # Enforce the coverage gate yourself
