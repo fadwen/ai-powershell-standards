@@ -89,7 +89,7 @@ instead of the compiled help. See
 ## Patterns demonstrated
 
 | Pattern | Where |
-|---|---|
+| --- | --- |
 | Approved verb, descriptive `[OutputType]` | `Public/Get-ExampleData.ps1` |
 | Pipeline input via `ValueFromPipeline` | `Public/Get-ExampleData.ps1` |
 | Correlation ID generated once, passed through | All three files |

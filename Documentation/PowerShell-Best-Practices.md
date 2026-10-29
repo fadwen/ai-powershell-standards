@@ -306,7 +306,7 @@ now outperforms `List<T>.Add()` for that case. On Windows PowerShell 5.1 and Pow
 remains O(n²) and collapses on large collections.
 
 | Target | `+=` verdict |
-|--------|--------------|
+| --- | --- |
 | 7.5+ | Fine for small and mid-size collections; still avoid in unbounded loops |
 | 5.1 / 7.4 | Avoid beyond a few hundred items |
 | Any | Direct loop assignment is always faster - prefer it |

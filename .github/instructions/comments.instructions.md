@@ -15,7 +15,7 @@ This file defines **what good help content contains**. Where that content is wri
 whether the function is exported:
 
 | Function | Help lives in | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Exported (`Public/`) in a module | PlatyPS Markdown under `docs/ModuleName/` | The `.ps1` keeps only `# .EXTERNALHELP` plus a one-line `.SYNOPSIS` |
 | Private (`Private/`) in a module | Full comment-based help in the `.ps1` | PlatyPS never sees these - the comment block is the only documentation |
 | Standalone script or function | Full comment-based help in the `.ps1` | No module, no MAML, no PlatyPS |
@@ -276,7 +276,7 @@ The sections above are named for comment-based help keywords. In PlatyPS Markdow
 The content requirements are identical; only the syntax differs:
 
 | Comment-based help | PlatyPS Markdown |
-|---|---|
+| --- | --- |
 | `.SYNOPSIS` | `## SYNOPSIS` |
 | `.DESCRIPTION` | `## DESCRIPTION` |
 | `.PARAMETER Name` | `### -Name` under `## PARAMETERS` |
