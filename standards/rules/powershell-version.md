@@ -33,6 +33,8 @@ date instead of relying on the wording here.
   PSResourceGet is not installed.
 - **VER-09** Detect a parameter that only some versions have on the command itself, with
   `(Get-Command -Name <Command>).Parameters.ContainsKey('<Parameter>')`, not from the version number.
+- **VER-10** Code that works on some operating systems only MUST test for them before its first
+  platform-specific operation, and fail with an error that names the systems it supports.
 
 ## Support lifecycle
 
@@ -171,6 +173,7 @@ each. On 5.1 the body came back empty until the stream was moved back to its sta
 # Detected once, when the module is imported
 $script:canSkipHttpErrorCheck = (Get-Command -Name Invoke-WebRequest).Parameters.ContainsKey('SkipHttpErrorCheck')
 
+
 function Invoke-ModuleWebRequest {
     [CmdletBinding()]
     [OutputType([string])]
@@ -226,7 +229,7 @@ function Invoke-ModuleWebRequest {
 The body goes into the exception's `Data`, not into the message, because a reply can carry personal
 data (SEC-06).
 
-## Detecting the version and operating system (VER-07)
+## Detecting the version and operating system (VER-07, VER-10)
 
 ```powershell
 # Compliant: compares the whole version
@@ -242,6 +245,22 @@ if ($PSVersionTable.PSVersion.Major -ge 7) {
     $delimitedText = Get-Clipboard -Delimiter ','
 }
 ```
+
+**VER-10.** Test at the start of the function or script, before anything platform-specific runs:
+
+```powershell
+$onWindows = $PSVersionTable.PSVersion.Major -lt 6 -or $IsWindows
+if (-not $onWindows) {
+    $exception = [System.PlatformNotSupportedException]::new('Get-ServiceReport requires Windows.')
+    $category = [System.Management.Automation.ErrorCategory]::NotImplemented
+    $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+        $exception, 'UnsupportedOperatingSystem', $category, $null)
+    $PSCmdlet.ThrowTerminatingError($errorRecord)
+}
+```
+
+The test also runs under strict mode on Windows PowerShell 5.1, where `$IsWindows` does not exist:
+`-or` does not evaluate its right side when the left side is true.
 
 ## Installing modules (VER-08)
 

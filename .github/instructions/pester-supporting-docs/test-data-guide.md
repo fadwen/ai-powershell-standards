@@ -291,6 +291,7 @@ values and of the clock. Comment-based help is omitted here to keep the example 
 ```powershell
 # Tests/TestHelpers/TestData.ps1
 
+
 function New-TestUser {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',

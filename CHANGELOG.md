@@ -29,11 +29,18 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 - Test rules: import the module once (TST-05), mock scope across setup blocks (TST-23), both
   pipeline paths (TST-44), documented examples (TST-45), and shuffled runs in CI (TST-46).
 - A rule to write a function's output after its `try` block (ERR-15).
+- Six rules taken from a comparison with PSStyleGuide, each tested on PowerShell 7.6 and Windows
+  PowerShell 5.1: blank lines around functions (STY-07), the `-f` operator inside a command's
+  parentheses (STY-23), line endings in comparisons (STY-34), a check that an output file can be
+  written before long work starts (STY-35), a preference test around log messages in loops
+  (ERR-32), and an operating system check that fails early (VER-10).
+- A `.gitattributes` file that checks every text file out with LF, and the rule that asks for one
+  (CIC-11). `Tools/Test-StandardsCompliance.ps1` now reports STY-07 and STY-23.
 
 ### Changed
 
 - The always-loaded core went from about 33 KB to about 15 KB. For a `.ps1` file an agent now loads
-  about 79 KB of instructions in total, down from about 123 KB.
+  about 85 KB of instructions in total, down from about 123 KB.
 - Twelve topic files named `powershell-<topic>.instructions.md` replace the earlier instruction
   files. Their front matter contains only keys that instruction files support.
 - The Claude Code rules under `.claude/rules/powershell-standards/` are generated. Each one imports

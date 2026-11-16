@@ -60,6 +60,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+
 function ConvertTo-LfText {
     <#
     .SYNOPSIS
@@ -94,6 +95,7 @@ function ConvertTo-LfText {
     $lfText = $Text.Replace("`r`n", "`n").Replace("`r", "`n")
     $lfText.TrimEnd("`n") + "`n"
 }
+
 
 function Expand-IncludeDirective {
     <#
@@ -163,6 +165,7 @@ function Expand-IncludeDirective {
     $expanded
 }
 
+
 function Get-RuleEntry {
     <#
     .SYNOPSIS
@@ -222,6 +225,7 @@ function Get-RuleEntry {
         }
     }
 }
+
 
 $manifestPath = Join-Path -Path $RepositoryRoot -ChildPath 'standards/manifest.psd1'
 $manifest = Import-PowerShellDataFile -LiteralPath $manifestPath

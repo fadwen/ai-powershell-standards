@@ -169,6 +169,36 @@ function Get-Thing {
             FileName = 'Fixture.ps1'
             Code = "`$value = Get-Item -LiteralPath `$PSHOME`nif (`$value -eq `$null) {`n    'none'`n}"
         }
+        @{
+            RuleId = 'STY-23'
+            Reason = 'the format operator follows the parentheses of a command argument'
+            FileName = 'Fixture.ps1'
+            Code = "Write-Output ('{0} items' + ' found') -f 5"
+        }
+        @{
+            RuleId = 'STY-07'
+            Reason = 'one blank line separates a function from the code before it'
+            FileName = 'Fixture.ps1'
+            Code = "`$count = 1`n`nfunction Get-One {`n    1`n}"
+        }
+        @{
+            RuleId = 'STY-07'
+            Reason = 'one blank line separates two functions'
+            FileName = 'Fixture.ps1'
+            Code = "function Get-One {`n    1`n}`n`nfunction Get-Two {`n    2`n}"
+        }
+        @{
+            RuleId = 'STY-07'
+            Reason = 'one blank line separates a function from the code after it'
+            FileName = 'Fixture.ps1'
+            Code = "function Get-One {`n    1`n}`n`nGet-One"
+        }
+        @{
+            RuleId = 'STY-07'
+            Reason = 'two blank lines follow each other inside a function'
+            FileName = 'Fixture.ps1'
+            Code = "function Get-One {`n    `$value = 1`n`n`n    `$value`n}"
+        }
     )
 
     # Code that looks close to a violation and is allowed.
@@ -243,6 +273,36 @@ function Get-Thing {
             Reason = 'a script, not a module, sets $ErrorActionPreference'
             FileName = 'Fixture.ps1'
             Code = "Set-StrictMode -Version Latest`n`$ErrorActionPreference = 'Stop'"
+        }
+        @{
+            RuleId = 'STY-23'
+            Reason = 'the format operator is inside the parentheses'
+            FileName = 'Fixture.ps1'
+            Code = "Write-Output (('{0} items' + ' found') -f 5)"
+        }
+        @{
+            RuleId = 'STY-07'
+            Reason = 'two blank lines surround each function'
+            FileName = 'Fixture.ps1'
+            Code = "`$count = 1`n`n`nfunction Get-One {`n    1`n}`n`n`nfunction Get-Two {`n    2`n}`n`n`n`$count"
+        }
+        @{
+            RuleId = 'STY-07'
+            Reason = 'the file holds one function and nothing else'
+            FileName = 'Fixture.ps1'
+            Code = "function Get-One {`n    `$value = 1`n`n    `$value`n}"
+        }
+        @{
+            RuleId = 'STY-07'
+            Reason = 'a comment sits directly above the function, after two blank lines'
+            FileName = 'Fixture.ps1'
+            Code = "`$count = 1`n`n`n# Gets one.`nfunction Get-One {`n    1`n}"
+        }
+        @{
+            RuleId = 'STY-07'
+            Reason = 'the blank lines are inside a here-string'
+            FileName = 'Fixture.ps1'
+            Code = "function Get-Text {`n    @'`none`n`n`ntwo`n'@`n}"
         }
     )
 }
