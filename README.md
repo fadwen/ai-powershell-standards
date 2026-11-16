@@ -176,9 +176,14 @@ and have tests.
 
 ## Acknowledgments
 
+- **PowerShell Community**: For establishing excellent best practices and style guidelines
+- **GitHub Copilot Team**: For creating the extensible instruction system
+- **Enterprise PowerShell Users**: For real-world validation and feedback
+
 The format of the rules owes a good deal to Frank Lesniak's
 [PSStyleGuide](https://github.com/franklesniak/PSStyleGuide): requirement keywords, rules short enough
-to check, reasons kept apart from the rules, and agent files generated from one source.
+to check, reasons kept apart from the rules, and agent files generated from one source. Six rules
+were adopted from it as well, after testing: STY-07, STY-23, STY-34, STY-35, ERR-32, and VER-10.
 
 ## License
 

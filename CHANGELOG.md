@@ -29,7 +29,8 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 - Test rules: import the module once (TST-05), mock scope across setup blocks (TST-23), both
   pipeline paths (TST-44), documented examples (TST-45), and shuffled runs in CI (TST-46).
 - A rule to write a function's output after its `try` block (ERR-15).
-- Six rules taken from a comparison with PSStyleGuide, each tested on PowerShell 7.6 and Windows
+- Six rules taken from a comparison with Frank Lesniak's
+  [PSStyleGuide](https://github.com/franklesniak/PSStyleGuide), each tested on PowerShell 7.6 and Windows
   PowerShell 5.1: blank lines around functions (STY-07), the `-f` operator inside a command's
   parentheses (STY-23), line endings in comparisons (STY-34), a check that an output file can be
   written before long work starts (STY-35), a preference test around log messages in loops
@@ -91,6 +92,8 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   earlier sample did that on every import.
 - A mandatory collection parameter rejects an empty array as well as `$null`, so wrapping a call in
   `@()` is not enough without `[AllowEmptyCollection()]`.
+- The README again acknowledges the PowerShell community, the GitHub Copilot team, and enterprise
+  PowerShell users. The rewrite had dropped those three entries.
 
 ### Removed
 
