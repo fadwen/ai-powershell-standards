@@ -27,6 +27,8 @@ repository that contains PowerShell code.
 - **CIC-10** A module that is published rehearses its release on every pull request: the release
   script runs with `-WhatIf`, stages the package, imports it in a new process, checks the Gallery's
   limits, and stops before the upload (MOD-10 to MOD-14).
+- **CIC-11** The repository has a `.gitattributes` file that fixes line endings, for example
+  `* text=auto eol=lf`, so that every platform checks out the same bytes.
 
 ## Notes and examples
 
@@ -138,3 +140,17 @@ jobs:
 `Invoke-Pester` sets `$LASTEXITCODE` to the number of failures, and the runner fails the step on a
 non-zero value. A script that resets it to zero has to have thrown for every failure first, or the
 step passes with failing tests.
+
+### Line endings (CIC-11)
+
+Without a `.gitattributes` file, git decides the line endings of a checkout from each computer's
+settings. GitHub's Windows runners check text files out with CRLF, and Linux runners with LF. A test
+that compares the text of a file with a here-string, or with text built in the test, then passes on
+one and fails on the other (STY-34).
+
+```text
+* text=auto eol=lf
+```
+
+This line stores text files with LF and checks them out with LF on every platform. PowerShell 7 and
+Windows PowerShell 5.1 both read such files.

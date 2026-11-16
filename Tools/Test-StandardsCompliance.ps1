@@ -278,6 +278,13 @@ foreach ($file in $files) {
         if ($commandName -eq 'New-Object' -and $command.Extent.Text -match '(?i)Collections\.ArrayList') {
             $issues.Add(@('STY-41', 'Error', $line, $listAdvice, 'Standards'))
         }
+        $formatArguments = @($command.CommandElements |
+                Where-Object { $_ -is [CommandParameterAst] -and $_.ParameterName -eq 'f' })
+        if ($formatArguments.Count -gt 0) {
+            $advice = 'Put the format operator inside the parentheses.'
+            $message = "'-f' is passed to $commandName as an argument. $advice"
+            $issues.Add(@('STY-23', 'Error', $line, $message, 'Standards'))
+        }
         if ($commandName -ne 'Write-Error' -or -not (& $isInAdvancedFunction -Node $command)) {
             continue
         }
@@ -394,6 +401,64 @@ foreach ($file in $files) {
         if ($stringTokenKinds -notcontains [string]$token.Kind -and $token.Text -match '[^\x00-\x7F]') {
             $message = 'A non-ASCII character appears outside a string literal.'
             $issues.Add(@('STY-06', 'Error', $token.Extent.StartLineNumber, $message, 'Standards'))
+        }
+    }
+
+    # STY-07: two blank lines around a top-level function, and no run of blank lines inside one.
+    # Lines inside a multi-line string are data, not layout, so they are left out.
+    $sourceLines = [System.IO.File]::ReadAllLines($filePath)
+    $stringLines = [System.Collections.Generic.HashSet[int]]::new()
+    foreach ($token in $tokens) {
+        if ($stringTokenKinds -contains [string]$token.Kind) {
+            for ($number = $token.Extent.StartLineNumber; $number -le $token.Extent.EndLineNumber; $number++) {
+                $null = $stringLines.Add($number)
+            }
+        }
+    }
+    $isBlank = { param([int]$Number) [string]::IsNullOrWhiteSpace($sourceLines[$Number - 1]) }
+
+    $topLevelFunctions = @($functions | Where-Object {
+            $_.Parent -is [NamedBlockAst] -and $null -eq $_.Parent.Parent.Parent
+        })
+    # A comment directly above a function belongs to it, so the function starts at that comment.
+    $functionStarts = @{}
+    foreach ($function in $topLevelFunctions) {
+        $start = $function.Extent.StartLineNumber
+        while ($start -gt 1 -and $sourceLines[$start - 2] -match '^\s*#') {
+            $start--
+        }
+        $functionStarts[$start] = $function
+    }
+
+    foreach ($start in $functionStarts.Keys) {
+        $function = $functionStarts[$start]
+        $blankBefore = 0
+        while ($start - $blankBefore -gt 1 -and (& $isBlank -Number ($start - $blankBefore - 1))) {
+            $blankBefore++
+        }
+        if ($start - $blankBefore -gt 1 -and $blankBefore -ne 2) {
+            $message = "Put two blank lines before the function $($function.Name)."
+            $issues.Add(@('STY-07', 'Warning', $start, $message, 'Standards'))
+        }
+
+        $end = $function.Extent.EndLineNumber
+        $next = $end + 1
+        while ($next -le $sourceLines.Count -and (& $isBlank -Number $next)) {
+            $next++
+        }
+        $followedByCode = $next -le $sourceLines.Count -and -not $functionStarts.ContainsKey($next)
+        if ($followedByCode -and $next - $end - 1 -ne 2) {
+            $message = "Put two blank lines after the function $($function.Name)."
+            $issues.Add(@('STY-07', 'Warning', $end, $message, 'Standards'))
+        }
+
+        for ($number = $function.Extent.StartLineNumber + 1; $number -lt $end; $number++) {
+            $isRun = (& $isBlank -Number $number) -and (& $isBlank -Number ($number + 1))
+            if ($isRun -and -not $stringLines.Contains($number) -and -not $stringLines.Contains($number + 1)) {
+                $message = "Use at most one blank line between statements inside $($function.Name)."
+                $issues.Add(@('STY-07', 'Warning', $number, $message, 'Standards'))
+                break
+            }
         }
     }
 

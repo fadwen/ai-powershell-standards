@@ -26,6 +26,8 @@ change. Do not reformat code that the task does not otherwise touch.
 - **STY-05** Lines MUST NOT end in whitespace, and a file MUST end with exactly one newline.
 - **STY-06** Source MUST be ASCII unless a string literal needs another character: no emoji,
   typographic quotes, or en and em dashes in code or comments.
+- **STY-07** Put two blank lines between a function definition and the code around it, and at most
+  one blank line between statements inside a function.
 
 ### Naming
 
@@ -54,6 +56,9 @@ change. Do not reformat code that the task does not otherwise touch.
   a name character follows the variable.
 - **STY-22** Build a long or looped string with `-join`, the `-f` operator, or
   `[System.Text.StringBuilder]`. A string MUST NOT be extended with `+=` inside a loop.
+- **STY-23** Apply the `-f` operator inside the parentheses of a command argument:
+  `Write-Verbose ('{0} items' -f $count)`. Written after the closing parenthesis, `-f` is passed to
+  the command as an argument.
 
 ### Paths and files
 
@@ -64,6 +69,12 @@ change. Do not reformat code that the task does not otherwise touch.
 - **STY-32** Use `-LiteralPath` whenever the path names one specific item, and always for a path held
   in a variable. `-Path` is for wildcard patterns.
 - **STY-33** State the encoding whenever code writes text to a file.
+- **STY-34** Normalize line endings before comparing text that came from a file, a here-string, or a
+  serializer, and before writing a file that is compared exactly. Read the whole file with
+  `Get-Content -Raw` or `[System.IO.File]::ReadAllText()`, and compare bytes with
+  `[System.IO.File]::ReadAllBytes()`.
+- **STY-35** Code that does long work and then writes a file SHOULD confirm, before the work starts,
+  that the file can be written, without truncating a file that is already there.
 
 ### Collections
 
@@ -102,6 +113,9 @@ if (Test-Path -LiteralPath $sourcePath) {
 code page, so a typographic quote or dash can change how the file parses. If a file must contain
 non-ASCII characters and must also run on 5.1, save it as UTF-8 with a byte order mark.
 
+**STY-07.** A file that holds a single function needs no blank lines around it. A comment that
+describes a function sits directly above it, after the two blank lines.
+
 **STY-13.** A parameter named `$Input`, or a loop written as `foreach ($event in $events)`, silently
 reads or replaces the automatic variable. PSScriptAnalyzer reports assignments under
 `PSAvoidAssignmentToAutomaticVariable`.
@@ -119,6 +133,19 @@ reference. `"$state.Attempt"` parses but expands only `$state`, followed by the 
 
 ```powershell
 Write-Verbose "${computer}: retry $($state.Attempt) of $maximumAttempts"
+```
+
+**STY-23.** Measured on PowerShell 7.6 and Windows PowerShell 5.1:
+`Write-Output ('{0} items' + ' found') -f 5` emits three objects, the unformatted text, `-f`, and
+`5`, and raises no error. `Write-Warning` rejects the same call, because it has no parameter that
+`-f` could mean.
+
+```powershell
+# Compliant
+Write-Warning ('{0} of {1} items failed.' -f $failedCount, $totalCount)
+
+# Non-compliant: -f and the values are arguments of Write-Warning
+Write-Warning ('{0} of {1} items failed.') -f $failedCount, $totalCount
 ```
 
 **STY-30.** On Windows PowerShell 5.1 `Join-Path` accepts one child path. Nest the calls in code that
@@ -149,6 +176,56 @@ PowerShell 7. To write UTF-8 without a byte order mark on both:
 
 In code that targets PowerShell 7 only, `-Encoding utf8NoBOM` and `-Encoding utf8BOM` state the choice
 directly.
+
+**STY-34.** The same text has different line endings depending on where it comes from. Measured on
+PowerShell 7.6 and Windows PowerShell 5.1:
+
+- A here-string takes the line endings of the script file that holds it, so it has CRLF or LF
+  according to how git checked the file out.
+- `ConvertTo-Json` and `Out-String` use the line ending of the platform, which is CRLF on Windows.
+- `Get-Content` without `-Raw` returns the lines without their endings, which hides the difference.
+
+A comparison that passes on a developer's computer therefore fails on a CI runner, or the reverse.
+Normalize both sides, and normalize what is written when the file itself is compared:
+
+```powershell
+$expected = $expectedText.Replace("`r`n", "`n")
+$actual = [System.IO.File]::ReadAllText($fullPath).Replace("`r`n", "`n")
+$isSame = $actual -ceq $expected
+
+$json = ($settings | ConvertTo-Json -Depth 5).Replace("`r`n", "`n") + "`n"
+[System.IO.File]::WriteAllText($fullPath, $json, [System.Text.UTF8Encoding]::new($false))
+```
+
+A `.gitattributes` file removes the difference between checkouts; see CIC-11 in
+`.github/instructions/powershell-cicd.instructions.md`.
+
+**STY-35.** A report that takes an hour to build and then cannot be saved has wasted the hour. Check
+the destination first:
+
+```powershell
+$fullPath = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($OutputPath)
+$existed = [System.IO.File]::Exists($fullPath)
+try {
+    # OpenOrCreate does not truncate, so a file that is already there keeps its content.
+    $stream = [System.IO.File]::Open(
+        $fullPath,
+        [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::None)
+    $stream.Dispose()
+    if (-not $existed) {
+        [System.IO.File]::Delete($fullPath)
+    }
+} catch {
+    $PSCmdlet.ThrowTerminatingError($_)
+}
+```
+
+The code belongs in an advanced function or script that has an `-OutputPath` parameter. Tested on
+both versions: the check leaves no file behind when the file did not exist, leaves the
+content of an existing file unchanged, and fails for a missing folder, a read-only file, and a file
+that another process holds open.
 
 **STY-40, STY-41.** Direct assignment is the fastest form on every version:
 

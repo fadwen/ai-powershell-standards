@@ -22,9 +22,11 @@ holds the rules, a pull request workflow, and a publishing workflow.
    check locally. Set its test path and coverage paths to the project's real folders.
 5. If the repository has no `PSScriptAnalyzerSettings.psd1`, offer to add the one shown in the CI
    rules. Adding it can surface many layout findings in existing code, so say that first.
-6. If the module ships compiled help, add the help checks from
+6. If the repository has no `.gitattributes` file, add one that contains `* text=auto eol=lf`
+   (CIC-11), so that the tests see the same line endings on every runner.
+7. If the module ships compiled help, add the help checks from
    `.github/instructions/powershell-platyps.instructions.md`.
-7. Validate the workflow file's syntax, and run the gate script locally if you can.
+8. Validate the workflow file's syntax, and run the gate script locally if you can.
 
 ## Report
 
