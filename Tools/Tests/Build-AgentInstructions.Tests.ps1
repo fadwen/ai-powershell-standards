@@ -245,7 +245,7 @@ Describe 'Generated instruction files' -Tag 'Unit' {
 
 Describe 'Content of instruction files' -Tag 'Unit' {
     It 'Has only PowerShell samples that parse in <RelativePath>' -ForEach $markdownCases {
-        $text = [System.IO.File]::ReadAllText($FullPath)
+        $text = [System.IO.File]::ReadAllText($FullPath).Replace("`r`n", "`n")
         $fences = @(& $getCodeFence -Text $text | Where-Object { $_.Language -eq 'powershell' })
 
         $failures = foreach ($fence in $fences) {
@@ -261,7 +261,7 @@ Describe 'Content of instruction files' -Tag 'Unit' {
     }
 
     It 'Names only files that exist in <RelativePath>' -ForEach $markdownCases {
-        $text = [System.IO.File]::ReadAllText($FullPath)
+        $text = [System.IO.File]::ReadAllText($FullPath).Replace("`r`n", "`n")
         $mentioned = [regex]::Matches($text, '`(?<path>\.github/instructions/[\w./-]+\.md)`') |
             ForEach-Object { $_.Groups['path'].Value } |
             Sort-Object -Unique
@@ -276,7 +276,7 @@ Describe 'Content of instruction files' -Tag 'Unit' {
     }
 
     It 'Links only to files that ship with the instructions in <RelativePath>' -ForEach $markdownCases {
-        $text = [System.IO.File]::ReadAllText($FullPath)
+        $text = [System.IO.File]::ReadAllText($FullPath).Replace("`r`n", "`n")
         $prose = $text
         foreach ($fence in & $getCodeFence -Text $text) {
             if ($fence.Code) {
@@ -305,7 +305,7 @@ Describe 'Content of instruction files' -Tag 'Unit' {
     }
 
     It 'Has only ASCII PowerShell samples and no emoji in <RelativePath>' -ForEach $markdownCases {
-        $text = [System.IO.File]::ReadAllText($FullPath)
+        $text = [System.IO.File]::ReadAllText($FullPath).Replace("`r`n", "`n")
         $fences = @(& $getCodeFence -Text $text | Where-Object { $_.Language -eq 'powershell' })
 
         # Agents copy samples into source files, where non-ASCII characters break Windows PowerShell 5.1.
