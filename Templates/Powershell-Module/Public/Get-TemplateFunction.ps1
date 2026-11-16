@@ -1,190 +1,79 @@
 function Get-TemplateFunction {
-    # This is the pre-first-generation state of a public function. The full comment block
-    # below is still here because New-MarkdownCommandHelp reads it to seed the Markdown in
-    # docs/ModuleName/. After that first run, add an EXTERNALHELP keyword naming
-    # ModuleName-Help.xml as the first entry INSIDE the block below, and cut the rest to a
-    # one-line SYNOPSIS - the Markdown becomes canonical from then on. Adding that keyword
-    # before generating would suppress this help and leave you with empty templates.
-    # See .github/instructions/platyps.instructions.md
-
-
     <#
     .SYNOPSIS
-    Template function demonstrating enterprise PowerShell standards.
+    Gets the settings that the module defines for an environment.
 
     .DESCRIPTION
-    This template function showcases modern PowerShell best practices including
-    proper error handling, parameter validation, configuration usage, and
-    enterprise logging patterns. Use this as a starting point for new functions.
+    Reads the settings file of the module once, then emits one object for each requested
+    environment. An environment that the file does not define is reported as a non-terminating
+    error and the remaining names are still processed. A settings file that cannot be read, or that
+    has no Environments table, is a terminating error.
 
-    .PARAMETER ServiceName
-    The name of the service to query or process.
-
-    .PARAMETER EnvironmentType
-    The target environment for the operation.
-
-    .PARAMETER IncludeMetrics
-    When specified, includes performance metrics in the output.
+    .PARAMETER Name
+    One or more environment names, such as Development or Production.
 
     .EXAMPLE
-    Get-TemplateFunction -ServiceName "UserService" -EnvironmentType "Production"
+    Get-TemplateFunction -Name 'Production'
 
-    Processes the UserService for production environment with default settings.
+    Gets the settings of the Production environment.
 
     .EXAMPLE
-    Get-TemplateFunction -ServiceName "DataService" -EnvironmentType "Development" -IncludeMetrics
+    'Development', 'Production' | Get-TemplateFunction
 
-    Processes the DataService for development environment including performance metrics.
+    Gets the settings of two environments, taking the names from the pipeline.
+
+    .INPUTS
+    System.String. You can pipe environment names to this function.
 
     .OUTPUTS
-    ServiceProcessingResult. Returns processing results with status and data.
+    ModuleName.EnvironmentSetting. An object with Name, LogLevel, TimeoutSeconds, and RetryCount
+    properties.
     #>
     [CmdletBinding()]
-    # Quoted: the function returns a PSCustomObject carrying PSTypeName =
-    # 'ServiceProcessingResult'. [ServiceProcessingResult] would be a .NET type
-    # reference and fails with "Unable to find type".
-    [OutputType('ServiceProcessingResult')]
+    [OutputType('ModuleName.EnvironmentSetting')]
     param(
         [Parameter(Mandatory, ValueFromPipeline)]
-        [ValidateNotNullOrEmpty()]
-        [string]$ServiceName,
-
-        [Parameter()]
-        [ValidateSet('Development', 'Testing', 'Production')]
-        [string]$EnvironmentType = 'Development',
-
-        [Parameter()]
-        [switch]$IncludeMetrics,
-
-        [Parameter()]
-        [string]$CorrelationId = [System.Guid]::NewGuid().ToString()
+        [string[]]$Name
     )
 
     begin {
-        Write-Verbose "Starting template function processing - CorrelationId: $CorrelationId"
+        try {
+            $settings = Import-TemplateSetting -ErrorAction Stop
+        } catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
 
-        # Load environment-specific configuration
-        $config = Get-EnvironmentConfiguration -Environment $EnvironmentType
-
-        # Initialize performance tracking if requested
-        if ($IncludeMetrics) {
-            $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $environments = $settings['Environments']
+        if ($environments -isnot [hashtable]) {
+            $message = 'The settings file of the module does not define an Environments table.'
+            $exception = [System.IO.InvalidDataException]::new($message)
+            $category = [System.Management.Automation.ErrorCategory]::InvalidData
+            $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                $exception, 'EnvironmentsNotDefined', $category, $null)
+            $PSCmdlet.ThrowTerminatingError($errorRecord)
         }
     }
 
     process {
-        try {
-            # Validate service name parameter before using in function calls
-            if (-not $ServiceName.Trim()) {
-                Write-Error "ServiceName cannot be empty or whitespace" -ErrorAction Stop
-                return
+        foreach ($item in $Name) {
+            if (-not $environments.ContainsKey($item)) {
+                $message = "The environment '$item' is not defined in the settings file of the module."
+                $exception = [System.Management.Automation.ItemNotFoundException]::new($message)
+                $category = [System.Management.Automation.ErrorCategory]::ObjectNotFound
+                $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                    $exception, 'EnvironmentNotFound', $category, $item)
+                $PSCmdlet.WriteError($errorRecord)
+                continue
             }
 
-            # Use ServiceName in service validation
-            if (-not (Test-ServiceConnection -ServiceName $ServiceName.Trim() -Timeout $config.ConnectionTimeout)) {
-                Write-Error "Service '$ServiceName' is not available or not responding" -ErrorAction Stop
-                return
+            $environment = $environments[$item]
+            [PSCustomObject]@{
+                PSTypeName = 'ModuleName.EnvironmentSetting'
+                Name = $item
+                LogLevel = $environment['LogLevel']
+                TimeoutSeconds = $environment['TimeoutSeconds']
+                RetryCount = $environment['RetryCount']
             }
-
-            # Process based on environment configuration using all parameters
-            $processingOptions = @{
-                ServiceName = $ServiceName.Trim()
-                Environment = $EnvironmentType
-                AuditLevel = $config.AuditLevel
-                RetryCount = $config.RetryCount
-                CorrelationId = $CorrelationId
-            }
-
-            Write-Verbose "Processing service '$ServiceName' in '$EnvironmentType' environment - CorrelationId: $CorrelationId"
-
-            # Simulate service processing with configuration-driven behavior
-            $serviceData = Invoke-ServiceProcessing @processingOptions
-
-            # Apply environment-specific transformations using EnvironmentType
-            $transformedData = switch ($EnvironmentType) {
-                'Production' {
-                    # Production: Full validation and security checks
-                    $serviceData | Add-Member -MemberType NoteProperty -Name "SecurityValidated" -Value $true -PassThru |
-                    Add-Member -MemberType NoteProperty -Name "ComplianceChecked" -Value $true -PassThru
-                }
-                'Testing' {
-                    # Testing: Add debug information and validation
-                    $serviceData | Add-Member -MemberType NoteProperty -Name "TestingMetadata" -Value @{Environment = $EnvironmentType; DebugMode = $true} -PassThru |
-                    Add-Member -MemberType NoteProperty -Name "ValidationResults" -Value "Passed" -PassThru
-                }
-                'Development' {
-                    # Development: Add extensive debugging information
-                    $serviceData | Add-Member -MemberType NoteProperty -Name "DebugInfo" -Value @{Environment = $EnvironmentType; VerboseLogging = $true} -PassThru |
-                    Add-Member -MemberType NoteProperty -Name "DeveloperNotes" -Value "Enhanced logging enabled" -PassThru
-                }
-            }
-
-            # Create result object using all parameters
-            $result = [PSCustomObject]@{
-                PSTypeName = 'ServiceProcessingResult'
-                Status = "Success"
-                ServiceName = $ServiceName.Trim()
-                Environment = $EnvironmentType
-                Data = $transformedData
-                ProcessingTime = if ($IncludeMetrics -and $stopwatch) { $stopwatch.Elapsed } else { $null }
-                CorrelationId = $CorrelationId
-                Timestamp = Get-Date
-                ConfigurationApplied = @{
-                    AuditLevel = $config.AuditLevel
-                    RetryCount = $config.RetryCount
-                    Timeout = $config.ConnectionTimeout
-                    Environment = $EnvironmentType
-                }
-            }
-
-            # Performance validation based on environment using metrics
-            if ($IncludeMetrics -and $stopwatch -and $stopwatch.ElapsedMilliseconds -gt $config.PerformanceThreshold) {
-                Write-Warning "Processing of '$ServiceName' exceeded performance threshold in '$EnvironmentType' environment - Elapsed: $($stopwatch.ElapsedMilliseconds)ms, Threshold: $($config.PerformanceThreshold)ms - CorrelationId: $CorrelationId"
-                $result | Add-Member -MemberType NoteProperty -Name "PerformanceWarning" -Value $true
-            }
-
-            Write-Output $result
-        }
-        catch {
-            # Modern error handling using $_ instead of $Error[0]
-            $errorDetails = @{
-                ServiceName = $ServiceName.Trim()
-                Environment = $EnvironmentType
-                ErrorMessage = $_.Exception.Message
-                ErrorCategory = $_.CategoryInfo.Category.ToString()
-                ScriptLineNumber = $_.InvocationInfo.ScriptLineNumber
-                CorrelationId = $CorrelationId
-            }
-
-            Write-Verbose "Template function processing failed for '$ServiceName' in '$EnvironmentType' - CorrelationId: $CorrelationId - Error: $($_.Exception.Message)"
-
-            # Environment-appropriate error handling
-            if ($EnvironmentType -eq "Production") {
-                # Production: Re-throw to preserve stack trace
-                Write-Error "Production processing failed for service '$ServiceName': $($_.Exception.Message)" -ErrorAction Stop
-            } else {
-                # Development/Testing: Return error details for debugging
-                $errorResult = [PSCustomObject]@{
-                    PSTypeName = 'ServiceProcessingResult'
-                    Status = "Error"
-                    ServiceName = $ServiceName.Trim()
-                    Environment = $EnvironmentType
-                    ErrorDetails = $errorDetails
-                    CorrelationId = $CorrelationId
-                    Timestamp = Get-Date
-                }
-
-                Write-Output $errorResult
-            }
-        }
-    }
-
-    end {
-        if ($IncludeMetrics -and $stopwatch) {
-            $stopwatch.Stop()
-            Write-Verbose "Template function processing completed for '$ServiceName' in '$EnvironmentType' - Total time: $($stopwatch.ElapsedMilliseconds)ms - CorrelationId: $CorrelationId"
-        } else {
-            Write-Verbose "Template function processing completed for '$ServiceName' in '$EnvironmentType' - CorrelationId: $CorrelationId"
         }
     }
 }

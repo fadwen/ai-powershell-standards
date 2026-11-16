@@ -1,111 +1,25 @@
+# Module manifest. Before the module is used, replace GUID, Author, and Description. Generate the
+# GUID once with New-Guid: every module needs its own.
 @{
-    # Module Information
     RootModule = 'ModuleName.psm1'
-    ModuleVersion = '1.0.0'  # Single source of truth for version (not duplicated in .psm1)
-    GUID = '12345678-1234-1234-1234-123456789012'  # Generate unique GUID
+    ModuleVersion = '1.0.0'
+    GUID = 'ff387de5-6a8c-43cf-844e-788e4e1124b3'
+    Author = 'Your name'
+    Description = 'Replace this text with one sentence that says what the module does.'
 
-    # Author Information
-    Author = 'Jeffrey Stuhr'
-    CompanyName = 'Your Organization'
-    Copyright = '(c) 2025 Your Organization. All rights reserved.'
-    Description = 'Enterprise PowerShell module providing [specific business functionality] with comprehensive security and compliance features.'
-
-    # PowerShell Requirements
-    # 7.6 is the current LTS (supported to 14-Nov-2028). 7.4 and 7.5 both end support 10-Nov-2026.
-    # For Windows PowerShell compatibility instead, use: '5.1' with @('Desktop', 'Core')
-    PowerShellVersion = '7.6'  # Minimum supported version
+    PowerShellVersion = '7.6'
     CompatiblePSEditions = @('Core')
 
-    # Architecture Requirements (if needed)
-    # ProcessorArchitecture = 'None'  # None, X86, Amd64, IA64
-
-    # Required Assemblies
-    # RequiredAssemblies = @()
-
-    # Required Modules (dependencies)
-    RequiredModules = @(
-        # Add only necessary dependencies
-        # @{ ModuleName = 'PSFramework'; ModuleVersion = '1.7.270' }
-    )
-
-    # Scripts to run before importing module
-    # ScriptsToProcess = @()
-
-    # Type files to load
-    # TypesToProcess = @()
-
-    # Format files to load
-    # FormatsToProcess = @()
-
-    # Assemblies to load
-    # NestedModules = @()
-
-    # Expert feedback: With proper manifest, no need for Export-ModuleMember in .psm1
-    # These declarations provide the single source of truth for exports
-
-    # Functions to export - be explicit about what you're exposing
-    # Name every public function here. This is the module's contract, and it
-    # removes any need for Export-ModuleMember. The list must match what actually
-    # exists under Public/ - a name with no matching function exports nothing, and
-    # a function omitted here stays invisible to callers however it is loaded.
-    FunctionsToExport = @(
-        'Get-TemplateFunction'
-    )
-
-    # Cmdlets to export (usually empty for pure PowerShell modules)
+    # Name every function in the Public folder here. A function that is not named is not exported.
+    FunctionsToExport = @('Get-TemplateFunction')
     CmdletsToExport = @()
-
-    # Variables to export (usually empty for security)
     VariablesToExport = @()
-
-    # Aliases to export (use sparingly)
     AliasesToExport = @()
 
-    # DSC Resources to export
-    # DscResourcesToExport = @()
-
-    # Module list - modules packaged with this module
-    # ModuleList = @()
-
-    # File list - all files packaged with this module
-    # FileList = @()
-
-    # Private data for module metadata
     PrivateData = @{
         PSData = @{
-            # Module metadata for PowerShell Gallery
-            Tags = @('Enterprise', 'PowerShell', 'Automation', 'Security')
-            LicenseUri = 'https://github.com/YourOrg/ModuleName/blob/main/LICENSE'
-            ProjectUri = 'https://github.com/YourOrg/ModuleName'
-            # Omit IconUri when there is no icon. '' aborts the pack with "IconUrl cannot be empty".
-            IconUri = 'https://github.com/YourOrg/ModuleName/blob/main/icon.png'
-            # Current release only. The Gallery refuses more than 10,600 characters, at upload.
-            ReleaseNotes = 'See CHANGELOG.md for detailed release notes'
-
-            # External module dependencies (not available in PowerShell Gallery)
-            # ExternalModuleDependencies = @()
-
-            # Prerelease version suffix
-            # Prerelease = 'alpha'
-
-            # Minimum PowerShell version required
-            # RequireLicenseAcceptance = $false
-        }
-
-        # Enterprise-specific metadata
-        Enterprise = @{
-            SupportContact = 'it-support@yourorg.com'
-            DocumentationUri = 'https://docs.yourorg.com/powershell/modulename'
-            TroubleshootingUri = 'https://docs.yourorg.com/powershell/modulename/troubleshooting'
-            SecurityContact = 'security@yourorg.com'
-            ComplianceFrameworks = @('SOX', 'GDPR', 'HIPAA')
+            # Add ProjectUri and LicenseUri beside Tags when the module has a repository and a license.
+            Tags = @()
         }
     }
-
-    # Help Info URI for updatable help. Leave the key out rather than setting it to '',
-    # which fails the pack the same way an empty IconUri does.
-    # HelpInfoURI = 'https://docs.yourorg.com/powershell/modulename/help'
-
-    # Default command prefix (use sparingly to avoid conflicts)
-    # DefaultCommandPrefix = ''
 }

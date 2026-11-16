@@ -1,316 +1,177 @@
 # Integration Test Template
 
-Targets **Pester 6.2+**. Uses the `Should-*` assertion syntax - see
-[Assertion Guide](./assertion-guide.md).
+An integration test file: the module runs against the real file system and a real service, with
+nothing mocked. The rules it follows are in the [Pester rules](../powershell-pester.instructions.md).
+The file below passes on Pester 6.2.0 under PowerShell 7.6 and Windows PowerShell 5.1, with the
+service configured and without it.
 
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
+## The Code Under Test
 
-## Standard Integration Test Structure
+The template tests the module `ModuleName` from the [unit test template](./unit-test-template.md).
+The test file is in the `Tests` folder directly under the module root.
 
-Use this template for integration tests that validate component interactions:
+- `Export-Thing -Thing <object[]> -LiteralPath <string>` writes the things to a JSON file as UTF-8
+  without a byte order mark. The file holds a `savedAt` time and a `things` array. The function
+  supports `-WhatIf`.
+- `Get-Thing -Name <string[]> -ServiceUri <uri>` reads things from the service at that address.
+
+The address of a test instance of the service comes from the environment variable
+`THING_SERVICE_URI`.
+
+## The Test File
 
 ```powershell
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
 
-# Integration tests touch shared external resources - databases, ports, live endpoints -
-# so they must not run concurrently with other files.
 #pester:no-parallel
 
+BeforeDiscovery {
+    $serviceIsMissing = [string]::IsNullOrEmpty($env:THING_SERVICE_URI)
+}
+
 BeforeAll {
-    # Import module under test. Each file is self-contained in Pester 6.
-    $ModulePath = Join-Path $PSScriptRoot '..\..\ModuleName.psd1'
-    Import-Module $ModulePath -Force
-
-    # Set up test environment
-    $TestEnvironment = @{
-        DatabaseConnection = $env:TEST_DATABASE_CONNECTION
-        APIEndpoint = $env:TEST_API_ENDPOINT
-        TempDirectory = Join-Path $env:TEMP "IntegrationTests"
-        TestDataPath = Join-Path $PSScriptRoot "..\TestData"
-    }
-
-    # Create test resources
-    if (-not (Test-Path $TestEnvironment.TempDirectory)) {
-        New-Item -Path $TestEnvironment.TempDirectory -ItemType Directory -Force
-    }
-
-    # Load test configuration
-    $TestConfig = Import-PowerShellDataFile (Join-Path $TestEnvironment.TestDataPath "integration-config.psd1")
-}
-
-AfterAll {
-    # Cleanup test resources
-    if (Test-Path $TestEnvironment.TempDirectory) {
-        Remove-Item -Path $TestEnvironment.TempDirectory -Recurse -Force
-    }
-
-    # Cleanup test data
-    if ($TestConfig.CleanupRequired) {
-        Invoke-TestCleanup -Configuration $TestConfig
+    $moduleRoot = Split-Path -Path $PSScriptRoot -Parent
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module -Name (Join-Path -Path $moduleRoot -ChildPath 'ModuleName.psd1')
     }
 }
 
-Describe "Integration Tests" -Tag "Integration", "EndToEnd" {
-    Context "End-to-End Workflow" {
-        It "Should complete full business process" {
-            # Execute complete workflow
-            $result = Invoke-CompleteWorkflow -Configuration $TestEnvironment
-
-            # Validate end-to-end results
-            $result.Success        | Should-BeTrue
-            $result.ProcessedItems | Should-BeGreaterThan 0
-            $result.Errors         | Should-BeCollection @()
-            $result.ExecutionTime  | Should-BeLessThan ([TimeSpan]::FromMinutes(5))
-        }
-
-        It "Should handle partial failures gracefully" {
-            # Inject controlled failures
-            $testData = Get-TestData -Type 'PartialFailure'
-
-            $result = Invoke-CompleteWorkflow -Configuration $TestEnvironment -TestData $testData
-
-            # Should complete with warnings
-            $result.Success        | Should-BeTrue
-            $result.Warnings       | Should-NotBeNull
-            $result.ProcessedItems | Should-BeGreaterThan 0
-        }
-
-        It "Should maintain data consistency across components" {
-            $testId = [System.Guid]::NewGuid().ToString()
-
-            # Create data in first component
-            New-TestEntity -Id $testId -Data @{ Name = 'IntegrationTest'; Value = 'TestValue' } |
-                Should-BeEquivalent ([PSCustomObject]@{ Success = $true }) -ExcludePathsNotOnExpected
-
-            # Retrieve from second component
-            Get-TestEntity -Id $testId | Should-BeEquivalent ([PSCustomObject]@{
-                Name  = 'IntegrationTest'
-                Value = 'TestValue'
-            }) -ExcludePathsNotOnExpected
-
-            # Update through third component
-            (Set-TestEntity -Id $testId -Value 'UpdatedValue').Success | Should-BeTrue
-
-            # Verify consistency
-            (Get-TestEntity -Id $testId).Value | Should-Be 'UpdatedValue'
-        }
+Describe 'Export-Thing with the real file system' -Tag 'Integration' {
+    BeforeAll {
+        $things = @(
+            [PSCustomObject]@{ PSTypeName = 'ModuleName.Thing'; Name = 'alpha'; State = 'ready' }
+            [PSCustomObject]@{ PSTypeName = 'ModuleName.Thing'; Name = 'beta'; State = 'stopped' }
+        )
     }
 
-    Context "External Service Dependencies" {
-        BeforeEach {
-            # Verify test environment connectivity
-            $connectivityTest = Test-ExternalServiceConnectivity -Endpoint $TestEnvironment.APIEndpoint
-            if (-not $connectivityTest.Success) {
-                Set-ItResult -Skipped -Because "External service not available: $($connectivityTest.Error)"
-            }
+    It 'Writes a file that reads back as the same things' {
+        $exportPath = Join-Path -Path $TestDrive -ChildPath 'things.json'
+
+        $things | Export-Thing -LiteralPath $exportPath
+
+        $document = Get-Content -LiteralPath $exportPath -Raw | ConvertFrom-Json
+        $expected = [PSCustomObject]@{
+            things = @(
+                [PSCustomObject]@{ name = 'alpha'; state = 'ready' }
+                [PSCustomObject]@{ name = 'beta'; state = 'stopped' }
+            )
         }
-
-        It "Should handle external service integration" {
-            # Test with real external services (controlled test environment)
-            $serviceResult = Test-ExternalServiceIntegration -Endpoint $TestEnvironment.APIEndpoint
-
-            $serviceResult.Connected     | Should-BeTrue
-            $serviceResult.ResponseTime  | Should-BeLessThan 5000
-            $serviceResult.DataExchanged | Should-BeTrue
-        }
-
-        It "Should retry on transient failures" {
-            # Simulate transient failure scenario
-            $retryResult = Invoke-ServiceWithRetry -Endpoint $TestEnvironment.APIEndpoint -MaxRetries 3
-
-            $retryResult.Success      | Should-BeTrue
-            $retryResult.AttemptCount | Should-BeGreaterThan 1
-            $retryResult.AttemptCount | Should-BeLessThanOrEqual 3 -Because 'MaxRetries caps attempts at 3'
-        }
-
-        It "Should circuit break on persistent failures" {
-            # Test circuit breaker pattern
-            $circuitResult = Invoke-ServiceWithCircuitBreaker -Endpoint 'http://invalid-endpoint.test'
-
-            $circuitResult.CircuitOpen   | Should-BeTrue
-            $circuitResult.ExecutionTime | Should-BeLessThan ([TimeSpan]::FromSeconds(10))
-        }
+        $document | Should-BeEquivalent $expected -ExcludePath 'savedAt'
     }
 
-    Context "Data Persistence" {
-        It "Should persist data correctly across sessions" {
-            $testData = @{
-                Name = 'IntegrationTest'
-                Value = 'TestValue'
-                Timestamp = Get-Date
-                ComplexData = @{
-                    NestedProperty = 'NestedValue'
-                    ArrayProperty = @(1, 2, 3)
-                }
-            }
+    It 'Writes UTF-8 without a byte order mark' {
+        $exportPath = Join-Path -Path $TestDrive -ChildPath 'encoding.json'
 
-            # Save data
-            $saveResult = Save-TestData -Data $testData -Connection $TestEnvironment.DatabaseConnection
-            $saveResult.Success  | Should-BeTrue
-            $saveResult.RecordId | Should-NotBeNull
+        $things | Export-Thing -LiteralPath $exportPath
 
-            # Retrieve data in new session
-            $retrievedData = Get-TestData -Id $saveResult.RecordId -Connection $TestEnvironment.DatabaseConnection
-
-            # Verify data integrity. One deep comparison beats four property assertions and
-            # reports a property-by-property diff when the round trip loses something.
-            # Timestamp is excluded because storage may re-quantize it.
-            $retrievedData | Should-BeEquivalent $testData -ExcludePath 'Timestamp'
-        }
-
-        It "Should handle concurrent data access" {
-            $testId = [System.Guid]::NewGuid().ToString()
-
-            # Create concurrent operations
-            $jobs = 1..5 | ForEach-Object {
-                Start-Job -ScriptBlock {
-                    param($TestId, $WorkerId)
-
-                    # Simulate concurrent data access
-                    Set-TestData -Id $TestId -Worker $WorkerId -Value "Worker$WorkerId-$(Get-Date -Format 'HHmmss')"
-                } -ArgumentList $testId, $_
-            }
-
-            # Wait for completion
-            $results = $jobs | Wait-Job | Receive-Job
-            $jobs | Remove-Job
-
-            # Verify no data corruption
-            Get-TestData -Id $testId | Should-NotBeNull
-            $results | Should-BeCollection -Count 5
-        }
-
-        It "Should maintain referential integrity" {
-            # Create parent record
-            $parentId = [System.Guid]::NewGuid().ToString()
-            (New-TestParent -Id $parentId -Name 'TestParent').Success | Should-BeTrue
-
-            # Create child records
-            1..3 | ForEach-Object {
-                (New-TestChild -ParentId $parentId -Name "TestChild$_").Success | Should-BeTrue
-            }
-
-            # Verify relationships
-            $children = Get-TestChildren -ParentId $parentId
-            $children | Should-BeCollection -Count 3
-            $children | Should-All { $_.ParentId -eq $parentId }
-
-            # Test cascade operations
-            (Remove-TestParent -Id $parentId -Cascade).Success | Should-BeTrue
-
-            # Verify cascade worked
-            Get-TestChildren -ParentId $parentId | Should-BeCollection @()
-        }
+        # 123 is the opening brace. A byte order mark would put 239 first.
+        $bytes = [System.IO.File]::ReadAllBytes($exportPath)
+        $bytes.Count | Should-BeGreaterThan 0
+        $bytes[0] | Should-Be 123
     }
 
-    Context "Cross-Platform Compatibility" {
-        # Pester 6 supports Windows PowerShell 5.1 and PowerShell 7.4+ only.
-        It "Should work on Windows PowerShell 5.1" -Skip:($PSVersionTable.PSVersion.Major -ne 5) {
-            $result = Invoke-CrossPlatformFunction -Platform 'Windows' -PowerShellVersion '5.1'
-            $result.Success  | Should-BeTrue
-            $result.Platform | Should-Be 'Windows'
-        }
+    It 'Writes nothing when -WhatIf is passed' {
+        $exportPath = Join-Path -Path $TestDrive -ChildPath 'whatif.json'
 
-        It "Should work on PowerShell 7.4+" -Skip:($PSVersionTable.PSVersion -lt [version]'7.4') {
-            $result = Invoke-CrossPlatformFunction -Platform $PSVersionTable.Platform -PowerShellVersion $PSVersionTable.PSVersion
-            $result.Success               | Should-BeTrue
-            $result.CrossPlatformFeatures | Should-BeTrue
-        }
+        $things | Export-Thing -LiteralPath $exportPath -WhatIf
 
-        It "Should handle path separators correctly" {
-            $testPath = Join-Path 'parent' 'child' 'file.txt'
-            $result = Test-PathHandling -Path $testPath
+        Test-Path -LiteralPath $exportPath | Should-BeFalse
+    }
 
-            $result.Success        | Should-BeTrue
-            $result.NormalizedPath | Should-NotBeNull
+    It 'Throws when the folder does not exist' {
+        $missingFolder = Join-Path -Path $TestDrive -ChildPath 'missing'
+        $exportPath = Join-Path -Path $missingFolder -ChildPath 'things.json'
 
-            # Verify platform-specific path handling.
-            # $IsWindows is undefined on Windows PowerShell 5.1, which is always Windows.
-            $onWindows = $PSVersionTable.PSVersion.Major -eq 5 -or $IsWindows
-            if ($onWindows) {
-                $result.NormalizedPath | Should-MatchString '\\'
-            } else {
-                $result.NormalizedPath | Should-MatchString '/'
-            }
-        }
+        $failure = { $things | Export-Thing -LiteralPath $exportPath } |
+            Should-Throw -ExceptionType ([System.Management.Automation.MethodInvocationException])
+
+        $failure.Exception.InnerException | Should-HaveType ([System.IO.DirectoryNotFoundException])
+    }
+}
+
+Describe 'Get-Thing with the real service' -Tag 'Integration' -Skip:$serviceIsMissing {
+    BeforeAll {
+        $serviceUri = $env:THING_SERVICE_URI
+    }
+
+    It 'Reads a thing that exists' {
+        $result = @(Get-Thing -Name 'alpha' -ServiceUri $serviceUri)
+
+        $result | Should-BeCollection -Count 1
+        $result[0] | Should-HaveType 'ModuleName.Thing'
+        $result[0].Name | Should-Be 'alpha'
+    }
+
+    It 'Reports a thing that does not exist as one non-terminating error' {
+        $output = Get-Thing -Name 'no-such-thing' -ServiceUri $serviceUri 2>&1
+        $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+
+        $output | Should-BeCollection -Count 1
+        $errors | Should-BeCollection -Count 1
+        $errors[0].FullyQualifiedErrorId | Should-Be 'ThingReadFailed,Get-Thing'
     }
 }
 ```
 
-## Pester 6 Notes for Integration Tests
+## What The Template Shows
 
-### Opt out of parallel execution
+### Real Files Go In The Test Drive
 
-Integration tests hold shared external resources - a database, a fixed port, a live endpoint. Two
-files touching the same resource concurrently will produce flaky, hard-to-diagnose failures. Put
-`#pester:no-parallel` at the top of every integration test file. Those files run serially in the
-parent session while unit test files run in parallel.
+Every file is created under `$TestDrive` (TST-03). Pester creates that folder for the test file and
+removes it afterwards, so the tests need no cleanup code and cannot leave files behind. Anything
+else that a test changes, such as an environment variable or a record in the service, must be
+restored in `AfterAll` or `AfterEach` (TST-31).
 
-### `Set-ItResult -Pending` is gone
+### A Missing Environment Is Skipped At Discovery
 
-Use `-Skipped` (with `-Because`) or `-Inconclusive`:
+`-Skip:` takes a value that is known during discovery, so it is computed in `BeforeDiscovery`. The
+tests of a skipped block are reported as `Skipped`, and the block's `BeforeAll` does not run.
 
-```powershell
-BeforeEach {
-    $connectivity = Test-ExternalServiceConnectivity -Endpoint $TestEnvironment.APIEndpoint
-    if (-not $connectivity.Success) {
-        Set-ItResult -Skipped -Because "External service not available: $($connectivity.Error)"
-    }
-}
-```
+Skip only for an environment that is not configured. When the address is set and the service does
+not answer, the tests must fail; a skip there would hide the outage. A test can still mark itself at
+run time with `Set-ItResult -Skipped -Because '<reason>'` or `Set-ItResult -Inconclusive`, from the
+`It` block or from `BeforeEach`. `Set-ItResult -Pending` was removed in Pester 6.
 
-### Environment-driven test cases must not be empty
+Tag the `Describe` blocks `Integration` (TST-04), so that a run can leave them out with
+`Filter.ExcludeTag`.
 
-An integration suite that builds `-ForEach` from environment configuration will **fail discovery**
-in Pester 6 if that configuration is missing, rather than silently running zero tests. This is
-usually what you want. Where an empty set is legitimate, be explicit:
+### Test Cases From The Environment
 
-```powershell
-It "Should reach <Endpoint>" -ForEach $configuredEndpoints -AllowNullOrEmptyForEach {
-    Test-Endpoint -Uri $Endpoint | Should-BeTrue
-}
-```
+A `-ForEach` list that is built from configuration is empty when the configuration is missing, and
+Pester 6 then stops discovery of the file instead of running no tests. That is usually the right
+outcome. The unit test template shows `-AllowNullOrEmptyForEach` for the case where an empty list is
+legitimate.
 
-### Prefer `Should-BeEquivalent` for round trips
+### Whole Objects Are Compared With Should-BeEquivalent
 
-Persistence and API tests compare whole objects. One `Should-BeEquivalent` with `-ExcludePath` for
-volatile fields (generated ids, timestamps) gives a property-by-property diff, where a run of
-individual property assertions only tells you about the first mismatch.
+One `Should-BeEquivalent` reports every property that differs after a round trip. `-ExcludePath`
+leaves out a value that changes on every run, here `savedAt`. `Should-BeEquivalent` does not compare
+the order of a collection; add index assertions after a count when order is part of the contract.
 
-## Integration Test Guidelines
+### A .NET Failure Arrives Wrapped
 
-### Test Environment Setup
+`Export-Thing` writes with `[System.IO.File]::WriteAllText()` and passes a failure on with
+`$PSCmdlet.ThrowTerminatingError($_)`. `Should-Throw -ExceptionType` compares the outer exception,
+which is a `MethodInvocationException`. The test asserts that type and then reads the original
+exception from the error record that `Should-Throw` returns.
 
-- Use environment variables for configuration
-- Create isolated test resources
-- Verify external service availability
-- Clean up resources after tests
+### The File Does Not Run In Parallel
 
-### End-to-End Testing
+The comment `#pester:no-parallel` keeps the file out of the worker runspaces when a run sets
+`Run.Parallel`; such files run one after another in the main session. It has no effect otherwise.
+`Run.Parallel` is experimental and off by default. Mark a file this way when it uses a resource that
+two files cannot share, such as a fixed port or a record in a test service.
 
-- Test complete business workflows
-- Validate component interactions
-- Verify data flow and consistency
-- Test error propagation and recovery
+### Both Editions
 
-### External Dependencies
+The file runs unchanged on Windows PowerShell 5.1 because it avoids what differs there:
 
-- Use real services in controlled environment
-- Test connectivity and error handling
-- Validate retry and circuit breaker patterns
-- Mock only when real services unavailable
+- Each `Join-Path` call has one child path. `Join-Path 'a' 'b' 'c'` is an error on 5.1; nest the
+  calls.
+- `$IsWindows` does not exist on 5.1, and reading it under strict mode is an error. Test
+  `$PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows`, which reads it only on PowerShell 7.
+- The byte order mark is asserted from the bytes of the file, not from the encoding name, because
+  `-Encoding utf8` means different things on the two editions (STY-33).
 
-### Data Persistence Testing
-
-- Test CRUD operations
-- Verify data integrity and consistency
-- Test concurrent access scenarios
-- Validate referential integrity
-
-### Cross-Platform Considerations
-
-- Test on multiple PowerShell versions
-- Verify path handling differences
-- Test platform-specific features
-- Use conditional test execution
+To limit a test to one edition, pass a discovery-time condition such as
+`-Skip:($PSVersionTable.PSEdition -ne 'Core')`.

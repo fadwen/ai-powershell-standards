@@ -1,29 +1,23 @@
+# A class gives the output of Get-ExampleData a type name that [OutputType()], the help, and the
+# tests can refer to, and it keeps IsUsable() beside the data that the method reads.
 class ExampleServiceResult {
-    <#
-        Demonstrates a PowerShell class used as a descriptive output type.
-
-        The standards discourage [OutputType([PSCustomObject])] because it tells a
-        caller nothing about the shape returned. A class names the shape, provides
-        IntelliSense, and lets behaviour live alongside the data.
-    #>
-
     [string]$ServiceName
     [string]$Environment
+
     [ValidateSet('Healthy', 'Degraded', 'Unavailable')]
     [string]$Status
-    [datetime]$CheckedAt
-    [guid]$CorrelationId
 
-    ExampleServiceResult([string]$ServiceName, [string]$Environment, [guid]$CorrelationId) {
+    [datetime]$CheckedAt
+
+    ExampleServiceResult([string]$ServiceName, [string]$Environment, [string]$Status) {
         $this.ServiceName = $ServiceName
         $this.Environment = $Environment
-        $this.Status = 'Unavailable'
+        $this.Status = $Status
         $this.CheckedAt = Get-Date
-        $this.CorrelationId = $CorrelationId
     }
 
     [bool] IsUsable() {
-        return $this.Status -in @('Healthy', 'Degraded')
+        return $this.Status -in 'Healthy', 'Degraded'
     }
 
     [string] ToString() {

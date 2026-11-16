@@ -1,37 +1,36 @@
 # AI PowerShell Standards
 
-Enterprise PowerShell standards shared by GitHub Copilot and Claude Code. The standards live under
-`.github/` and are the single source of truth. Nothing under `.claude/` restates them.
+PowerShell standards shared by GitHub Copilot, Claude Code, and Codex. The rules live once, under
+`standards/`, and `Tools/Build-AgentInstructions.ps1` generates every file that an agent reads.
+Nothing under `.github/`, `.claude/`, or `.agents/` is edited by hand, apart from the Pester guides.
 
-- Always-on standards: `.claude/rules/powershell-standards/copilot-instructions.md` imports
-  `.github/copilot-instructions.md`. A rule with no `paths` loads at launch, like CLAUDE.md.
-- Scoped standards: `.github/instructions/*.instructions.md`, loaded per file type by the other rules
-  in `.claude/rules/powershell-standards/`. Each uses the same globs as its instruction file's `applyTo`,
-  except that `applyTo: '**'` becomes a rule with no `paths`, which loads at launch.
-- Pull requests: branch, commit, and PR conventions live in
-  `.github/instructions/pull-requests.instructions.md` and load in every session.
-- Prompts: each file in `.github/prompts/` has a command in `.claude/commands/powershell-standards/`
-  that attaches it, for example `/powershell-standards:create-test`.
-- The sync workflow mirrors `.github/`, `powershell-standards/`, and the two `powershell-standards/`
-  folders under `.claude/rules/` and `.claude/commands/` into consuming projects. Anything an
-  instruction file links to must live under one of those. Link to the rest of this repository by
-  absolute GitHub URL.
+- Always-on rules: `.claude/rules/powershell-standards/copilot-instructions.md` imports
+  `.github/copilot-instructions.md`. A rule with no `paths` loads at launch, like this file.
+- Scoped rules: the other files in `.claude/rules/powershell-standards/` import
+  `.github/instructions/powershell-*.instructions.md` and carry the same globs as each file's
+  `applyTo`. A topic whose glob is `**` becomes a rule with no `paths`.
+- Pull requests: branch, commit, and PR conventions are in
+  `.github/instructions/powershell-pull-requests.instructions.md` and load in every session.
+- Skills: `.claude/skills/powershell-*` are copies of `standards/skills/`.
+- `AGENTS.md` points Codex to the core. GitHub Copilot reads it too, which is why it does not repeat
+  the rules.
 
 ## Working in this repository
 
-- Read the relevant instruction file before building anything. When its wording is ambiguous, match
-  the worked examples under `powershell-standards/Examples/`, which pass every gate and are mirrored
-  into consuming projects by the sync workflow.
-- Target PowerShell 7.6 (LTS) with Windows PowerShell 5.1 compatibility. Tests are Pester 6.2.
-- Run the gates locally before opening a PR. CI runs the same checks from
+- Before starting, run `git fetch` and confirm that the branch is not behind `origin/main`.
+- Change a rule in `standards/rules/`, then run `./Tools/Build-AgentInstructions.ps1` and commit the
+  sources and the generated files together.
+- Test a claim about PowerShell, Pester, or a tool on PowerShell 7.6 and Windows PowerShell 5.1
+  before writing it into a rule, and say what was measured.
+- When a rule's wording is ambiguous, match the tested templates under `standards/examples/` and the
+  worked examples under `powershell-standards/Examples/`.
+- Run the gate before opening a PR. CI runs the same script from
   `.github/workflows/quality-gates-pr.yml`:
-  - `./Tools/Test-StandardsCompliance.ps1 -Path .`
-  - `Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error, Warning`
-  - `Invoke-Pester` from the repository root
+  - `./Tools/Invoke-QualityGate.ps1` (PowerShell 7.6, PSScriptAnalyzer 1.25.0, Pester 6.2.0)
   - `markdownlint-cli2 "**/*.md" "!**/docs/*/*.md"` using `.markdownlint.json` (120-column lines)
-- `Templates/` is scaffolding and stays out of coverage. `Documentation/Anti-Patterns/Test-QualityGates.ps1`
-  demonstrates violations on purpose. Do not "fix" either.
-- When you add or rescope a file in `.github/instructions/`, add or update the matching
-  `.claude/rules/powershell-standards/<name>.md` so its `paths` stay identical to `applyTo`.
-- When you add a prompt file, add the matching command. `Tools/Tests/ClaudeMirror.Tests.ps1` fails
-  when either mirror drifts from `.github/`.
+- `Templates/` is scaffolding and stays out of coverage.
+  `Documentation/Anti-Patterns/Test-QualityGates.ps1` demonstrates violations on purpose. Do not
+  "fix" either.
+- Keep `.github/prompts/`, `powershell-standards/`, and `.claude/commands/powershell-standards/` in
+  place. Consuming repositories that run an earlier sync workflow copy those folders, and their sync
+  fails when one is missing.

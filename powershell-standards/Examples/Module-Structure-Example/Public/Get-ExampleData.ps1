@@ -1,55 +1,35 @@
 function Get-ExampleData {
-    # The full help for this command lives in docs/ModuleExample/Get-ExampleData.md and
-    # ships compiled as en-US/ModuleExample-Help.xml. See
-    # .github/instructions/platyps.instructions.md
-
     <#
     .EXTERNALHELP ModuleExample-Help.xml
     .SYNOPSIS
-        Retrieves service status for one or more services.
+    Gets the status of one or more services.
     #>
-
     [CmdletBinding()]
     [OutputType('ExampleServiceResult')]
     param(
         [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [string[]]$ServiceName,
 
-        [Parameter()]
         [ValidateSet('Development', 'Test', 'Production')]
-        [string]$Environment = 'Development',
-
-        [Parameter()]
-        [guid]$CorrelationId = [guid]::NewGuid()
+        [string]$Environment = 'Development'
     )
 
     begin {
-        Write-Verbose "Starting $($MyInvocation.MyCommand.Name) - CorrelationId: $CorrelationId"
-        $session = Connect-ExampleService -Environment $Environment -CorrelationId $CorrelationId
-        $failureCount = 0
+        $session = Connect-ExampleService -Environment $Environment
     }
 
     process {
         foreach ($name in $ServiceName) {
             try {
-                $result = [ExampleServiceResult]::new($name, $Environment, $CorrelationId)
-
-                # The one fallible call in the loop. Keeping it in a helper is what
-                # makes the catch below reachable - and therefore testable.
-                $result.Status = Get-ExampleServiceStatus -ServiceName $name -Session $session
-
-                $result
-            }
-            catch {
-                # $_ in the catch block, per the standards - not $Error[0]
-                $failureCount++
-                Write-Error "Failed to query '$name': $($_.Exception.Message) (CorrelationId: $CorrelationId)"
+                $status = Get-ExampleServiceStatus -ServiceName $name -Session $session -ErrorAction Stop
+            } catch {
+                # One service that cannot be queried must not end the batch. Passing the original
+                # error on as non-terminating lets the caller decide that with -ErrorAction.
+                $PSCmdlet.WriteError($_)
                 continue
             }
-        }
-    }
 
-    end {
-        Write-Verbose "Completed with $failureCount failure(s) - CorrelationId: $CorrelationId"
+            [ExampleServiceResult]::new($name, $Environment, $status)
+        }
     }
 }

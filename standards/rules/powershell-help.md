@@ -1,0 +1,152 @@
+# PowerShell help and comments
+
+These rules apply to every `.ps1` and `.psm1` file. They cover comment-based help and ordinary
+comments. Help for commands that a module exports is built from Markdown; that process is described
+in `.github/instructions/powershell-platyps.instructions.md`.
+
+## Rules
+
+### Comment-based help
+
+- **DOC-01** Every function and every script has comment-based help with `.SYNOPSIS`, `.DESCRIPTION`,
+  one `.PARAMETER` for each parameter, at least one `.EXAMPLE`, `.INPUTS`, and `.OUTPUTS`.
+- **DOC-02** In a function, the help block is the first thing inside the function body, before
+  `[CmdletBinding()]`.
+- **DOC-03** In a script, the help block comes before the `param()` block, with a blank line between
+  it and any `#requires` line.
+- **DOC-04** Write new help as a `<# ... #>` block. Help written as consecutive `#` lines is equally
+  valid; do not convert it, and keep a blank line between it and any comment above it.
+- **DOC-05** Help MUST describe what the code does. Performance figures, compliance claims, and
+  behaviour that the code does not have MUST NOT be invented. If a fact is not known, leave it out.
+- **DOC-06** `.OUTPUTS` names the same type as `[OutputType()]`. `.INPUTS` names the type that can be
+  piped in, or says `None`.
+- **DOC-07** Help MUST NOT contain a version number, a date, or a change history. An author name is
+  added only when the user supplies one.
+- **DOC-08** Each `.EXAMPLE` starts with a command that runs as written, followed by a blank line and
+  a sentence saying what it does. An explanatory line placed before that blank line MUST start with
+  `#` and MUST NOT be the first line.
+- **DOC-09** A function that a module exports and documents as external help carries only
+  `.EXTERNALHELP <ModuleName>-Help.xml` and a one-line `.SYNOPSIS`. Private functions and scripts keep
+  full comment-based help.
+
+### Comments
+
+- **DOC-20** A comment explains why the code is the way it is. A comment MUST NOT restate what the
+  code does, and commented-out code MUST NOT be left in a file.
+- **DOC-21** A comment MUST stay true when read on its own. References to a conversation, a review, or
+  an earlier version of the code MUST NOT be written into a file.
+
+## Notes and examples
+
+The function template in the core instructions shows complete help for a function.
+
+**DOC-02.** `Get-Help` finds a help block only in certain positions. Verified on PowerShell 7.6 and
+Windows PowerShell 5.1:
+
+| Position of the help block | Found by `Get-Help` |
+| --- | --- |
+| First in the function body, before `[CmdletBinding()]` | Yes |
+| Last in the function body | Yes |
+| Immediately before the `function` keyword, at most one blank line between | Yes |
+| Before the `function` keyword with two or more blank lines between | No |
+| Between `[CmdletBinding()]` and `param()` | No |
+| After `param()`, before the code | No |
+
+A block that is not found produces no error. `Get-Help` shows only the generated syntax.
+
+**DOC-03.** A `#requires` line directly above the help block, with no blank line, stops `Get-Help`
+from finding the help:
+
+```powershell
+#requires -Version 7.6
+
+<#
+.SYNOPSIS
+Rotates the application log files.
+
+.DESCRIPTION
+Compresses log files older than the retention period and removes the originals.
+
+.PARAMETER LogDirectory
+Folder that contains the log files.
+
+.EXAMPLE
+./Invoke-LogRotation.ps1 -LogDirectory './logs'
+
+Rotates the log files in the logs folder.
+
+.INPUTS
+None.
+
+.OUTPUTS
+None.
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)]
+    [string]$LogDirectory
+)
+```
+
+**DOC-04.** In help written with `#` lines, an ordinary comment directly above the first keyword makes
+the whole block an ordinary comment:
+
+```powershell
+function Get-Example {
+    # Looks up the example record.
+
+    # .SYNOPSIS
+    # Gets an example.
+    [CmdletBinding()]
+    param()
+}
+```
+
+Without the blank line after the first comment, `Get-Help Get-Example` shows no synopsis.
+
+**DOC-08.** `Get-Help` adds the prompt to the first line of an example, so do not type one. Text after
+the blank line is shown as the description. PowerShell 7 shows every line before the blank line as
+code; Windows PowerShell 5.1 shows only the first line as code, which is why the command comes first.
+
+```powershell
+<#
+.EXAMPLE
+Get-ConfigValue -Path './settings.json' -Name 'Region'
+
+Gets the Region value from settings.json.
+
+.EXAMPLE
+$values = 'Region', 'Tier' | Get-ConfigValue -Path './settings.json'
+# $values[0].Name is 'Region'
+
+Takes the names from the pipeline and keeps the results in a variable.
+#>
+```
+
+**DOC-09.** `.EXTERNALHELP` makes `Get-Help` read the module's compiled help file and ignore the rest
+of the comment block, so detail written there is never shown:
+
+```powershell
+function Get-Widget {
+    <#
+    .EXTERNALHELP Contoso.Widgets-Help.xml
+    .SYNOPSIS
+    Gets widgets from the inventory service.
+    #>
+    [CmdletBinding()]
+    [OutputType('Contoso.Widget')]
+    param()
+}
+```
+
+**DOC-20.**
+
+```powershell
+# Compliant: says why
+# The service rejects requests for more than 100 items, so page through the results.
+$pageSize = 100
+
+# Non-compliant: restates the code
+# Set page size to 100
+$pageSize = 100
+```

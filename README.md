@@ -4,374 +4,182 @@
 [![BlueSky](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpublic.api.bsky.app%2Fxrpc%2Fapp.bsky.actor.getProfile%2F%3Factor%3Dtechbyjeff.net&query=%24.followersCount&style=social&logo=bluesky&label=Follow%20on%20BSky)](https://bsky.app/profile/techbyjeff.net)
 [![Blog](https://img.shields.io/badge/Read_My_Blog-TechbyJeff-lightgrey?style=flat-square&logo=ghost)](https://techbyjeff.net)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![PowerShell](https://img.shields.io/badge/PowerShell-7.6_LTS-blue.svg)](https://github.com/PowerShell/PowerShell)
-[![GitHub Copilot](https://img.shields.io/badge/GitHub%20Copilot-Optimized-green.svg)](https://github.com/features/copilot)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-Ready-blue.svg)](https://code.claude.com/docs/en/memory)
 
-Enterprise-grade PowerShell development standards, shipped as GitHub Copilot instructions and Claude Code
-rules, for consistent, secure, and high-quality PowerShell code across teams and projects.
+PowerShell coding standards written for AI coding agents. One set of rules is generated into the
+files that GitHub Copilot, Claude Code, and Codex each read, so that all three write and review
+PowerShell the same way.
 
-> **Target versions** (verified 2026-08-01): **PowerShell 7.6 (LTS)** is the default target,
-> supported through 14-Nov-2028. Windows PowerShell 5.1 remains supported as a compatibility
-> target. **PowerShell 7.4 and 7.5 both reach end of support on 10-Nov-2026** — plan upgrades now.
-> See [powershell-version.instructions.md](.github/instructions/powershell-version.instructions.md)
-> for the full lifecycle table, version-gated features, and breaking changes.
+The rules target PowerShell 7.6 (LTS), with Windows PowerShell 5.1 as a compatibility target that a
+project opts into, Pester 6.2, and Microsoft.PowerShell.PlatyPS 1.x. Statements in the rules about
+how PowerShell and Pester behave were tested on PowerShell 7.6.9, Windows PowerShell 5.1, and
+Pester 6.2.0 on 2026-11-15.
 
-## 🚀 Quick Start
+## What is in it
 
-### For New Projects
+| Part | What it is |
+| --- | --- |
+| Core rules | A short file that every agent always loads: how to apply the rules, the rules that matter in almost every file, and a function template that is tested code. |
+| Topic rules | Twelve files, each loaded when an agent works on a matching file: style, functions, error handling, security, help, versions, modules, Pester, PlatyPS, CI, README files, and pull requests. |
+| Skills | Eight procedures for common tasks, such as writing a function with its tests or reviewing code. |
+| Pester guides | Thirteen longer reference guides that the Pester rules point to. |
+| Analyzer settings | A PSScriptAnalyzer settings file that checks the layout rules. |
+| Tools | An installer, a sync workflow, and a script that checks code against the rules. |
 
-```bash
-# Use as template repository or clone
+Every rule has an ID, such as `ERR-10`, and says whether it is a requirement (MUST) or a default
+(SHOULD). The rules are written to be checked against the code in front of the reader, and each
+topic file gives the reason and an example for the rules that need one.
+
+## Requirements
+
+- To install into a project: PowerShell 7.6, or Windows PowerShell 5.1.
+- To work on this repository: PowerShell 7.6, PSScriptAnalyzer 1.25.0, and Pester 6.2.0.
+
+## Install in a project
+
+```powershell
 git clone https://github.com/fadwen/ai-powershell-standards.git
-cd ai-powershell-standards
-
-# Install standards in your project
-./Tools/Install-CopilotStandards.ps1 -ProjectPath "C:\YourProject" -StandardsType "Module"
+./ai-powershell-standards/Tools/Install-CopilotStandards.ps1 -ProjectPath 'C:\Projects\MyModule'
 ```
 
-### For Existing Projects
+This installs the files for all three agents. Run it again at any time to update them. Add
+`-WhatIf` to see what would change first.
 
-```bash
-# Add as submodule
-git submodule add https://github.com/fadwen/ai-powershell-standards.git .copilot-standards
+| Parameter | Effect |
+| --- | --- |
+| `-Agent Copilot, ClaudeCode, Codex` | Installs only for the agents named. The default is all three. |
+| `-IncludeAnalyzerSettings` | Also installs `PSScriptAnalyzerSettings.psd1`. In an existing project this can report many layout findings. |
+| `-IncludeSyncWorkflow` | Also installs a scheduled workflow that keeps the files up to date. |
+| `-RemoveLegacyFiles` | Removes the files that versions before 2.0 installed or mirrored. |
+| `-Force` | Replaces an `AGENTS.md` or `.github/copilot-instructions.md` that the project wrote itself. |
 
-# Link instructions (Windows)
-mklink .github\copilot-instructions.md .copilot-standards\.github\copilot-instructions.md
+What each agent receives:
 
-# Link instructions (Linux/macOS)
-ln -s .copilot-standards/.github/copilot-instructions.md .github/copilot-instructions.md
+| Agent | Core rules | Topic rules | Skills |
+| --- | --- | --- | --- |
+| GitHub Copilot | `.github/copilot-instructions.md` | `.github/instructions/powershell-*.instructions.md` | `.github/skills/` |
+| Claude Code | A rule that imports the Copilot file | `.claude/rules/powershell-standards/`, whose rules import the Copilot files | `.claude/skills/` |
+| Codex | `AGENTS.md` | Read on demand from `.github/instructions/` | `.agents/skills/` |
+
+Things to know:
+
+- The topic rules under `.github/instructions/` are installed for every agent, because the core file
+  tells an agent that does not load them automatically to read them.
+- The installer never replaces a file that your project wrote. If the project already has its own
+  `AGENTS.md` or `.github/copilot-instructions.md`, the file is left alone and a
+  warning says how to connect it to the standards.
+- The core rules are installed once, so that no agent loads them twice. They go into
+  `.github/copilot-instructions.md`, which GitHub Copilot reads and which a Claude Code rule
+  imports. Copilot also reads `AGENTS.md`, so that file is then a short pointer, and Codex reads the
+  core rules by following it. When you install for Codex alone, or the project has its own
+  `.github/copilot-instructions.md`, `AGENTS.md` holds the core rules.
+- When you change `-Agent`, the files that an earlier installation wrote for an agent you no longer
+  list are removed.
+- The installed files are generated. Do not edit them in your project: the next update replaces
+  them.
+
+## Keep a project up to date
+
+```powershell
+./Tools/Install-CopilotStandards.ps1 -ProjectPath 'C:\Projects\MyModule' -IncludeSyncWorkflow
 ```
 
-## 📋 What's Included
+The workflow runs weekly, reinstalls the files from this repository, and opens a pull request when
+anything changed. See [Templates/Workflows](Templates/Workflows/README.md) for the repository setting
+it needs and for how to pin it to a release.
 
-### 🤖 GitHub Copilot Integration
+## Add your own rules
 
-- **Main Instructions**: Comprehensive enterprise PowerShell standards
-- **Prompt Files**: Quick-access prompts for common tasks
-- **Variable Prompts**: Interactive code generation
-- **Quality Gates**: Automated validation and enforcement
+Put project-specific rules in your own files, not in the generated ones:
 
-### 🧠 Claude Code Integration
+- For GitHub Copilot, a file under `.github/instructions/` whose name does not start with
+  `powershell-`.
+- For Claude Code, your own `CLAUDE.md`, or a file under `.claude/rules/` outside the
+  `powershell-standards` folder. The installer never touches `CLAUDE.md`.
+- For Codex, your own `AGENTS.md`. The installer leaves a file that you wrote alone, and its warning
+  names the line to add so that the file points to the standards.
 
-- **Always-On Rule**: `.claude/rules/powershell-standards/copilot-instructions.md` imports the main
-  instructions, so every Claude Code session starts with the standards
-- **Path-Scoped Rules**: the other files in that folder mirror each instruction file with the same globs
-  as its `applyTo`, so a standard loads only when Claude works on a matching file
-- **Slash Commands**: `.claude/commands/powershell-standards/` offers each prompt file as
-  `/powershell-standards:<name>`, attaching the prompt rather than copying it
-- **Synced Like Everything Else**: the sync workflow and installer mirror both folders, and never touch
-  a project's own `CLAUDE.md`, rules, or commands
-- **Single Source**: The `.github/` files are the only copy. The Claude files reference them, never
-  restate them
+The core rules state that an explicit instruction from the user takes precedence over them. If a
+rule in this repository is wrong for many projects, change it here instead.
 
-### 📚 PowerShell Standards
+## Check code against the rules
 
-- **Version Baseline**: PowerShell 7.6 (LTS) targeting, with the support lifecycle, version-gated
-  cmdlets, and breaking changes for 7.5/7.6 documented in one place
-- **Community Best Practices**: Integrated PowerShell community guidelines
-- **Enterprise Security**: Audit logging, credential handling, and data-classification patterns
-  covering controls that SOX, GDPR, and HIPAA programmes commonly ask for
-- **Performance Optimization**: Memory management and pipeline efficiency, including the
-  version-dependent `+=` guidance that changed in PowerShell 7.5
-- **Modern Tooling**: `Install-PSResource` (Microsoft.PowerShell.PSResourceGet) over PowerShellGet
-  v2, with a capability check for Windows PowerShell 5.1 fallback
-- **Testing Standards**: Pester 6.2 patterns — `Should-*` assertions, custom assertions via
-  `New-ShouldAssertion`, `BeforeDiscovery` data, self-contained test files, and 13 supporting guides
-  covering mocking, CI, and templates
+```powershell
+./Tools/Test-StandardsCompliance.ps1 -Path ./src
+```
 
-### 🛠️ Development Tools
+The script runs PSScriptAnalyzer with the settings file and adds checks that PSScriptAnalyzer does
+not have, such as `throw` in an advanced function. Each finding names the rule it breaks. A clean
+result does not prove that code follows every rule; many rules need a reader.
 
-- **Project Templates**: Module, script collection, and application templates
-- **Validation Scripts**: Automated standards compliance checking
-- **CI/CD Integration**: GitHub Actions and Azure DevOps templates
-- **Troubleshooting Guides**: Organized problem-solving documentation
+## Upgrading from a version before 2.0
 
-## 🎯 Key Features
+Version 2.0 replaced the instruction files and the prompt files. Run the installer with
+`-RemoveLegacyFiles` so that the old files do not stay behind and contradict the new ones.
 
-### ✨ Automatic Code Generation
+| Before 2.0 | In 2.0 |
+| --- | --- |
+| `.github/prompts/new-function.prompt.md` | Skill `powershell-new-function` |
+| `create-module`, `scaffold-project` | Skills `powershell-new-module` and `powershell-ci-pipeline` |
+| `create-test` | Skill `powershell-write-tests` |
+| `code-analysis`, `validate-standards` | Skill `powershell-review` |
+| `security-review` | Skill `powershell-security-review` |
+| `optimize-performance`, `performance-analysis` | Skill `powershell-performance-review` |
+| `create-workflow` | Removed |
+| Instruction files with mixed names | Twelve files named `powershell-<topic>.instructions.md` |
+| `.claude/commands/powershell-standards/` | Removed with the prompt files. The same skills are installed for Claude Code. |
+| Mirrored `powershell-standards/Examples/` | No longer installed. The rules carry their own tested templates. |
+| Installer parameters `-StandardsType` and `-LinkType` | Removed. The installer no longer creates project folders or links. |
 
-- **Enterprise Functions**: Complete functions with security, error handling, and documentation
-- **Module Scaffolding**: Full module structure with tests and documentation
-- **CI/CD Pipelines**: Automated quality gates and deployment workflows
+Prompt files were replaced because VS Code documents that they run only in a mode that is being
+removed. Agents load a skill when a request matches its description, and most let you name one
+directly, for example `/powershell-review`.
 
-### 🔒 Security by Design
+Rules that changed in substance are listed in [CHANGELOG.md](CHANGELOG.md).
 
-- **Input Validation**: Comprehensive sanitization and validation patterns
-- **Credential Management**: SecretManagement integration and secure handling
-- **Regulatory Patterns**: Audit-trail, consent, and access-control patterns for SOX, GDPR, and
-  HIPAA work. These are code patterns and review prompts — they support a compliance programme but
-  do not constitute one, and none of it substitutes for your own controls, evidence, and audit
-- **Security Scanning**: Automated vulnerability detection
+## Work on this repository
 
-### 📊 Quality Assurance
-
-- **Code Analysis**: Comprehensive quality assessment tools
-- **Performance Testing**: Automated benchmarking and optimization
-- **Documentation Standards**: PlatyPS-generated command help, comment-based help, README generation
-- **Community Compliance**: PowerShell best practices enforcement
-
-## 📁 Repository Structure
+The rules are written once, under `standards/`, and everything the agents read is generated from
+there.
 
 ```text
-ai-powershell-standards/
-├── .github/
-│   ├── copilot-instructions.md          # Main Copilot instructions (applied automatically)
-│   ├── instructions/                    # 14 scoped instruction files, applied by `applyTo` glob
-│   │   ├── powershell-version.instructions.md   # Version baseline, lifecycle, breaking changes
-│   │   ├── pester.instructions.md               # Pester 6.2 core testing standards
-│   │   ├── platyps.instructions.md              # Help docs: PlatyPS Markdown to MAML
-│   │   ├── pull-requests.instructions.md        # Branch, commit, and PR conventions
-│   │   └── pester-supporting-docs/              # 13 guides: mocking, assertions, CI, templates
-│   ├── prompts/                         # 10 `/prompt-name` files for Copilot Chat
-│   └── workflows/                       # Quality gates run on every pull request
-├── .claude/
-│   ├── commands/
-│   │   └── powershell-standards/        # 10 slash commands, one per prompt file; mirrored to consumers
-│   └── rules/
-│       └── powershell-standards/        # Claude Code rules: 13 path-scoped, 2 always-on; mirrored to consumers
-├── Documentation/                       # Guides and the deliberate anti-pattern demo
-├── powershell-standards/
-│   └── Examples/                        # Worked examples the instructions link to; mirrored to consumers
-├── Templates/                           # Module, script-collection, and application templates
-│   └── Workflows/                       # Workflows to copy into consuming projects
-├── Tools/                               # Install-CopilotStandards, Test-StandardsCompliance
-├── Troubleshooting/                     # Organized problem-solving guides
-├── .markdownlint.json                   # Documentation lint rules enforced in CI
-├── CLAUDE.md                            # Notes for working on this repository itself
-└── README.md                            # This file
+standards/
+    manifest.psd1      the list of rule files, their file patterns, and the skills
+    core.md            the always-loaded core
+    rules/             one file for each topic
+    skills/            one folder for each skill
+    examples/          the function template and its tests
+Tools/
+    Build-AgentInstructions.ps1    generates the files below from standards/
+    Install-CopilotStandards.ps1   installs the generated files into a project
+    Test-StandardsCompliance.ps1   checks code against the rules
+    Invoke-QualityGate.ps1         runs the tests and the coverage gate
+.github/copilot-instructions.md, AGENTS.md                   generated
+.github/instructions/powershell-*.instructions.md            generated
+.claude/rules/powershell-standards/, and the three skills folders   generated
+.github/instructions/pester-supporting-docs/                 written by hand
 ```
 
-## 🚀 Getting Started
+To change a rule:
 
-### 1. Enable Copilot Instructions
+1. Edit the file under `standards/`. Do not edit a generated file.
+2. Run `./Tools/Build-AgentInstructions.ps1`.
+3. Run `./Tools/Invoke-QualityGate.ps1`.
 
-Current VS Code picks these up with no configuration: `.github/copilot-instructions.md` is applied
-automatically, `.github/instructions/*.instructions.md` apply to files matching their `applyTo`
-glob, and `.github/prompts/*.prompt.md` are available as `/prompt-name` in Copilot Chat.
+The gate runs every test and fails below 80 percent coverage. The tests also check that the
+generated files match their sources, that every PowerShell sample in the instructions parses, that
+every file the instructions mention exists, and that the repository's own PowerShell passes
+`Test-StandardsCompliance.ps1`. When a rule states how PowerShell or Pester behaves, test the
+statement on PowerShell 7.6 and Windows PowerShell 5.1 before writing it down.
 
-You only need settings if you keep these files somewhere other than the defaults:
+The worked examples under [powershell-standards/Examples](powershell-standards/Examples/README.md) follow the rules
+and have tests.
 
-```json
-{
-  "chat.instructionsFilesLocations": { ".github/instructions": true },
-  "chat.promptFilesLocations": { ".github/prompts": true }
-}
-```
+## Acknowledgments
 
-> Older guidance recommended `chat.promptFiles` and
-> `github.copilot.chat.codeGeneration.useInstructionFiles`. Settings-based instructions were
-> deprecated in VS Code 1.102 in favour of the file-based layout above; neither setting is required
-> now.
+The format of the rules owes a good deal to Frank Lesniak's
+[PSStyleGuide](https://github.com/franklesniak/PSStyleGuide): requirement keywords, rules short enough
+to check, reasons kept apart from the rules, and agent files generated from one source.
 
-### 2. Enable Claude Code
+## License
 
-Nothing to configure either. Claude Code discovers `.claude/rules/` recursively. The always-on rule in
-`.claude/rules/powershell-standards/` imports `.github/copilot-instructions.md` at launch, and each
-path-scoped rule imports one instruction file when Claude touches a matching file. The rules import
-rather than copy, so there is one set of standards to maintain. Run `/memory` inside Claude Code to
-see what is loaded.
-
-The prompt files are slash commands in Claude Code too. `.claude/commands/powershell-standards/` holds
-one command per prompt, so `/new-function` in Copilot Chat is `/powershell-standards:new-function`
-here. The `/` menu matches on any part of a name, so typing `/new-func` is enough to find it.
-
-The installer and the sync workflow mirror both folders into consuming projects along with the
-`.github/` files and the examples. A project's own `CLAUDE.md` and anything else it keeps under
-`.claude/rules/` or `.claude/commands/` are never touched.
-
-### 3. Choose Your Integration Method
-
-#### Option A: Template Repository (New Projects)
-
-1. Click "Use this template" above
-2. Create your new repository
-3. Start developing with standards automatically applied
-
-#### Option B: Git Submodule (Existing Projects)
-
-```bash
-git submodule add https://github.com/fadwen/ai-powershell-standards.git .copilot-standards
-```
-
-#### Option C: Direct Copy (Simple Projects)
-
-```powershell
-./Tools/Install-CopilotStandards.ps1 -ProjectPath "." -StandardsType "Basic"
-```
-
-#### Option D: Direct Copy, Kept in Sync (Recommended)
-
-Options A through C copy the instruction files once. They then drift as this repository moves on.
-Adding `-IncludeSyncWorkflow` also installs a weekly job that mirrors the instruction files and
-opens a pull request when they fall behind:
-
-```powershell
-./Tools/Install-CopilotStandards.ps1 -ProjectPath "." -StandardsType "Basic" -IncludeSyncWorkflow
-```
-
-The workflow needs **Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to
-create and approve pull requests"** enabled on the target repository, and it overwrites local edits
-to the mirrored paths. See [Templates/Workflows/](Templates/Workflows/README.md) for both caveats in
-full.
-
-### 4. Verify Setup
-
-```powershell
-# Test standards compliance
-./Tools/Test-StandardsCompliance.ps1 -Path "."
-
-# Create your first function using Copilot
-# In VS Code, type: /new-function
-```
-
-## 💡 Usage Examples
-
-### Quick Function Creation
-
-```powershell
-# Use the new-function prompt in Copilot Chat
-/new-function
-# Copilot will prompt for: function name, purpose, parameters
-# Generates complete enterprise-standard function with tests
-```
-
-### Security Review
-
-```powershell
-# Select PowerShell code, then use security-review prompt
-/security-review
-# Comprehensive security analysis with compliance validation
-```
-
-### Performance Optimization
-
-```powershell
-# Select code that needs optimization
-/optimize-performance
-# Get specific optimization recommendations with benchmarks
-```
-
-## 🧪 Testing and Quality
-
-### Automated Testing
-
-Standards for the code you generate — Pester 6.2 throughout:
-
-- **Unit Tests**: Pester tests targeting 80%+ coverage
-- **Integration Tests**: External dependency validation
-- **Performance Tests**: Benchmarking and regression detection
-- **Security Tests**: Input validation and credential handling
-
-### Quality Gates
-
-These run against this repository on every pull request, and the templates set the same gates up
-for yours:
-
-- **PSScriptAnalyzer**: Zero errors in production files (test files are analyzed separately, since
-  patterns like a hardcoded `-ComputerName 'MOCKSERVER'` are legitimate in a mock)
-- **Pester**: Fails on `FailedCount` _and_ `FailedContainersCount` — a file that fails discovery
-  contributes zero failed tests and would otherwise read green
-- **Coverage**: Measured over `Tools/` and `powershell-standards/Examples/`, the code this repository ships
-  and holds up as exemplary. Templates are excluded: they are scaffolding to copy, so covering a
-  placeholder measures nothing
-- **Security Scanning**: Credential leak and vulnerability detection. Secret patterns apply to all
-  files; code-execution patterns apply only to `.ps1`/`.psm1`, since a `.psd1` is restricted data
-  and cannot invoke a cmdlet
-- **Documentation**: markdownlint over all Markdown, plus comment-based help validation
-- **Community Standards**: PowerShell best practices compliance
-
-## 🔧 Customization
-
-### Team-Specific Instructions
-
-Create `.instructions.md` files in your project for team-specific standards:
-
-```markdown
----
-applyTo: "**/*.ps1"
----
-# Team-specific PowerShell standards
-- Use specific naming conventions for your domain
-- Include team-specific validation patterns
-- Reference team tools and processes
-```
-
-### Project-Specific Prompts
-
-Add custom prompts for your specific use cases:
-
-```markdown
----
-agent: 'agent'
-description: 'Creates infrastructure automation function'
----
-Create function for infrastructure management with:
-- SCOM integration
-- ServiceNow ticket correlation
-- Active Directory validation
-```
-
-## 📚 Documentation
-
-### Core Documentation
-
-- **[PowerShell Version Baseline](./.github/instructions/powershell-version.instructions.md)**:
-  Support lifecycle, choosing a target, version-gated features, breaking changes
-- **[Pester 6.2 Testing Standards](./.github/instructions/pester.instructions.md)**: Core testing
-  requirements, with [13 supporting guides](./.github/instructions/pester-supporting-docs/) for
-  mocking, assertions, CI, templates, and v6 migration
-- **[PlatyPS Help Documentation](./.github/instructions/platyps.instructions.md)**: Generating and
-  shipping module help with Microsoft.PowerShell.PlatyPS — Markdown source, MAML output, drift gate
-- **[Implementation Guide](./Documentation/Implementation-Guide.md)**: Step-by-step setup and usage
-- **[PowerShell Best Practices](./Documentation/PowerShell-Best-Practices.md)**: Community standards reference
-- **[Enterprise Extensions](./Documentation/Enterprise-Extensions.md)**: Organization-specific additions
-
-### Quick References
-
-- **[Prompt Files Guide](./Documentation/Prompt-Files-Guide.md)**: How to use and create prompts
-- **[Troubleshooting](./Troubleshooting/)**: Organized problem-solving guides
-- **[Examples](./powershell-standards/Examples/)**: Real-world usage examples
-
-## 🤝 Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how the repository is laid out, the conventions that are
-easy to break, the checks to run, and how pull requests are written. Every change here reaches each
-consuming repository on its next sync, so open an issue first for anything larger than a fix.
-
-## 📊 Measuring Adoption
-
-No benchmark study backs this repository, so it makes no claims about what adopting it will do for
-your team. Measure it in your own environment instead — the quality gates emit most of what you
-need:
-
-- **PSScriptAnalyzer findings** per pull request, split by severity
-- **Test coverage** and pass rate from the Pester gate
-- **Security scan findings** — hardcoded secrets and unsafe patterns caught before merge
-- **Documentation completeness** — comment-based help present on exported functions, markdownlint
-  clean
-
-Track these before and after adoption if you want a real before/after comparison.
-
-## 🆘 Support
-
-- **Questions, bugs, and outdated standards**: open a GitHub Issue
-- **Security vulnerabilities**: report privately, as [SECURITY.md](SECURITY.md) describes
-- **Documentation**: see the Documentation folder
-- **Troubleshooting**: see the organized guides in the Troubleshooting folder
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🏆 Acknowledgments
-
-- **PowerShell Community**: For establishing excellent best practices and style guidelines
-- **GitHub Copilot Team**: For creating the extensible instruction system
-- **Enterprise PowerShell Users**: For real-world validation and feedback
-
----
-
-**Ready to transform your PowerShell development with AI-assisted enterprise standards?**
-
-🚀 [Get Started Now](#-getting-started) | 📚 [Read the Docs](./Documentation/) | 🤝 [Contribute](#-contributing)
+MIT. See [LICENSE](LICENSE).

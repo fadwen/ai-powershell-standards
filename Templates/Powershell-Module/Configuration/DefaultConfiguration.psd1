@@ -1,56 +1,24 @@
+# Settings that ship with the module. Import-TemplateSetting reads this file with
+# Import-PowerShellDataFile, which returns the hashtable and does not run code, so every value is a
+# literal. Secrets do not belong here: read them at run time from a secret store.
 @{
-    # Module Configuration
-    ModuleName = 'ModuleName'
-    Version = '1.0.0'
-    
-    # Environment Settings
     Environments = @{
         Development = @{
-            LogLevel = 'Debug'
-            Timeout = 30
-            RetryCount = 1
-            AuditLevel = 'Basic'
+            LogLevel = 'Verbose'
+            TimeoutSeconds = 30
+            RetryCount = 3
         }
+
         Testing = @{
             LogLevel = 'Information'
-            Timeout = 60
+            TimeoutSeconds = 20
             RetryCount = 2
-            AuditLevel = 'Standard'
         }
-        Staging = @{
-            LogLevel = 'Information'
-            Timeout = 120
-            RetryCount = 3
-            AuditLevel = 'Enhanced'
-        }
+
         Production = @{
             LogLevel = 'Warning'
-            Timeout = 300
-            RetryCount = 5
-            AuditLevel = 'Comprehensive'
+            TimeoutSeconds = 10
+            RetryCount = 1
         }
-    }
-    
-    # Security Settings
-    Security = @{
-        RequireCredentials = $false
-        EncryptionRequired = $true
-        AuditAll = $true
-        MaxInputLength = 1000
-    }
-    
-    # Performance Settings
-    Performance = @{
-        MaxConcurrentOperations = 10
-        DefaultTimeout = 300
-        EnableCaching = $true
-        CacheExpirationMinutes = 15
-    }
-    
-    # Integration Settings
-    Integration = @{
-        PSFrameworkLogging = $true
-        SecretManagement = $true
-        EnterpriseMonitoring = $true
     }
 }

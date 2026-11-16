@@ -1,0 +1,304 @@
+# PowerShell module help with PlatyPS
+
+These rules apply to the help Markdown under a module's `docs` folder and to the scripts that build
+it. A module that exports commands writes their help as Markdown, and ships it compiled as external
+help (MAML) that `Get-Help` reads. Functions that are not exported, and standalone scripts, use
+comment-based help instead; see `.github/instructions/powershell-help.instructions.md`.
+
+## Rules
+
+- **PLT-01** Use Microsoft.PowerShell.PlatyPS 1.0.3 or later. The retired `platyPS` module and its
+  commands (`New-MarkdownHelp`, `Update-MarkdownHelp`, `New-ExternalHelp`, `Get-HelpPreview`) MUST NOT
+  be used.
+- **PLT-02** The Markdown under `docs/<ModuleName>/` is the source of help for exported commands. The
+  compiled `en-US/<ModuleName>-Help.xml` is build output and MUST NOT be edited by hand.
+- **PLT-03** Syntax blocks and parameter metadata in the Markdown are generated. To change them,
+  change the function and run `Update-MarkdownCommandHelp`; they MUST NOT be edited by hand.
+- **PLT-04** Every exported function carries `.EXTERNALHELP <ModuleName>-Help.xml` inside its
+  `<# ... #>` block. Add it only after the Markdown has first been generated from the function's
+  comment-based help.
+- **PLT-05** In the Markdown, put the command of each example in a fenced `powershell` code block,
+  with the explanation as ordinary text after it.
+- **PLT-06** Committed Markdown MUST NOT contain a placeholder in double braces, such as
+  `{{ Fill in the Description }}`. The content follows the same rules as comment-based help: it
+  describes what the code does and invents nothing.
+- **PLT-07** A related link is either a bare topic name, written `[Get-Thing]()`, or an absolute
+  `https://` URL. A relative path MUST NOT be used.
+- **PLT-08** Pass `-Locale` explicitly whenever Markdown is generated.
+- **PLT-09** CI fails when the documented commands differ from the exported commands, when a command's
+  documented parameters differ from its real ones, and when `Test-MarkdownCommandHelp` reports a
+  problem.
+
+## Notes and examples
+
+### Use the supported module (PLT-01)
+
+```powershell
+Install-PSResource -Name Microsoft.PowerShell.PlatyPS -TrustRepository
+```
+
+The two modules have different command names and a different Markdown schema:
+
+| Retired `platyPS` 0.14 | Microsoft.PowerShell.PlatyPS 1.x |
+| --- | --- |
+| `New-MarkdownHelp` | `New-MarkdownCommandHelp` |
+| `Update-MarkdownHelp` | `Update-MarkdownCommandHelp` |
+| `New-ExternalHelp` | `Export-MamlCommandHelp` |
+| `New-ExternalHelpCab` | `New-HelpCabinetFile` |
+| `Get-HelpPreview` | `Show-HelpPreview` |
+| `Update-MarkdownHelpModule` | `Update-MarkdownModuleFile` |
+
+`Update-MarkdownCommandHelp` reads Markdown written by the old module and rewrites it in the current
+schema, so an existing project does not start its documentation again.
+
+### How the pieces fit (PLT-02)
+
+```text
+Public/Get-Thing.ps1            the function, with .EXTERNALHELP and a one-line .SYNOPSIS
+        |  New-MarkdownCommandHelp      once, at first generation
+        |  Update-MarkdownCommandHelp   whenever the signature changes
+        v
+docs/ModuleName/Get-Thing.md    source: edit here, commit
+docs/ModuleName/ModuleName.md   module page, commit
+        |  Export-MamlCommandHelp       build step
+        v
+en-US/ModuleName-Help.xml       build output: what Get-Help reads
+```
+
+### The `.EXTERNALHELP` keyword (PLT-04)
+
+Comment-based help takes precedence over a compiled help file. Without the keyword, `Get-Help` shows
+the comment block and ignores the compiled file. With it, `Get-Help` reads the compiled file and
+ignores the rest of the comment block.
+
+```powershell
+function Get-Thing {
+    <#
+    .EXTERNALHELP ModuleName-Help.xml
+    .SYNOPSIS
+    Gets things from the inventory service.
+    #>
+    [CmdletBinding()]
+    [OutputType('Contoso.Thing')]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string[]]$Name
+    )
+}
+```
+
+Order matters for a new exported function, because `New-MarkdownCommandHelp` takes its text from
+`Get-Help`, and the keyword hides the comment block from `Get-Help`:
+
+1. Write full comment-based help in the function.
+2. Run `New-MarkdownCommandHelp`. The text is copied into the Markdown.
+3. Add `.EXTERNALHELP` and reduce the block to a one-line `.SYNOPSIS`.
+
+Done in the wrong order, the build succeeds and the generated Markdown contains only placeholders.
+
+Details that decide whether the compiled help is found:
+
+- The value is a file name with no path, on the same line as the keyword.
+- `Export-MamlCommandHelp` writes `<ModuleName>-Help.xml` with a capital `H`. Copy that exact name. On
+  Linux and macOS a different case means the file is not found and every command loses its help.
+- Keep the keyword inside the `<# ... #>` block. Written as a `#` line directly under an ordinary
+  comment, it is ignored without any error.
+- The keyword applies even when the compiled file does not exist yet. In a working tree that has not
+  been built, `Get-Help` shows only the generated syntax. Preview with
+  `Show-HelpPreview -Path ./maml/ModuleName/ModuleName-Help.xml`, or build first.
+
+### Generating the Markdown the first time (PLT-08)
+
+```powershell
+Import-Module -Name ./ModuleName.psd1 -Force
+
+$newMarkdownParameters = @{
+    ModuleInfo = Get-Module -Name ModuleName
+    OutputFolder = './docs'
+    WithModulePage = $true
+    Locale = 'en-US'
+}
+New-MarkdownCommandHelp @newMarkdownParameters
+```
+
+Without `-Locale`, the generating computer's culture is written into every file, which then disagrees
+with the `en-US` folder the help is compiled into.
+
+The result is `./docs/ModuleName/` with one file for each exported command and a module page. The
+files are templates: every placeholder in double braces has to be replaced with real content, or its
+section removed where the section is optional, as `## ALIASES` is.
+
+Check the `## INPUTS` and `## OUTPUTS` sections after generating. Each type is a level-three heading
+that holds the full type name and nothing else, with the description as text under it. Text taken
+from comment-based help can end up in the heading.
+
+### Writing examples (PLT-05)
+
+````markdown
+### Example 1: Get one thing
+
+```powershell
+Get-Thing -Name 'alpha'
+```
+
+Gets the thing named alpha.
+````
+
+This is the form that Microsoft documents for the Markdown, and it is what renders as code where the
+Markdown is published. Microsoft.PowerShell.PlatyPS 1.0.3 does not convert the block when it compiles
+the help: `Get-Help` shows the example with its fence lines as plain text. Keep the fences anyway.
+Without them the command is compiled as a paragraph, followed by a stray control character.
+
+### Updating after the module changes (PLT-03)
+
+```powershell
+Import-Module -Name ./ModuleName.psd1 -Force
+
+Measure-PlatyPSMarkdown -Path ./docs/ModuleName/*.md |
+    Where-Object Filetype -Match 'CommandHelp' |
+    Update-MarkdownCommandHelp -Path { $_.FilePath }
+
+Measure-PlatyPSMarkdown -Path ./docs/ModuleName/*.md |
+    Where-Object Filetype -Match 'CommandHelp' |
+    Import-MarkdownCommandHelp -Path { $_.FilePath } |
+    Update-MarkdownModuleFile -Path ./docs/ModuleName/ModuleName.md
+```
+
+`-Path { $_.FilePath }` is a script block that is evaluated for each pipeline item. Writing
+`-Path $_.FilePath` binds one value before the pipeline runs and fails.
+
+The update adds what it can verify and keeps the existing text. It writes backup files next to the
+originals; compare against them before committing. Two things it cannot infer:
+
+- Output types come from `[OutputType()]` on the function.
+- Wildcard support is shown only when the parameter has `[SupportsWildcards()]`.
+
+A command added since the last run has no Markdown to update. Run `New-MarkdownCommandHelp` for it.
+
+### Validating (PLT-06, PLT-07)
+
+```powershell
+Measure-PlatyPSMarkdown -Path ./docs/ModuleName/*.md |
+    Where-Object Filetype -Match 'CommandHelp' |
+    Test-MarkdownCommandHelp -Path { $_.FilePath } -DetailView
+
+$unfilled = Select-String -Path ./docs/ModuleName/*.md -Pattern '\{\{[^}]*\}\}' -List
+if ($unfilled) {
+    $names = ($unfilled.Path | Split-Path -Leaf) -join ', '
+    throw "Help templates still contain placeholders: $names"
+}
+
+$relativeLinks = Select-String -Path ./docs/ModuleName/*.md -Pattern '^\s*-?\s*\[.+\]\((?!https?://|\))'
+if ($relativeLinks) {
+    $places = ($relativeLinks | ForEach-Object { "$($_.Filename):$($_.LineNumber)" }) -join ', '
+    throw "Relative links in help Markdown: $places"
+}
+```
+
+`Test-MarkdownCommandHelp` accepts a relative path in a related link, but `Get-Help` then fails when
+it reads the compiled help. The two valid forms are not interchangeable:
+
+| Target | Form |
+| --- | --- |
+| A command in this module, or an `about_` topic | `- [Get-Thing]()` |
+| Anything outside the installed module | `- [Title](https://example.com/page)` |
+
+The pattern above allows empty parentheses so that the bare form passes.
+
+### Building the compiled help
+
+```powershell
+Measure-PlatyPSMarkdown -Path ./docs/ModuleName/*.md |
+    Where-Object Filetype -Match 'CommandHelp' |
+    Import-MarkdownCommandHelp -Path { $_.FilePath } |
+    Export-MamlCommandHelp -OutputFolder ./maml -Force
+
+$cultureFolder = Join-Path -Path $moduleOutputPath -ChildPath 'en-US'
+$null = New-Item -Path $cultureFolder -ItemType Directory -Force
+Copy-Item -LiteralPath ./maml/ModuleName/ModuleName-Help.xml -Destination $cultureFolder -Force
+```
+
+`maml/` is a build intermediate; add it to `.gitignore`. `about_*.help.txt` files are plain text
+written by hand and go in the same culture folder.
+
+### Markdown linting
+
+Generated help does not pass a general markdownlint configuration: the syntax block has no language
+label, and the module page writes the description on one line. Both are rewritten on every update, so
+exclude the generated files from the linter instead of correcting them:
+
+```yaml
+- name: Lint Markdown
+  uses: DavidAnson/markdownlint-cli2-action@v14
+  with:
+    globs: |
+      **/*.md
+      !**/docs/*/*.md
+```
+
+A `.markdownlintignore` file has no effect once globs are passed on the command line.
+
+### The CI drift gate (PLT-09)
+
+```powershell
+#Requires -Modules @{ ModuleName = 'Microsoft.PowerShell.PlatyPS'; ModuleVersion = '1.0.3' }
+
+Import-Module -Name ./ModuleName.psd1 -Force
+
+$documented = @((Get-ChildItem -Path ./docs/ModuleName/*.md).BaseName | Where-Object { $_ -ne 'ModuleName' })
+$exported = @((Get-Module -Name ModuleName).ExportedFunctions.Keys)
+
+$missing = @($exported | Where-Object { $_ -notin $documented })
+$orphaned = @($documented | Where-Object { $_ -notin $exported })
+
+if ($missing.Count -gt 0) {
+    throw "Exported commands with no help Markdown: $($missing -join ', ')"
+}
+if ($orphaned.Count -gt 0) {
+    throw "Help Markdown for commands that are no longer exported: $($orphaned -join ', ')"
+}
+```
+
+To catch a changed signature as well, compare the parameters in the committed Markdown with those of
+the loaded command:
+
+```powershell
+$commonParameters = [System.Management.Automation.PSCmdlet]::CommonParameters +
+    [System.Management.Automation.PSCmdlet]::OptionalCommonParameters
+
+foreach ($commandName in $exported) {
+    $committed = Import-MarkdownCommandHelp -Path "./docs/ModuleName/$commandName.md"
+    $documented = @($committed.Parameters | ForEach-Object { $_.Name } | Sort-Object)
+    $actual = @((Get-Command -Name $commandName).Parameters.Keys |
+            Where-Object { $commonParameters -notcontains $_ } |
+            Sort-Object)
+
+    if (($documented -join ',') -ne ($actual -join ',')) {
+        throw "The documented parameters of $commandName are out of date. Run the help update."
+    }
+}
+```
+
+`Compare-CommandHelp` is not suitable for this check. It writes a line for every property it
+inspects, so it returns output even when the two sides are identical.
+
+### Migrating documentation written with platyPS 0.14
+
+1. Do not load both modules in one session. Start a new session for the migration.
+2. Run `Update-MarkdownCommandHelp` over the existing files.
+3. Fill in or delete the `## ALIASES` section that appears in each converted file.
+4. Add `.EXTERNALHELP` to every exported function and reduce its comment block to a one-line
+   `.SYNOPSIS`.
+5. Compare every file with its backup before committing.
+
+### Comment-based help keywords and their Markdown headings
+
+| Comment-based help | PlatyPS Markdown |
+| --- | --- |
+| `.SYNOPSIS` | `## SYNOPSIS` |
+| `.DESCRIPTION` | `## DESCRIPTION` |
+| `.PARAMETER Name` | `### -Name` under `## PARAMETERS` |
+| `.EXAMPLE` | `### Example 1: <title>` under `## EXAMPLES` |
+| `.INPUTS`, `.OUTPUTS` | `## INPUTS`, `## OUTPUTS` |
+| `.NOTES` | `## NOTES` |
+| `.LINK` | `## RELATED LINKS` |

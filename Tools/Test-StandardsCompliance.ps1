@@ -1,612 +1,440 @@
-# Tools/Test-StandardsCompliance.ps1
+#requires -Version 7.6
+#requires -Modules PSScriptAnalyzer
+
 <#
 .SYNOPSIS
-    Tests PowerShell code compliance with enterprise standards
+Checks PowerShell files against the rules of the PowerShell standards that a tool can check.
 
 .DESCRIPTION
-    Validates PowerShell files against enterprise standards including
-    community best practices, security requirements, and style guidelines.
-    Provides detailed analysis and actionable recommendations.
+Runs PSScriptAnalyzer with the standards' settings file, then applies checks for rules that
+PSScriptAnalyzer does not cover, by reading the parsed code. Every finding carries the ID of the
+rule it breaks, such as ERR-11, so that it can be looked up in the rule files.
+
+The additional checks cover: functions without [CmdletBinding()] or without help (FUN-01, DOC-01),
+version stamps in help (DOC-07), [OutputType([PSCustomObject])] (FUN-10), throw and
+Write-Error -ErrorAction Stop in advanced functions (ERR-11), $Error[0] in catch (ERR-21),
+$ErrorActionPreference set in a root module (ERR-02), arrays grown with += in a loop (STY-40),
+ArrayList (STY-41), non-ASCII characters outside strings (STY-06), #requires for a version past its
+end of support (VER-05), commands that exist only in Windows PowerShell (VER-06), retired platyPS
+commands (PLT-01), literal secrets (SEC-01), and a manifest that still has the placeholder GUID
+(MOD-03).
+
+A clean result does not prove that code follows every rule. Many rules need a reader.
 
 .PARAMETER Path
-    Path to analyze (file or directory). Defaults to current directory.
+File or folder to check. A folder is searched recursively for .ps1, .psm1, and .psd1 files.
 
-.PARAMETER Detailed
-    Show detailed analysis results including individual file results
+.PARAMETER SettingsPath
+PSScriptAnalyzer settings file. The default is PSScriptAnalyzerSettings.psd1 in the repository
+that contains this script.
 
 .PARAMETER ExcludeTests
-    Exclude test files from analysis (files matching *test*, *Test*, *.Tests.ps1)
-
-.PARAMETER OutputFormat
-    Output format for results: Console, JSON, XML, HTML
-
-.PARAMETER OutputPath
-    Path to save detailed results (when using JSON, XML, or HTML format)
+Leaves out files named *.Tests.ps1 and files under a folder named Tests.
 
 .PARAMETER PassThru
-    Return the results object instead of exiting with a status code. Without it the
-    script exits 1 when any issue is found and 0 otherwise, which suits CI but
-    prevents a caller from reading the results.
+Returns the findings without failing. Without this switch the script fails, after writing the
+findings, when any finding has the severity Error or Warning.
 
 .EXAMPLE
-    .\Test-StandardsCompliance.ps1 -Path "." -Detailed
-    
-    Analyzes all PowerShell files in current directory with detailed output
+./Tools/Test-StandardsCompliance.ps1 -Path ./src
+
+Checks every PowerShell file under src and fails if anything is found.
 
 .EXAMPLE
-    .\Test-StandardsCompliance.ps1 -Path "C:\MyProject" -ExcludeTests -OutputFormat JSON -OutputPath "results.json"
-    
-    Analyzes project excluding tests and saves results to JSON file
+./Tools/Test-StandardsCompliance.ps1 -Path ./src -PassThru | Group-Object -Property RuleId
 
-.NOTES
-    Author: Jeffrey Stuhr
-    Version: 1.0.0
-    
-    REQUIREMENTS:
-    - PSScriptAnalyzer module (1.25.0+)
-    - PowerShell 7.6 (LTS) or Windows PowerShell 5.1
+Counts the findings for each rule without failing.
+
+.INPUTS
+None.
+
+.OUTPUTS
+PowerShellStandards.Finding. One object for each finding, with RuleId, Severity, File, Line,
+Message, and Source properties. Source is PSScriptAnalyzer or Standards.
 #>
+using namespace System.Management.Automation.Language
 
 [CmdletBinding()]
+[OutputType('PowerShellStandards.Finding')]
 param(
-    [Parameter(HelpMessage = "Path to analyze (file or directory)")]
-    [ValidateScript({ Test-Path $_ })]
-    [string]$Path = ".",
-    
-    [Parameter(HelpMessage = "Show detailed analysis results")]
-    [switch]$Detailed,
-    
-    [Parameter(HelpMessage = "Exclude test files from analysis")]
-    [switch]$ExcludeTests,
-    
-    [Parameter(HelpMessage = "Output format for results")]
-    [ValidateSet('Console', 'JSON', 'XML', 'HTML')]
-    [string]$OutputFormat = 'Console',
-    
-    [Parameter(HelpMessage = "Path to save detailed results")]
-    [string]$OutputPath,
+    [Parameter()]
+    [string]$Path = '.',
 
-    [Parameter(HelpMessage = "Return the results object instead of exiting with a status code")]
+    [Parameter()]
+    [string]$SettingsPath,
+
+    [Parameter()]
+    [switch]$ExcludeTests,
+
+    [Parameter()]
     [switch]$PassThru
 )
 
-begin {
-    $ErrorActionPreference = 'Stop'
-    $correlationId = [System.Guid]::NewGuid()
-    
-    Write-Information "Testing PowerShell Standards Compliance..." -InformationAction Continue
-    Write-Verbose "CorrelationId: $correlationId"
-    
-    # Check for required modules
-    $requiredModules = @('PSScriptAnalyzer')
-    foreach ($module in $requiredModules) {
-        if (-not (Get-Module $module -ListAvailable)) {
-            Write-Warning "$module not found. Installing..."
-            try {
-                # Install-PSResource is in-box on PowerShell 7.4+; 5.1 falls back to PowerShellGet
-                if (Get-Command Install-PSResource -ErrorAction SilentlyContinue) {
-                    Install-PSResource $module -Scope CurrentUser -TrustRepository
-                }
-                else {
-                    Install-Module $module -Scope CurrentUser -Force -SkipPublisherCheck
-                }
-                Write-Information "Installed $module" -InformationAction Continue
-            }
-            catch {
-                Write-Error "Failed to install $module : $($_.Exception.Message)"
-                throw
-            }
-        }
-    }
-    
-    Import-Module PSScriptAnalyzer -Force
-    
-    # Initialize results object
-    $results = @{
-        CorrelationId = $correlationId
-        AnalysisDate = Get-Date
-        AnalyzedPath = (Resolve-Path $Path).Path
-        TotalFiles = 0
-        PassedFiles = 0
-        FailedFiles = 0
-        TotalIssues = 0
-        CriticalIssues = 0
-        HighIssues = 0
-        MediumIssues = 0
-        LowIssues = 0
-        FileResults = @()
-        PSScriptAnalyzerResults = @()
-        SecurityIssues = @()
-        PerformanceIssues = @()
-        ComplianceIssues = @()
-        # Populated with defaults so an early return - no files found - still yields
-        # a coherent object. Previously the summary stayed empty and the console
-        # printed "Compliance: %".
-        Summary = @{
-            CompliancePercentage = 0
-            OverallStatus        = 'NOT-RUN'
-            TotalAnalysisTime    = [TimeSpan]::Zero
-            AverageFileSize      = 0
-        }
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+if (-not $SettingsPath) {
+    $repositoryRoot = Split-Path -Path $PSScriptRoot -Parent
+    $SettingsPath = Join-Path -Path $repositoryRoot -ChildPath 'PSScriptAnalyzerSettings.psd1'
+}
+if (-not (Test-Path -LiteralPath $SettingsPath -PathType Leaf)) {
+    throw "The PSScriptAnalyzer settings file '$SettingsPath' does not exist."
+}
+
+# Rules in the standards, and the PSScriptAnalyzer rules that enforce each of them.
+$analyzerRulesByRuleId = @{
+    'STY-01' = @('PSUseConsistentIndentation')
+    'STY-02' = @('PSPlaceOpenBrace', 'PSPlaceCloseBrace')
+    'STY-03' = @('PSAvoidLongLines')
+    'STY-04' = @('PSUseConsistentWhitespace')
+    'STY-05' = @('PSAvoidTrailingWhitespace')
+    'STY-06' = @('PSUseBOMForUnicodeEncodedFile')
+    'STY-10' = @('PSUseApprovedVerbs', 'PSUseSingularNouns')
+    'STY-13' = @('PSAvoidAssignmentToAutomaticVariable')
+    'STY-14' = @('PSAvoidUsingCmdletAliases', 'PSAvoidUsingPositionalParameters')
+    'STY-15' = @('PSUseCorrectCasing')
+    'STY-20' = @('PSPossibleIncorrectComparisonWithNull')
+    'FUN-03' = @('PSAvoidGlobalVars')
+    'FUN-30' = @('PSUseShouldProcessForStateChangingFunctions', 'PSShouldProcess')
+    'ERR-20' = @('PSAvoidUsingEmptyCatchBlock')
+    'ERR-31' = @('PSAvoidUsingWriteHost')
+    'SEC-03' = @('PSAvoidUsingPlainTextForPassword', 'PSAvoidUsingUsernameAndPasswordParams')
+    'SEC-04' = @('PSAvoidUsingConvertToSecureStringWithPlainText')
+    'SEC-10' = @('PSAvoidUsingInvokeExpression')
+    'VER-06' = @('PSAvoidUsingWMICmdlet')
+}
+$ruleIdByAnalyzerRule = @{}
+foreach ($mappedRuleId in $analyzerRulesByRuleId.Keys) {
+    foreach ($analyzerRule in $analyzerRulesByRuleId[$mappedRuleId]) {
+        $ruleIdByAnalyzerRule[$analyzerRule] = $mappedRuleId
     }
 }
 
-process {
-    try {
-        # Get PowerShell files
-        $fileFilter = @('*.ps1', '*.psm1', '*.psd1')
-        if (Test-Path $Path -PathType Leaf) {
-            $psFiles = @(Get-Item $Path)
+# Pester assigns variables in one block and reads them in another, and test data often names
+# computers, so these rules report false findings in test files.
+$rulesExcludedInTests = @(
+    'PSAvoidUsingComputerNameHardcoded'
+    'PSReviewUnusedParameter'
+    'PSUseDeclaredVarsMoreThanAssignments'
+)
+
+$windowsOnlyCommands = @(
+    'Get-EventLog', 'Write-EventLog', 'New-EventLog', 'Clear-EventLog', 'Limit-EventLog'
+    'Remove-EventLog', 'Show-EventLog', 'New-WebServiceProxy', 'Add-PSSnapin', 'Send-MailMessage'
+)
+$retiredPlatyPSCommands = @(
+    'New-MarkdownHelp', 'Update-MarkdownHelp', 'Update-MarkdownHelpModule', 'New-ExternalHelp'
+    'New-ExternalHelpCab', 'Get-HelpPreview'
+)
+$secretNamePattern = '(?i)(password|passwd|pwd|secret|apikey|api_key|token|connectionstring)$'
+# A quoted string of three or more characters with no variable in it.
+$literalStringPattern = '^(''[^'']{3,}''|"[^"$]{3,}")$'
+$stringTokenKinds = @('StringLiteral', 'StringExpandable', 'HereStringLiteral', 'HereStringExpandable')
+$terminatingAdvice = 'Use $PSCmdlet.ThrowTerminatingError().'
+$listAdvice = 'ArrayList is used. Use [System.Collections.Generic.List[T]].'
+
+$resolvedPath = Convert-Path -LiteralPath $Path
+$separator = [System.IO.Path]::DirectorySeparatorChar
+$files = @(
+    if (Test-Path -LiteralPath $resolvedPath -PathType Leaf) {
+        Get-Item -LiteralPath $resolvedPath
+    } else {
+        Get-ChildItem -LiteralPath $resolvedPath -Include '*.ps1', '*.psm1', '*.psd1' -File -Recurse |
+            Where-Object { $_.FullName -notlike "*${separator}.git${separator}*" }
+    }
+)
+
+$isTestFile = {
+    param([System.IO.FileInfo]$File)
+    $File.Name -like '*.Tests.ps1' -or $File.FullName -like "*${separator}Tests${separator}*"
+}
+
+if ($ExcludeTests) {
+    $files = @($files | Where-Object { -not (& $isTestFile -File $_) })
+}
+
+if ($files.Count -eq 0) {
+    throw "No PowerShell files were found under '$resolvedPath'. Nothing was checked."
+}
+
+$blockingFindingCount = 0
+
+foreach ($file in $files) {
+    $filePath = $file.FullName
+
+    # Each entry is the rule ID, the severity, the line, the message, and the source of a finding.
+    $issues = [System.Collections.Generic.List[object[]]]::new()
+
+    $analyzerParameters = @{
+        Path = $filePath
+        Settings = $SettingsPath
+    }
+    if (& $isTestFile -File $file) {
+        $analyzerParameters['ExcludeRule'] = $rulesExcludedInTests
+    }
+    foreach ($record in Invoke-ScriptAnalyzer @analyzerParameters) {
+        $ruleName = [string]$record.RuleName
+        $ruleId = $ruleName
+        if ($ruleIdByAnalyzerRule.ContainsKey($ruleName)) {
+            $ruleId = $ruleIdByAnalyzerRule[$ruleName]
+        }
+        $severity = [string]$record.Severity
+        if ($severity -eq 'ParseError') {
+            $severity = 'Error'
+        }
+        $line = 0
+        if ($null -ne $record.Line) {
+            $line = [int]$record.Line
+        }
+        $issues.Add(@($ruleId, $severity, $line, "${ruleName}: $($record.Message)", 'PSScriptAnalyzer'))
+    }
+
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [Parser]::ParseFile($filePath, [ref]$tokens, [ref]$parseErrors)
+
+    # Functions, leaving out class methods, which cannot be advanced functions.
+    $functions = $ast.FindAll(
+        { param($node) $node -is [FunctionDefinitionAst] -and $node.Parent -isnot [FunctionMemberAst] },
+        $true)
+
+    $advancedFunctionBodies = [System.Collections.Generic.List[object]]::new()
+    foreach ($function in $functions) {
+        $name = $function.Name
+        $line = $function.Extent.StartLineNumber
+        $paramBlock = $function.Body.ParamBlock
+
+        $isAdvanced = $false
+        if ($null -ne $paramBlock) {
+            foreach ($attribute in $paramBlock.Attributes) {
+                if ($attribute.TypeName.Name -eq 'CmdletBinding') {
+                    $isAdvanced = $true
+                }
+                if ($attribute.TypeName.Name -ne 'OutputType') {
+                    continue
+                }
+                $typeNames = foreach ($argument in $attribute.PositionalArguments) {
+                    if ($argument -is [TypeExpressionAst]) {
+                        $argument.TypeName.Name
+                    }
+                }
+                if (@($typeNames) -contains 'PSCustomObject') {
+                    $message = "'$name' declares [OutputType([PSCustomObject])]. Name the type instead."
+                    $issues.Add(@('FUN-10', 'Error', $attribute.Extent.StartLineNumber, $message, 'Standards'))
+                }
+            }
+        }
+
+        if ($isAdvanced) {
+            $advancedFunctionBodies.Add($function.Body)
         } else {
-            $psFiles = Get-ChildItem -Path $Path -Include $fileFilter -Recurse | Where-Object { 
-                $_.FullName -notlike "*\.git\*" -and 
-                $_.FullName -notlike "*\node_modules\*" 
-            }
+            $message = "Function '$name' has no [CmdletBinding()] attribute."
+            $issues.Add(@('FUN-01', 'Error', $line, $message, 'Standards'))
         }
-        
-        # Exclude test files if requested
-        if ($ExcludeTests) {
-            # Match the file name and the Tests directory, never the whole path.
-            # Testing $_.FullName meant a project living under any path containing
-            # "test" - C:\testing\MyProject - excluded every file and analysed
-            # nothing, while still reporting success.
-            $psFiles = $psFiles | Where-Object {
-                $_.Name -notlike "*.Tests.ps1" -and
-                $_.FullName -notlike "*$([IO.Path]::DirectorySeparatorChar)Tests$([IO.Path]::DirectorySeparatorChar)*"
-            }
-        }
-        
-        $results.TotalFiles = $psFiles.Count
-        Write-Information "Found $($psFiles.Count) PowerShell files to analyze" -InformationAction Continue
-        
-        if ($psFiles.Count -eq 0) {
-            # Do not emit $results here - the end block owns the single return, and
-            # emitting from both produced two objects on the pipeline.
-            Write-Warning "No PowerShell files found to analyze"
-            return
-        }
-        
-        # Progress tracking
-        $currentFile = 0
-        
-        foreach ($file in $psFiles) {
-            $currentFile++
-            $percentComplete = [math]::Round(($currentFile / $psFiles.Count) * 100, 1)
-            
-            Write-Progress -Activity "Analyzing PowerShell Files" -Status "Processing $($file.Name)" -PercentComplete $percentComplete
-            Write-Verbose "Analyzing: $($file.Name) ($currentFile/$($psFiles.Count))"
-            
-            # $fileResult must exist before the analysis runs. Previously the whole
-            # analysis lived inside this hashtable's initializer, assigned to
-            # AnalysisTime, and mutated $fileResult.Issues while $fileResult was
-            # still being constructed - so the first file threw "property 'Issues'
-            # cannot be found" and later files mutated the *previous* file's result.
-            $fileResult = @{
-                FileName = $file.Name
-                FilePath = $file.FullName
-                RelativePath = $file.FullName.Replace($results.AnalyzedPath, "").TrimStart('\', '/')
-                FileSize = $file.Length
-                Issues = @()
-                Passed = $true
-                AnalysisTime = [TimeSpan]::Zero
-            }
 
-            $fileResult.AnalysisTime = Measure-Command {
-
-                    # PSScriptAnalyzer analysis
-                    $fileAnalysisResults = Invoke-ScriptAnalyzer -Path $file.FullName -Severity @('Error', 'Warning', 'Information')
-                    
-                    if ($fileAnalysisResults) {
-                        $fileResult.Issues += $fileAnalysisResults
-                        $results.PSScriptAnalyzerResults += $fileAnalysisResults
-                        $fileResult.Passed = $false
-                        
-                        # Categorize issues
-                        foreach ($issue in $fileAnalysisResults) {
-                            switch ($issue.Severity) {
-                                'Error' { $results.CriticalIssues++ }
-                                'Warning' { $results.HighIssues++ }
-                                'Information' { $results.LowIssues++ }
-                            }
-                        }
-                    }
-                    
-                    # Community standards check
-                    $content = Get-Content $file.FullName -Raw -ErrorAction SilentlyContinue
-                    if ($content) {
-
-                        # Anti-pattern rules run against code with comments and string
-                        # literals blanked out. Matching raw text flagged every file
-                        # that *documents* an anti-pattern - including this script,
-                        # whose rule table names the patterns it looks for, and the
-                        # examples whose comments explain what not to do.
-                        $codeOnly = $content
-                        $tokens = $null
-                        $null = [System.Management.Automation.Language.Parser]::ParseInput(
-                            $content, [ref]$tokens, [ref]$null)
-                        if ($tokens) {
-                            $sb = [System.Text.StringBuilder]::new($content)
-                            # HereStringLiteral and HereStringExpandable are distinct token
-                            # kinds, not StringLiteral. Omitting them made every here-string
-                            # fixture in this tool's own test file register as a violation.
-                            $literalKinds = @(
-                                'Comment', 'StringLiteral', 'StringExpandable',
-                                'HereStringLiteral', 'HereStringExpandable'
-                            )
-                            foreach ($tok in ($tokens | Where-Object { $_.Kind -in $literalKinds })) {
-                                $start = $tok.Extent.StartOffset
-                                $len = $tok.Extent.EndOffset - $start
-                                if ($len -gt 0 -and ($start + $len) -le $sb.Length) {
-                                    $replacement = (($tok.Extent.Text -replace '[^\r\n]', ' '))
-                                    $null = $sb.Remove($start, $len).Insert($start, $replacement)
-                                }
-                            }
-                            $codeOnly = $sb.ToString()
-                        }
-                        
-                        # Check for approved verbs on EVERY function.
-                        # -match returns only the first match in a multi-line string,
-                        # so the previous form inspected the first function and
-                        # ignored the rest: a file whose first function used an
-                        # approved verb passed however many later ones did not.
-                        $approvedVerbs = Get-Verb | Select-Object -ExpandProperty Verb
-                        foreach ($m in [regex]::Matches($codeOnly, '(?im)^\s*function\s+([^-\s]+)-(\S+)')) {
-                            $verb = $m.Groups[1].Value
-                            if ($verb -notin $approvedVerbs) {
-                                $line = ($content.Substring(0, $m.Index) -split "`n").Count
-                                $complianceIssue = [PSCustomObject]@{
-                                    RuleName = 'UseApprovedVerbs'
-                                    Severity = 'Error'
-                                    ScriptName = $file.Name
-                                    Line = $line
-                                    Column = 0
-                                    Message = "Function uses non-approved verb: $verb ($verb-$($m.Groups[2].Value))"
-                                    ScriptPath = $file.FullName
-                                }
-                                $fileResult.Issues += $complianceIssue
-                                $results.ComplianceIssues += $complianceIssue
-                                $results.CriticalIssues++
-                                $fileResult.Passed = $false
-                            }
-                        }
-
-                        # Anti-patterns copilot-instructions.md names explicitly but
-                        # nothing enforced. Each maps to a line in "Anti-Patterns to
-                        # Avoid" or "Modern PowerShell Features".
-                        $antiPatterns = @{
-                            'UseDollarUnderscoreInCatch' = @{
-                                Pattern  = '(?s)catch\s*\{[^}]*\$Error\[0\]'
-                                Message  = 'Uses $Error[0] in a catch block; use $_ instead'
-                                Severity = 'Error'
-                            }
-                            'AvoidPSCustomObjectOutputType' = @{
-                                Pattern  = '\[OutputType\(\[PSCustomObject\]\)\]'
-                                Message  = 'Misleading [OutputType([PSCustomObject])]; name the type instead'
-                                Severity = 'Error'
-                            }
-                            'UseModernCredentialCreation' = @{
-                                Pattern  = 'New-Object\s+(-TypeName\s+)?(System\.Management\.Automation\.)?PSCredential'
-                                Message  = 'Uses New-Object for a credential; use [PSCredential]::new()'
-                                Severity = 'Warning'
-                            }
-                            # platyPS 0.14.2 is retired. Its cmdlets still resolve if the old
-                            # module is installed, so a build script using them keeps working
-                            # while producing help in a schema nothing else reads.
-                            'AvoidRetiredPlatyPSCmdlets' = @{
-                                Pattern  = '\b(New-MarkdownHelp|Update-MarkdownHelpModule|Update-MarkdownHelp|New-ExternalHelpCab|New-ExternalHelp|Get-HelpPreview)\b'
-                                Message  = 'Uses a retired platyPS 0.14 cmdlet; use Microsoft.PowerShell.PlatyPS 1.x (New-MarkdownCommandHelp, Export-MamlCommandHelp)'
-                                Severity = 'Error'
-                            }
-                        }
-
-                        foreach ($rule in $antiPatterns.GetEnumerator()) {
-                            if ($codeOnly -match $rule.Value.Pattern) {
-                                $complianceIssue = [PSCustomObject]@{
-                                    RuleName   = $rule.Key
-                                    Severity   = $rule.Value.Severity
-                                    ScriptName = $file.Name
-                                    Line       = 0
-                                    Column     = 0
-                                    Message    = $rule.Value.Message
-                                    ScriptPath = $file.FullName
-                                }
-                                $fileResult.Issues += $complianceIssue
-                                $results.ComplianceIssues += $complianceIssue
-                                if ($rule.Value.Severity -eq 'Error') { $results.CriticalIssues++ } else { $results.HighIssues++ }
-                                $fileResult.Passed = $false
-                            }
-                        }
-
-                        # #requires is itself a comment, so this runs against raw
-                        # content rather than $codeOnly.
-                        if ($content -match '(?im)^\s*#requires\s+-Version\s+(6\.\d+|7\.[0-3])\b') {
-                            $complianceIssue = [PSCustomObject]@{
-                                RuleName   = 'AvoidRetiredVersionRequires'
-                                Severity   = 'Warning'
-                                ScriptName = $file.Name
-                                Line       = 0
-                                Column     = 0
-                                Message    = 'Targets a retired PowerShell version; 7.4 is the lowest supported floor'
-                                ScriptPath = $file.FullName
-                            }
-                            $fileResult.Issues += $complianceIssue
-                            $results.ComplianceIssues += $complianceIssue
-                            $results.HighIssues++
-                            $fileResult.Passed = $false
-                        }
-
-                        # Comment-based help that opens with # instead of <# is
-                        # silently ignored by Get-Help, so the function ships with no
-                        # discoverable help at all.
-                        if ($content -match '(?m)^\s*#\s*\.(SYNOPSIS|DESCRIPTION)\b') {
-                            $complianceIssue = [PSCustomObject]@{
-                                RuleName   = 'UseBlockCommentBasedHelp'
-                                Severity   = 'Error'
-                                ScriptName = $file.Name
-                                Line       = 0
-                                Column     = 0
-                                Message    = 'Comment-based help uses # rather than a <# ... #> block; Get-Help will not see it'
-                                ScriptPath = $file.FullName
-                            }
-                            $fileResult.Issues += $complianceIssue
-                            $results.ComplianceIssues += $complianceIssue
-                            $results.CriticalIssues++
-                            $fileResult.Passed = $false
-                        }
-                        
-                        # Security checks
-                        $securityPatterns = @{
-                            'HardcodedPassword' = @{
-                                Pattern = 'password\s*[:=]\s*["\x27]\w{3,}["\x27]'
-                                Message = 'Potential hardcoded password detected'
-                                Severity = 'Critical'
-                            }
-                            'HardcodedApiKey' = @{
-                                Pattern = 'apikey\s*[:=]\s*["\x27]\w{10,}["\x27]'
-                                Message = 'Potential hardcoded API key detected'
-                                Severity = 'Critical'
-                            }
-                            'InvokeExpression' = @{
-                                Pattern = 'Invoke-Expression|iex\s'
-                                Message = 'Use of Invoke-Expression detected (security risk)'
-                                Severity = 'High'
-                            }
-                            'HardcodedSecureString' = @{
-                                Pattern = 'ConvertTo-SecureString\s+-String\s+["\x27]'
-                                Message = 'Hardcoded SecureString conversion detected'
-                                Severity = 'High'
-                            }
-                        }
-                        
-                        foreach ($patternInfo in $securityPatterns.GetEnumerator()) {
-                            if ($content -match $patternInfo.Value.Pattern) {
-                                $securityIssue = [PSCustomObject]@{
-                                    Type = $patternInfo.Key
-                                    File = $file.Name
-                                    FilePath = $file.FullName
-                                    Message = $patternInfo.Value.Message
-                                    Severity = $patternInfo.Value.Severity
-                                    Pattern = $patternInfo.Value.Pattern
-                                }
-                                $results.SecurityIssues += $securityIssue
-                                $fileResult.Issues += $securityIssue
-                                $fileResult.Passed = $false
-                                
-                                if ($patternInfo.Value.Severity -eq 'Critical') {
-                                    $results.CriticalIssues++
-                                } else {
-                                    $results.HighIssues++
-                                }
-                            }
-                        }
-                        
-                        # Performance checks
-                        # PowerShell 7.5 optimized `+=` on object arrays - it now outperforms
-                        # List<T>.Add(). Only flag this when the file declares a target that
-                        # still pays the O(n^2) cost (Windows PowerShell 5.1 or PowerShell 7.4).
-                        $targetsLegacyArrayAppend = $true
-                        if ($content -match '(?im)^\s*#requires\s+-Version\s+(\d+\.\d+)') {
-                            $targetsLegacyArrayAppend = [version]$Matches[1] -lt [version]'7.5'
-                        }
-
-                        if ($targetsLegacyArrayAppend -and $content -match '\$\w+\s*\+=\s*.*\$\w+') {
-                            $perfIssue = [PSCustomObject]@{
-                                Type = 'ArrayAppending'
-                                File = $file.Name
-                                FilePath = $file.FullName
-                                Message = 'Array appending detected in a file targeting PowerShell 5.1/7.4, where += is O(n^2)'
-                                Severity = 'Medium'
-                                Recommendation = 'Assign the loop output directly ($x = foreach (...) { ... }), or use [System.Collections.Generic.List[object]]. Not ArrayList. On PowerShell 7.5+, += is no longer a performance defect.'
-                            }
-                            $results.PerformanceIssues += $perfIssue
-                            $fileResult.Issues += $perfIssue
-                            $results.MediumIssues++
-                        }
-
-                        # ArrayList is a non-generic .NET 1.1 type - flag on every version
-                        if ($content -match '\[System\.Collections\.ArrayList\]|New-Object\s+System\.Collections\.ArrayList') {
-                            $arrayListIssue = [PSCustomObject]@{
-                                Type = 'LegacyCollectionType'
-                                File = $file.Name
-                                FilePath = $file.FullName
-                                Message = 'ArrayList used instead of a generic collection'
-                                Severity = 'Low'
-                                Recommendation = 'Use [System.Collections.Generic.List[object]] or a typed List[T]. ArrayList boxes values and forces [void] on every Add().'
-                            }
-                            $results.PerformanceIssues += $arrayListIssue
-                            $fileResult.Issues += $arrayListIssue
-                            $results.LowIssues++
-                        }
-                    }
-                }
-
-            $results.FileResults += $fileResult
-            
-            if ($fileResult.Passed) {
-                $results.PassedFiles++
-                if ($Detailed) {
-                    Write-Information "[PASS] $($file.Name)" -InformationAction Continue
-                }
-            } else {
-                $results.FailedFiles++
-                if ($Detailed) {
-                    Write-Information "[FAIL] $($file.Name) - $($fileResult.Issues.Count) issues" -InformationAction Continue
-                }
-            }
-        }
-        
-        Write-Progress -Activity "Analyzing PowerShell Files" -Completed
-        
-        # Calculate summary
-        $results.TotalIssues = $results.CriticalIssues + $results.HighIssues + $results.MediumIssues + $results.LowIssues
-        $results.Summary = @{
-            CompliancePercentage = if ($results.TotalFiles -gt 0) { [math]::Round(($results.PassedFiles / $results.TotalFiles) * 100, 1) } else { 0 }
-            OverallStatus = if ($results.CriticalIssues -eq 0 -and $results.HighIssues -eq 0) { 'PASSED' } elseif ($results.CriticalIssues -eq 0) { 'WARNING' } else { 'FAILED' }
-            # Measure-Object -Sum cannot total TimeSpan values ("Input object ... is
-            # not numeric"), and $ErrorActionPreference is Stop, so this aborted the
-            # whole analysis. Sum the ticks and rebuild the TimeSpan.
-            TotalAnalysisTime = [TimeSpan]::FromTicks(
-                ($results.FileResults | ForEach-Object { $_.AnalysisTime.Ticks } | Measure-Object -Sum).Sum
-            )
-            AverageFileSize = if ($results.TotalFiles -gt 0) { [math]::Round(($results.FileResults | Measure-Object -Property FileSize -Average).Average / 1KB, 2) } else { 0 }
+        $help = $function.GetHelpContent()
+        if ($null -eq $help) {
+            $message = "Function '$name' has no comment-based help that Get-Help can find."
+            $issues.Add(@('DOC-01', 'Error', $line, $message, 'Standards'))
+        } elseif ($help.Notes -match '(?im)^\s*(version|last\s+updated|date)\s*:') {
+            $message = "The help of '$name' contains a version or date stamp."
+            $issues.Add(@('DOC-07', 'Error', $line, $message, 'Standards'))
         }
     }
-    catch {
-        Write-Error "Analysis failed: $($_.Exception.Message) (CorrelationId: $correlationId)"
-        throw
+
+    # A statement belongs to an advanced function when the nearest script block around it is the
+    # function's body. A nested script block, such as a ValidateScript argument, is not the function.
+    $isInAdvancedFunction = {
+        param($Node)
+        $current = $Node.Parent
+        while ($null -ne $current -and $current -isnot [ScriptBlockAst]) {
+            $current = $current.Parent
+        }
+        $null -ne $current -and $advancedFunctionBodies.Contains($current)
+    }
+
+    foreach ($throwStatement in $ast.FindAll({ param($node) $node -is [ThrowStatementAst] }, $true)) {
+        if (& $isInAdvancedFunction -Node $throwStatement) {
+            $message = "throw is used in an advanced function. $terminatingAdvice"
+            $issues.Add(@('ERR-11', 'Error', $throwStatement.Extent.StartLineNumber, $message, 'Standards'))
+        }
+    }
+
+    foreach ($command in $ast.FindAll({ param($node) $node -is [CommandAst] }, $true)) {
+        $commandName = $command.GetCommandName()
+        if ($null -eq $commandName) {
+            continue
+        }
+        $line = $command.Extent.StartLineNumber
+
+        if ($windowsOnlyCommands -contains $commandName) {
+            $message = "$commandName is not part of PowerShell 7, or is obsolete there."
+            $issues.Add(@('VER-06', 'Error', $line, $message, 'Standards'))
+        }
+        if ($retiredPlatyPSCommands -contains $commandName) {
+            $message = "$commandName belongs to the retired platyPS module. Use Microsoft.PowerShell.PlatyPS."
+            $issues.Add(@('PLT-01', 'Error', $line, $message, 'Standards'))
+        }
+        if ($commandName -eq 'New-Object' -and $command.Extent.Text -match '(?i)Collections\.ArrayList') {
+            $issues.Add(@('STY-41', 'Error', $line, $listAdvice, 'Standards'))
+        }
+        if ($commandName -ne 'Write-Error' -or -not (& $isInAdvancedFunction -Node $command)) {
+            continue
+        }
+
+        $elements = $command.CommandElements
+        for ($index = 0; $index -lt $elements.Count; $index++) {
+            $element = $elements[$index]
+            if ($element -isnot [CommandParameterAst] -or $element.ParameterName -notmatch '^(ErrorAction|EA)$') {
+                continue
+            }
+            $valueAst = $element.Argument
+            if ($null -eq $valueAst -and $index + 1 -lt $elements.Count) {
+                $valueAst = $elements[$index + 1]
+            }
+            if ($null -ne $valueAst -and $valueAst.Extent.Text.Trim('''"') -eq 'Stop') {
+                $message = "Write-Error -ErrorAction Stop is used in an advanced function. $terminatingAdvice"
+                $issues.Add(@('ERR-11', 'Error', $line, $message, 'Standards'))
+            }
+        }
+    }
+
+    $typeNodes = $ast.FindAll(
+        { param($node) $node -is [TypeExpressionAst] -or $node -is [TypeConstraintAst] },
+        $true)
+    foreach ($typeNode in $typeNodes) {
+        if ($typeNode.TypeName.FullName -match '(?i)(^|\.)ArrayList$') {
+            $issues.Add(@('STY-41', 'Error', $typeNode.Extent.StartLineNumber, $listAdvice, 'Standards'))
+        }
+    }
+
+    foreach ($catchClause in $ast.FindAll({ param($node) $node -is [CatchClauseAst] }, $true)) {
+        $errorIndexes = $catchClause.FindAll(
+            {
+                param($node)
+                $node -is [IndexExpressionAst] -and
+                $node.Target -is [VariableExpressionAst] -and
+                $node.Target.VariablePath.UserPath -eq 'Error'
+            },
+            $true)
+        foreach ($errorIndex in $errorIndexes) {
+            $message = '$Error is indexed inside a catch block. Read the error from $_.'
+            $issues.Add(@('ERR-21', 'Error', $errorIndex.Extent.StartLineNumber, $message, 'Standards'))
+        }
+    }
+
+    # The variable on the left of an assignment, with or without a type constraint in front of it.
+    $getAssignedVariableName = {
+        param($Assignment)
+        $target = $Assignment.Left
+        if ($target -is [ConvertExpressionAst]) {
+            $target = $target.Child
+        }
+        if ($target -is [VariableExpressionAst]) {
+            $target.VariablePath.UserPath
+        }
+    }
+
+    $assignments = $ast.FindAll({ param($node) $node -is [AssignmentStatementAst] }, $true)
+    $emptyArrayVariables = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+
+    foreach ($assignment in $assignments) {
+        $variableName = & $getAssignedVariableName -Assignment $assignment
+        if ($null -eq $variableName) {
+            continue
+        }
+        $line = $assignment.Extent.StartLineNumber
+        $isPlainAssignment = $assignment.Operator -eq [TokenKind]::Equals
+        $rightText = $assignment.Right.Extent.Text.Trim()
+
+        if ($isPlainAssignment -and $rightText -match '^@\(\s*\)$') {
+            $null = $emptyArrayVariables.Add($variableName)
+        }
+        if ($file.Extension -eq '.psm1' -and $variableName -eq 'ErrorActionPreference') {
+            $issues.Add(@('ERR-02', 'Error', $line, 'A root module sets $ErrorActionPreference.', 'Standards'))
+        }
+        $isSecretName = $variableName -match $secretNamePattern
+        if ($isPlainAssignment -and $isSecretName -and $rightText -match $literalStringPattern) {
+            $message = "A literal value is assigned to `$$variableName."
+            $issues.Add(@('SEC-01', 'Error', $line, $message, 'Standards'))
+        }
+    }
+
+    foreach ($assignment in $assignments) {
+        if ($assignment.Operator -ne [TokenKind]::PlusEquals) {
+            continue
+        }
+        $variableName = & $getAssignedVariableName -Assignment $assignment
+        if ($null -eq $variableName -or -not $emptyArrayVariables.Contains($variableName)) {
+            continue
+        }
+        $current = $assignment.Parent
+        while ($null -ne $current -and $current -isnot [LoopStatementAst]) {
+            $current = $current.Parent
+        }
+        if ($null -ne $current) {
+            $message = "The array `$$variableName is grown with += inside a loop."
+            $issues.Add(@('STY-40', 'Error', $assignment.Extent.StartLineNumber, $message, 'Standards'))
+        }
+    }
+
+    foreach ($hashtable in $ast.FindAll({ param($node) $node -is [HashtableAst] }, $true)) {
+        foreach ($pair in $hashtable.KeyValuePairs) {
+            $keyText = $pair.Item1.Extent.Text.Trim('''"')
+            $valueText = $pair.Item2.Extent.Text.Trim()
+            if ($keyText -match $secretNamePattern -and $valueText -match $literalStringPattern) {
+                $message = "A literal value is assigned to the key '$keyText'."
+                $issues.Add(@('SEC-01', 'Error', $pair.Item1.Extent.StartLineNumber, $message, 'Standards'))
+            }
+        }
+    }
+
+    foreach ($token in $tokens) {
+        if ($stringTokenKinds -notcontains [string]$token.Kind -and $token.Text -match '[^\x00-\x7F]') {
+            $message = 'A non-ASCII character appears outside a string literal.'
+            $issues.Add(@('STY-06', 'Error', $token.Extent.StartLineNumber, $message, 'Standards'))
+        }
+    }
+
+    if ($file.Extension -eq '.psd1') {
+        foreach ($hashtable in $ast.FindAll({ param($node) $node -is [HashtableAst] }, $true)) {
+            foreach ($pair in $hashtable.KeyValuePairs) {
+                $isGuidKey = $pair.Item1.Extent.Text.Trim('''"') -eq 'GUID'
+                if ($isGuidKey -and $pair.Item2.Extent.Text -match '0{8}-0{4}-0{4}-0{4}-0{12}') {
+                    $message = 'The manifest GUID is the all-zero placeholder. Generate one with New-Guid.'
+                    $issues.Add(@('MOD-03', 'Error', $pair.Item1.Extent.StartLineNumber, $message, 'Standards'))
+                }
+            }
+        }
+    }
+
+    $requiredVersion = $ast.ScriptRequirements?.RequiredPSVersion
+    if ($null -ne $requiredVersion) {
+        $isSeven = $requiredVersion.Major -eq 7
+        if ($requiredVersion.Major -eq 6 -or ($isSeven -and $requiredVersion.Minor -lt 6)) {
+            $message = "#requires -Version $requiredVersion names a version that is past its end of support."
+            $issues.Add(@('VER-05', 'Error', 1, $message, 'Standards'))
+        }
+    }
+
+    foreach ($issue in $issues | Sort-Object -Property { $_[2] }, { $_[0] }) {
+        if ($issue[1] -in 'Error', 'Warning') {
+            $blockingFindingCount++
+        }
+
+        [PSCustomObject]@{
+            PSTypeName = 'PowerShellStandards.Finding'
+            RuleId = $issue[0]
+            Severity = $issue[1]
+            File = $filePath
+            Line = $issue[2]
+            Message = $issue[3]
+            Source = $issue[4]
+        }
     }
 }
 
-end {
-    # Display results
-    Write-Information "`nCompliance Analysis Summary:" -InformationAction Continue
-    Write-Information "  Total Files: $($results.TotalFiles)" -InformationAction Continue
-    Write-Information "  Passed: $($results.PassedFiles)" -InformationAction Continue
-    Write-Information "  Failed: $($results.FailedFiles)" -InformationAction Continue
-    Write-Information "  Compliance: $($results.Summary.CompliancePercentage)%" -InformationAction Continue
-    
-    if ($results.TotalIssues -gt 0) {
-        Write-Information "`nIssues Found:" -InformationAction Continue
-        Write-Information "  Critical: $($results.CriticalIssues)" -InformationAction Continue
-        Write-Information "  High: $($results.HighIssues)" -InformationAction Continue
-        Write-Information "  Medium: $($results.MediumIssues)" -InformationAction Continue
-        Write-Information "  Low: $($results.LowIssues)" -InformationAction Continue
-    }
-    
-    # Detailed output if requested
-    if ($Detailed -and $results.TotalIssues -gt 0) {
-        if ($results.PSScriptAnalyzerResults) {
-            Write-Information "`nPSScriptAnalyzer Issues:" -InformationAction Continue
-            $results.PSScriptAnalyzerResults | Format-Table RuleName, Severity, ScriptName, Message -AutoSize
-        }
-        
-        if ($results.SecurityIssues) {
-            Write-Information "`nSecurity Issues:" -InformationAction Continue
-            $results.SecurityIssues | Format-Table Type, File, Message, Severity -AutoSize
-        }
-        
-        if ($results.PerformanceIssues) {
-            Write-Information "`nPerformance Issues:" -InformationAction Continue
-            $results.PerformanceIssues | Format-Table Type, File, Message, Recommendation -AutoSize
-        }
-    }
-    
-    # Output to file if requested
-    if ($OutputPath -and $OutputFormat -ne 'Console') {
-        try {
-            switch ($OutputFormat) {
-                'JSON' {
-                    $results | ConvertTo-Json -Depth 10 | Out-File -FilePath $OutputPath -Encoding UTF8
-                    Write-Information "`nResults saved to: $OutputPath" -InformationAction Continue
-                }
-                'XML' {
-                    $results | Export-Clixml -Path $OutputPath
-                    Write-Information "`nResults saved to: $OutputPath" -InformationAction Continue
-                }
-                'HTML' {
-                    # Generate HTML report
-                    $htmlReport = @"
-<!DOCTYPE html>
-<html>
-<head>
-    <title>PowerShell Standards Compliance Report</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }
-        .passed { color: green; }
-        .failed { color: red; }
-        .warning { color: orange; }
-        table { border-collapse: collapse; width: 100%; margin: 10px 0; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>PowerShell Standards Compliance Report</h1>
-        <p>Generated: $($results.AnalysisDate)</p>
-        <p>Correlation ID: $($results.CorrelationId)</p>
-        <p>Overall Status: <span class="$($results.Summary.OverallStatus.ToLower())">$($results.Summary.OverallStatus)</span></p>
-    </div>
-    
-    <h2>Summary</h2>
-    <ul>
-        <li>Total Files: $($results.TotalFiles)</li>
-        <li>Passed: <span class="passed">$($results.PassedFiles)</span></li>
-        <li>Failed: <span class="failed">$($results.FailedFiles)</span></li>
-        <li>Compliance: $($results.Summary.CompliancePercentage)%</li>
-    </ul>
-    
-    <h2>Issues Breakdown</h2>
-    <ul>
-        <li>Critical: <span class="failed">$($results.CriticalIssues)</span></li>
-        <li>High: <span class="warning">$($results.HighIssues)</span></li>
-        <li>Medium: <span class="warning">$($results.MediumIssues)</span></li>
-        <li>Low: $($results.LowIssues)</li>
-    </ul>
-</body>
-</html>
-"@
-                    $htmlReport | Out-File -FilePath $OutputPath -Encoding UTF8
-                    Write-Information "`nHTML report saved to: $OutputPath" -InformationAction Continue
-                }
-            }
-        }
-        catch {
-            Write-Warning "Failed to save results to file: $($_.Exception.Message)"
-        }
-    }
-    
-    # Final recommendations
-    if ($results.TotalIssues -gt 0) {
-        Write-Information "`nRecommendations:" -InformationAction Continue
-        Write-Information "  - Use your Copilot prompts to fix issues:" -InformationAction Continue
-        Write-Information "    /security-review for security issues" -InformationAction Continue
-        Write-Information "    /optimize-performance for performance issues" -InformationAction Continue
-        Write-Information "    /code-analysis for comprehensive analysis" -InformationAction Continue
-        Write-Information "    /validate-standards for community standards compliance" -InformationAction Continue
-    }
-    elseif ($results.TotalFiles -eq 0) {
-        # Analysing nothing is not compliance. Previously this printed the success
-        # message and exited 0, so a misconfigured path or an over-broad
-        # -ExcludeTests filter looked like a clean pass.
-        Write-Warning "No PowerShell files were analysed - nothing has been verified. Check -Path and -ExcludeTests."
-    }
-    else {
-        Write-Information "`nAll $($results.TotalFiles) file(s) meet PowerShell enterprise standards!" -InformationAction Continue
-    }
-
-    Write-Verbose "Analysis completed in $([math]::Round($results.Summary.TotalAnalysisTime.TotalSeconds, 2)) seconds"
-
-    # Return the results object for programmatic use. `exit` terminates the whole
-    # host, so a caller that wants the data - a test, or another script - cannot
-    # use the CLI path. This is why the original `return` below the exits was
-    # unreachable.
-    if ($PassThru) {
-        return $results
-    }
-
-    # CLI/CI contract, unchanged when -PassThru is not supplied: non-zero exit
-    # when any issue was found.
-    if ($results.TotalIssues -gt 0) { exit 1 } else { exit 0 }
+if ($blockingFindingCount -gt 0 -and -not $PassThru) {
+    throw "$blockingFindingCount finding(s) with severity Error or Warning in $($files.Count) file(s)."
 }

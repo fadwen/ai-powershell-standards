@@ -1,645 +1,385 @@
 # Test Data Management Guide
 
-Targets **Pester 6.2+**.
+This guide covers the data that tests use: cases for `-ForEach`, data files, files that a test
+creates, and helper functions that build objects. It supports rules TST-02, TST-03, TST-12, TST-30,
+and TST-31 in [powershell-pester.instructions.md](../powershell-pester.instructions.md). The
+behaviour described here was checked on Pester 6.2.0.
 
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
+## Discovery-Time and Run-Time Data
 
-## Discovery-Time vs. Run-Time Data
+Pester reads a test file twice. During discovery it runs the file to find the `Describe`, `Context`,
+and `It` blocks. During the run it executes the setup blocks and the tests. Where data is built
+decides which of the two can see it.
 
-This is the most important distinction in Pester 6 test data, and getting it wrong fails silently.
-
-| Data drives... | Must be built in | Why |
+| The data is used by | Build it in | Reason |
 | --- | --- | --- |
-| `-ForEach` / `-TestCases` (the test _tree_) | `BeforeDiscovery` | Discovery runs before `BeforeAll` |
-| Assertions inside `It` (the test _body_) | `BeforeAll` / `BeforeEach` | Runs at execution time |
+| `-ForEach`, which shapes the test tree | `BeforeDiscovery` | Discovery happens before any `BeforeAll` runs. |
+| Assertions inside `It` | `BeforeAll` or `BeforeEach` | These blocks run with the tests. |
 
 ```powershell
 BeforeDiscovery {
-    # Shapes the test tree - one It per user
-    $TestUsers = New-TestUsers -Count 3 -Type 'Standard'
+    # Shapes the test tree: one It for each case.
+    $userCases = @(
+        @{ UserName = 'ann'; Department = 'Finance' }
+        @{ UserName = 'bob'; Department = 'Operations' }
+    )
 }
 
-BeforeAll {
-    # Used inside test bodies
-    $TestConfig = New-TestConfiguration -Environment 'Testing'
-}
+Describe 'Get-UserDepartment' -Tag 'Unit' {
+    BeforeAll {
+        # Used inside the test bodies.
+        $directoryPath = Join-Path -Path $TestDrive -ChildPath 'directory.json'
+        $directory = @(
+            @{ userName = 'ann'; department = 'Finance' }
+            @{ userName = 'bob'; department = 'Operations' }
+        )
+        $json = ConvertTo-Json -InputObject $directory
+        Set-Content -LiteralPath $directoryPath -Value $json -Encoding ascii
+    }
 
-Describe 'User processing' {
-    It 'processes <Name>' -ForEach $TestUsers.ForEach({ @{ Name = $_.FullName; User = $_ } }) {
-        Process-User -User $User -Config $TestConfig | Should-BeTrue
+    It 'Returns <Department> for <UserName>' -ForEach $userCases {
+        Get-UserDepartment -LiteralPath $directoryPath -UserName $UserName | Should-Be $Department
     }
 }
 ```
 
-Building `-ForEach` data in `BeforeAll` leaves it `$null` during discovery. Piping `$null` through
-`ForEach-Object` yields **one** iteration, so the suite collapses to a single bogus test and reports
-green. If the source is an empty array instead, Pester 6 fails discovery outright
-(`Run.FailOnNullOrEmptyForEach`).
+### Data Built in the Wrong Block
 
-Because Pester 6 discovers **one file at a time**, discovery-time data must also be produced by the
-file that uses it - a helper module imported by another test file is not guaranteed to be loaded.
-Import helpers in the same file, or provide them from a `Pester.BeforeContainer.ps1`. Top-level code
-in that file runs at discovery, which is exactly when `-ForEach` data is built; anything the tests
-need at run time goes in its `BeforeAll` - see
-[Test Structure Guide](./test-structure-guide.md#shared-bootstrap).
+A variable that is assigned in `BeforeAll` is `$null` during discovery. What follows depends on how
+the `-ForEach` argument is written. Measured on Pester 6.2.0:
 
-### Test data must be deterministic at discovery time
+| `-ForEach` argument, with `$users` assigned in `BeforeAll` | Result |
+| --- | --- |
+| `-ForEach $users` | Discovery of the file fails: `Value can not be null or empty array`. |
+| `-ForEach $users.ForEach({ @{ Name = $_.Name } })` | Discovery of the file fails with the same message. |
+| `-ForEach ($users \| ForEach-Object { @{ Name = $_.Name } })` | One test is created with the name `$null` in place of the value, and it runs with empty data. |
 
-`TestDataFactory` below uses `Get-Random`. That is fine for run-time data, but data feeding
-`-ForEach` should be **stable** - under `Run.Parallel` each file is discovered in its own runspace,
-and randomized test _names_ make failures hard to correlate across runs and reports.
+The third form is the dangerous one. Piping `$null` to `ForEach-Object` runs the script block once,
+so the file reports one test where it should report many, and that test can pass.
 
-For discovery-time data, prefer fixed fixtures or a seeded generator:
+A file that fails discovery adds nothing to `FailedCount`. It sets `FailedContainersCount` and makes
+the run result `Failed`, which is why the CI gate tests `Result` (TST-42).
+
+The check for an empty list is the `Run.FailOnNullOrEmptyForEach` option, which is on by default.
+`-AllowNullOrEmptyForEach` on a `Describe`, `Context`, or `It` turns it off for that block. TST-30
+requires a list that is not empty, so correct the data instead of adding the switch.
+
+### Each File Builds Its Own Data
+
+Pester 6 discovers and runs one file at a time, and in a parallel run each file has its own
+runspace. A file therefore cannot use data or a helper that another test file loaded. Build the
+data in the file's own `BeforeDiscovery`, or in a shared setup file; see
+[Pester Test Structure Guide](./test-structure-guide.md#shared-setup-files).
+
+## Case Format
+
+Pass each case as a hashtable (TST-30). Each key becomes a variable inside the `It` block, and
+`<Key>` in the test name is replaced with its value.
 
 ```powershell
 BeforeDiscovery {
-    # Stable names - the same test identity on every run and in every runspace
-    $TestCases = Import-PowerShellDataFile "$PSScriptRoot/../TestData/user-cases.psd1"
+    $cases = @(
+        @{ Text = 'alpha'; Expected = 'ALPHA' }
+        @{ Text = 'beta'; Expected = 'BETA' }
+    )
+}
+
+Describe 'ConvertTo-UpperText' -Tag 'Unit' {
+    It 'Converts <Text> to <Expected>' -ForEach $cases {
+        ConvertTo-UpperText -Text $Text | Should-Be $Expected
+    }
 }
 ```
 
-Keep `Get-Random` for values consumed inside `It` bodies, where the name is already fixed.
+Other kinds of case behave differently:
 
-## Test Data Organization
+| Case | Inside the `It` block | In the test name |
+| --- | --- | --- |
+| Hashtable `@{ Text = 'alpha' }` | `$Text` and `$_.Text` | `<Text>` |
+| Object `[PSCustomObject]@{ Text = 'alpha' }` | `$_.Text` only. `$Text` is not set. | `<_.Text>`. `<Text>` renders as `$null`. |
+| Scalar `'alpha'` | `$_` | `<_>` |
 
-### Test Data Directory Structure
+Pester evaluates the text between `<` and `>` as a PowerShell expression, so a name can contain
+`<User.Name>` or `<($Left + $Right)>`.
+
+### Keys That Must Not Be Used
+
+A key MUST NOT have the name of an automatic variable (TST-30, STY-13). PowerShell sets these
+variables itself, so the value from the case is lost or the test fails. Measured on Pester 6.2.0:
+
+| Key | What happens | Use instead |
+| --- | --- | --- |
+| `Input` | The test receives an empty enumerator. | `Text`, `InputObject`, `Value` |
+| `Args` | The test receives the argument list of the test script block. | `Arguments`, `ArgumentList` |
+| `Matches` | The value is replaced by the next `-match` in the test. | `ExpectedMatch` |
+| `Host`, `PID` | The test fails: `Cannot overwrite variable Host because it is read-only or constant`. | `ComputerName`, `ProcessId` |
+
+The other names in STY-13, such as `Error` and `Event`, are not allowed either, even where a simple
+test happens to pass with them.
+
+```powershell
+# Non-compliant: $Input is an automatic variable, so the function receives nothing.
+It 'Converts <Input>' -ForEach @(
+    @{ Input = 'alpha'; Expected = 'ALPHA' }
+) {
+    ConvertTo-UpperText -Text $Input | Should-Be $Expected
+}
+
+# Compliant
+It 'Converts <Text> to <Expected>' -ForEach @(
+    @{ Text = 'alpha'; Expected = 'ALPHA' }
+) {
+    ConvertTo-UpperText -Text $Text | Should-Be $Expected
+}
+```
+
+## Deterministic Data
+
+Tests MUST NOT depend on the current time or on values that change between runs (TST-31).
+
+- Cases for `-ForEach` are fixed values. Do not build them with `Get-Random`, `Get-Date`, or
+  `[guid]::NewGuid()`: the test names would change on every run, and a failure could not be matched
+  with an earlier one.
+- When the code under test reads the clock, mock `Get-Date`.
+- When the code under test needs a unique value, pass a fixed one from the test.
+
+```powershell
+Describe 'Test-ReportStale' -Tag 'Unit' {
+    BeforeAll {
+        Mock -CommandName Get-Date -ModuleName ModuleName -MockWith { [datetime]::new(2026, 3, 31) }
+    }
+
+    It 'Returns <Expected> for a report written on day <Day> of March 2026' -ForEach @(
+        @{ Day = 30; Expected = $false }
+        @{ Day = 1; Expected = $true }
+    ) {
+        $written = [datetime]::new(2026, 3, $Day)
+
+        Test-ReportStale -LastWriteTime $written -MaximumAgeDays 7 | Should-Be $Expected
+    }
+}
+```
+
+## Data Files
+
+Keep fixed data beside the tests:
 
 ```text
 Tests/
-├── TestData/
-│   ├── Configurations/
-│   │   ├── development.psd1
-│   │   ├── testing.psd1
-│   │   └── production.psd1
-│   ├── SampleData/
-│   │   ├── users.json
-│   │   ├── servers.csv
-│   │   └── configurations.xml
-│   ├── MockResponses/
-│   │   ├── api-responses.json
-│   │   ├── database-results.json
-│   │   └── service-responses.json
-│   ├── Templates/
-│   │   ├── user-template.json
-│   │   ├── server-template.json
-│   │   └── config-template.psd1
-│   ├── Baselines/
-│   │   ├── performance-baselines.psd1
-│   │   └── security-baselines.json
-│   └── Fixtures/
-│       ├── test-certificates/
-│       ├── test-files/
-│       └── sample-logs/
-├── TestHelpers/
-│   ├── TestDataFactory.ps1
-│   ├── MockDataGenerator.ps1
-│   └── DataValidation.ps1
+|-- TestData/
+|   |-- server-cases.psd1      cases for -ForEach
+|   |-- users.json             input that the code under test reads
+|   `-- api-responses.json     responses that mocks return
+`-- TestHelpers/
+    `-- TestData.ps1           functions that build test objects
 ```
 
-## Test Data Factory
-
-### Comprehensive Test Data Factory
-
-```powershell
-# TestHelpers/TestDataFactory.ps1
-
-class TestDataFactory {
-    static [hashtable] $Cache = @{}
-    static [string] $DataPath = (Join-Path $PSScriptRoot '..\TestData')
-
-    # User data generation
-    static [object[]] CreateUsers([int]$Count = 5, [string]$Type = 'Standard') {
-        $cacheKey = "Users_$($Count)_$Type"
-
-        if ([TestDataFactory]::Cache.ContainsKey($cacheKey)) {
-            return [TestDataFactory]::Cache[$cacheKey]
-        }
-
-        $users = switch ($Type) {
-            'Standard' { [TestDataFactory]::CreateStandardUsers($Count) }
-            'Admin' { [TestDataFactory]::CreateAdminUsers($Count) }
-            'Disabled' { [TestDataFactory]::CreateDisabledUsers($Count) }
-            'Mixed' { [TestDataFactory]::CreateMixedUsers($Count) }
-            default { [TestDataFactory]::CreateStandardUsers($Count) }
-        }
-
-        [TestDataFactory]::Cache[$cacheKey] = $users
-        return $users
-    }
-
-    static [object[]] CreateStandardUsers([int]$Count) {
-        $departments = @('IT', 'HR', 'Finance', 'Marketing', 'Operations')
-        $titles = @('Analyst', 'Specialist', 'Coordinator', 'Manager', 'Director')
-
-        return 1..$Count | ForEach-Object {
-            $firstName = [TestDataFactory]::GetRandomFirstName()
-            $lastName = [TestDataFactory]::GetRandomLastName()
-
-            @{
-                Id = $_
-                FirstName = $firstName
-                LastName = $lastName
-                FullName = "$firstName $lastName"
-                Email = "$($firstName.ToLower()).$($lastName.ToLower())@company.com"
-                Department = Get-Random -InputObject $departments
-                Title = Get-Random -InputObject $titles
-                Active = $true
-                CreatedDate = (Get-Date).AddDays(-((Get-Random -Minimum 1 -Maximum 365)))
-                LastLoginDate = (Get-Date).AddDays(-((Get-Random -Minimum 1 -Maximum 30)))
-            }
-        }
-    }
-
-    static [object[]] CreateAdminUsers([int]$Count) {
-        $adminTitles = @('System Administrator', 'Database Administrator', 'Network Administrator', 'Security Administrator')
-
-        return 1..$Count | ForEach-Object {
-            $firstName = [TestDataFactory]::GetRandomFirstName()
-            $lastName = [TestDataFactory]::GetRandomLastName()
-
-            @{
-                Id = $_ + 1000
-                FirstName = $firstName
-                LastName = $lastName
-                FullName = "$firstName $lastName"
-                Email = "$($firstName.ToLower()).$($lastName.ToLower())@company.com"
-                Department = 'IT'
-                Title = Get-Random -InputObject $adminTitles
-                Active = $true
-                IsAdmin = $true
-                Privileges = @('UserManagement', 'SystemConfiguration', 'SecurityManagement')
-                CreatedDate = (Get-Date).AddDays(-((Get-Random -Minimum 30 -Maximum 365)))
-                LastLoginDate = (Get-Date).AddDays(-((Get-Random -Minimum 1 -Maximum 7)))
-            }
-        }
-    }
-
-    # Server data generation
-    static [object[]] CreateServers([int]$Count = 10, [string]$Environment = 'Mixed') {
-        $cacheKey = "Servers_$($Count)_$Environment"
-
-        if ([TestDataFactory]::Cache.ContainsKey($cacheKey)) {
-            return [TestDataFactory]::Cache[$cacheKey]
-        }
-
-        $environments = switch ($Environment) {
-            'Production' { @('Production') }
-            'Development' { @('Development') }
-            'Testing' { @('Testing') }
-            'Mixed' { @('Production', 'Development', 'Testing', 'Staging') }
-            default { @('Production', 'Development', 'Testing') }
-        }
-
-        $roles = @('Web Server', 'Database Server', 'Application Server', 'Domain Controller', 'File Server')
-        $operatingSystems = @('Windows Server 2019', 'Windows Server 2022', 'Ubuntu 20.04 LTS', 'CentOS 8')
-
-        $servers = 1..$Count | ForEach-Object {
-            $environment = Get-Random -InputObject $environments
-            $role = Get-Random -InputObject $roles
-
-            @{
-                Id = $_
-                Name = "SRV$($environment.Substring(0,1).ToUpper())$($_.ToString('00'))"
-                FQDN = "srv$($environment.ToLower())$($_.ToString('00')).company.local"
-                IPAddress = "192.168.$((Get-Random -Minimum 1 -Maximum 254)).$((Get-Random -Minimum 1 -Maximum 254))"
-                Environment = $environment
-                Role = $role
-                OperatingSystem = Get-Random -InputObject $operatingSystems
-                CPU = Get-Random -InputObject @(2, 4, 8, 16)
-                Memory = Get-Random -InputObject @(8, 16, 32, 64, 128)
-                DiskSpace = Get-Random -InputObject @(100, 250, 500, 1000, 2000)
-                Status = Get-Random -InputObject @('Running', 'Running', 'Running', 'Stopped', 'Maintenance')  # Weighted toward Running
-                LastUpdated = (Get-Date).AddDays(-((Get-Random -Minimum 1 -Maximum 30)))
-                MonitoringEnabled = $true
-            }
-        }
-
-        [TestDataFactory]::Cache[$cacheKey] = $servers
-        return $servers
-    }
-
-    # Configuration data generation
-    static [hashtable] CreateConfiguration([string]$Environment = 'Testing', [string]$Application = 'Default') {
-        return @{
-            Environment = $Environment
-            Application = $Application
-            Database = @{
-                ConnectionString = "Server=db-$($Environment.ToLower()).company.local;Database=$Application;Integrated Security=true"
-                CommandTimeout = 30
-                ConnectionPoolSize = 100
-            }
-            Logging = @{
-                Level = if ($Environment -eq 'Production') { 'Information' } else { 'Debug' }
-                Path = "C:\Logs\$Application"
-                RetentionDays = if ($Environment -eq 'Production') { 90 } else { 30 }
-                MaxFileSize = '10MB'
-            }
-            Security = @{
-                RequireSSL = $Environment -eq 'Production'
-                SessionTimeout = 1800
-                MaxLoginAttempts = 3
-                PasswordPolicy = @{
-                    MinLength = 8
-                    RequireUppercase = $true
-                    RequireNumbers = $true
-                    RequireSpecialChars = $Environment -eq 'Production'
-                }
-            }
-            Performance = @{
-                CacheEnabled = $true
-                CacheTimeout = 3600
-                MaxConcurrentUsers = if ($Environment -eq 'Production') { 1000 } else { 100 }
-                RequestTimeout = 60000
-            }
-            Features = @{
-                FeatureA = $true
-                FeatureB = $Environment -ne 'Production'  # Beta features disabled in prod
-                FeatureC = $false
-                Maintenance = $Environment -eq 'Development'
-            }
-        }
-    }
-
-    # API Response data generation
-    static [hashtable] CreateAPIResponse([string]$Type = 'Success', [object]$Data = $null) {
-        $baseResponse = @{
-            Timestamp = Get-Date -Format 'yyyy-MM-ddTHH:mm:ss.fffZ'
-            RequestId = [System.Guid]::NewGuid().ToString()
-            Version = '1.0.0'
-        }
-
-        switch ($Type) {
-            'Success' {
-                $baseResponse.Success = $true
-                $baseResponse.StatusCode = 200
-                $baseResponse.Message = 'Request completed successfully'
-                $baseResponse.Data = $Data ?? @{ Result = 'Success' }
-            }
-            'Error' {
-                $baseResponse.Success = $false
-                $baseResponse.StatusCode = 500
-                $baseResponse.Message = 'Internal server error occurred'
-                $baseResponse.Error = @{
-                    Code = 'INTERNAL_ERROR'
-                    Details = 'An unexpected error occurred while processing the request'
-                    Timestamp = $baseResponse.Timestamp
-                }
-            }
-            'NotFound' {
-                $baseResponse.Success = $false
-                $baseResponse.StatusCode = 404
-                $baseResponse.Message = 'Requested resource not found'
-                $baseResponse.Error = @{
-                    Code = 'NOT_FOUND'
-                    Details = 'The requested resource could not be located'
-                }
-            }
-            'Unauthorized' {
-                $baseResponse.Success = $false
-                $baseResponse.StatusCode = 401
-                $baseResponse.Message = 'Authentication required'
-                $baseResponse.Error = @{
-                    Code = 'UNAUTHORIZED'
-                    Details = 'Valid authentication credentials are required'
-                }
-            }
-            'ValidationError' {
-                $baseResponse.Success = $false
-                $baseResponse.StatusCode = 400
-                $baseResponse.Message = 'Validation failed'
-                $baseResponse.Error = @{
-                    Code = 'VALIDATION_ERROR'
-                    Details = 'One or more validation errors occurred'
-                    ValidationErrors = @(
-                        @{ Field = 'Email'; Message = 'Invalid email format' }
-                        @{ Field = 'Age'; Message = 'Age must be between 18 and 65' }
-                    )
-                }
-            }
-        }
-
-        return $baseResponse
-    }
-
-    # Database result data generation
-    static [object[]] CreateDatabaseResults([string]$Table = 'Users', [int]$Count = 10) {
-        switch ($Table) {
-            'Users' { return [TestDataFactory]::CreateUsers($Count) }
-            'Servers' { return [TestDataFactory]::CreateServers($Count) }
-            'Logs' { return [TestDataFactory]::CreateLogEntries($Count) }
-            default {
-                return 1..$Count | ForEach-Object {
-                    @{
-                        Id = $_
-                        Name = "Item $_"
-                        Value = "Value $_"
-                        CreatedDate = (Get-Date).AddDays(-((Get-Random -Minimum 1 -Maximum 30)))
-                    }
-                }
-            }
-        }
-    }
-
-    # Performance baseline data
-    static [hashtable] CreatePerformanceBaseline([string]$Component = 'General') {
-        return @{
-            Component = $Component
-            LastUpdated = Get-Date
-            Baselines = @{
-                ExecutionTime = @{
-                    SingleItem = [TimeSpan]::FromMilliseconds(100)
-                    BatchProcessing = [TimeSpan]::FromSeconds(5)
-                    LargeDataset = [TimeSpan]::FromMinutes(2)
-                }
-                MemoryUsage = @{
-                    Baseline = 50MB
-                    Maximum = 200MB
-                    PerItem = 1KB
-                }
-                Throughput = @{
-                    ItemsPerSecond = 100
-                    RequestsPerMinute = 6000
-                    ConcurrentUsers = 50
-                }
-            }
-        }
-    }
-
-    # Helper methods
-    static [string] GetRandomFirstName() {
-        $names = @('John', 'Jane', 'Michael', 'Sarah', 'David', 'Lisa', 'Robert', 'Maria', 'James', 'Jennifer',
-                  'William', 'Patricia', 'Richard', 'Elizabeth', 'Charles', 'Linda', 'Joseph', 'Barbara',
-                  'Thomas', 'Susan', 'Christopher', 'Jessica', 'Daniel', 'Karen', 'Matthew', 'Nancy')
-        return Get-Random -InputObject $names
-    }
-
-    static [string] GetRandomLastName() {
-        $names = @('Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez',
-                  'Martinez', 'Hernandez', 'Lopez', 'Gonzalez', 'Wilson', 'Anderson', 'Thomas', 'Taylor',
-                  'Moore', 'Jackson', 'Martin', 'Lee', 'Perez', 'Thompson', 'White', 'Harris', 'Sanchez')
-        return Get-Random -InputObject $names
-    }
-
-    static [object[]] CreateLogEntries([int]$Count) {
-        $levels = @('Information', 'Warning', 'Error', 'Debug', 'Verbose')
-        $sources = @('Application', 'Security', 'System', 'Database', 'Network')
-        $messages = @(
-            'User login successful',
-            'Database connection established',
-            'Configuration updated',
-            'Performance threshold exceeded',
-            'Security scan completed',
-            'Backup operation started',
-            'Service restart initiated',
-            'Data synchronization completed'
-        )
-
-        return 1..$Count | ForEach-Object {
-            @{
-                Id = $_
-                Timestamp = (Get-Date).AddMinutes(-((Get-Random -Minimum 1 -Maximum 1440)))  # Last 24 hours
-                Level = Get-Random -InputObject $levels
-                Source = Get-Random -InputObject $sources
-                Message = Get-Random -InputObject $messages
-                UserId = if ((Get-Random -Minimum 1 -Maximum 100) -gt 30) { Get-Random -Minimum 1 -Maximum 50 } else { $null }
-                CorrelationId = [System.Guid]::NewGuid().ToString()
-            }
-        }
-    }
-
-    # Clear cache
-    static [void] ClearCache() {
-        [TestDataFactory]::Cache = @{}
-    }
-
-    # Save data to file
-    static [void] SaveTestData([string]$Name, [object]$Data, [string]$Format = 'JSON') {
-        $filePath = Join-Path ([TestDataFactory]::DataPath) "Generated\$Name.$($Format.ToLower())"
-
-        # Ensure directory exists
-        $directory = Split-Path $filePath -Parent
-        if (-not (Test-Path $directory)) {
-            New-Item -Path $directory -ItemType Directory -Force | Out-Null
-        }
-
-        switch ($Format.ToUpper()) {
-            'JSON' {
-                $Data | ConvertTo-Json -Depth 10 | Out-File $filePath -Encoding UTF8
-            }
-            'CSV' {
-                $Data | Export-Csv $filePath -NoTypeInformation -Encoding UTF8
-            }
-            'PSD1' {
-                "@{" | Out-File $filePath -Encoding UTF8
-                $Data.GetEnumerator() | ForEach-Object {
-                    "    $($_.Key) = '$($_.Value)'" | Out-File $filePath -Append -Encoding UTF8
-                }
-                "}" | Out-File $filePath -Append -Encoding UTF8
-            }
-            'XML' {
-                $Data | Export-Clixml $filePath
-            }
-        }
-    }
-}
-
-# Convenience functions
-function New-TestUsers {
-    param([int]$Count = 5, [string]$Type = 'Standard')
-    return [TestDataFactory]::CreateUsers($Count, $Type)
-}
-
-function New-TestServers {
-    param([int]$Count = 10, [string]$Environment = 'Mixed')
-    return [TestDataFactory]::CreateServers($Count, $Environment)
-}
-
-function New-TestConfiguration {
-    param([string]$Environment = 'Testing', [string]$Application = 'Default')
-    return [TestDataFactory]::CreateConfiguration($Environment, $Application)
-}
-
-function New-TestAPIResponse {
-    param([string]$Type = 'Success', [object]$Data = $null)
-    return [TestDataFactory]::CreateAPIResponse($Type, $Data)
-}
-
-function New-TestCredential {
-    param([string]$Username = 'testuser', [string]$Password = 'TestPassword123!')
-    return New-Object PSCredential($Username, (ConvertTo-SecureString $Password -AsPlainText -Force))
-}
-
-function New-MockDateTime {
-    param([string]$BaseDate = '2024-01-01', [int]$DaysRange = 30)
-    $base = [DateTime]::Parse($BaseDate)
-    return $base.AddDays((Get-Random -Minimum 0 -Maximum $DaysRange))
-}
-
-function Clear-TestDataCache {
-    [TestDataFactory]::ClearCache()
-}
-```
-
-## Static Test Data Files
-
-### Configuration Files
+A `.psd1` file suits cases, because `Import-PowerShellDataFile` returns hashtables without running
+code:
 
 ```powershell
-# TestData/Configurations/testing.psd1
+# Tests/TestData/server-cases.psd1
 @{
-    Environment = 'Testing'
-    Database = @{
-        Server = 'test-db.company.local'
-        Database = 'TestDB'
-        Timeout = 30
-        ConnectionPoolSize = 10
-    }
-    Logging = @{
-        Level = 'Debug'
-        Path = 'C:\Logs\Testing'
-        RetentionDays = 7
-    }
-    Security = @{
-        RequireSSL = $false
-        SessionTimeout = 3600
-        MaxLoginAttempts = 5
-    }
-    Features = @{
-        DebugMode = $true
-        MockData = $true
-        PerformanceProfiling = $true
-    }
+    Cases = @(
+        @{ ComputerName = 'web01'; Reachable = $true; Expected = 'Healthy' }
+        @{ ComputerName = 'web02'; Reachable = $false; Expected = 'Unreachable' }
+    )
 }
 ```
 
-### Sample Data Files
+```powershell
+BeforeDiscovery {
+    $testsRoot = Split-Path -Path $PSScriptRoot -Parent
+    $dataPath = Join-Path -Path $testsRoot -ChildPath 'TestData'
+    $data = Import-PowerShellDataFile -LiteralPath (Join-Path -Path $dataPath -ChildPath 'server-cases.psd1')
+    $serverCases = $data.Cases
+}
+```
+
+A JSON file suits input that the code under test parses, and responses that a mock returns:
 
 ```json
-// TestData/SampleData/users.json
 [
     {
         "id": 1,
-        "firstName": "John",
-        "lastName": "Doe",
-        "email": "john.doe@company.com",
-        "department": "IT",
-        "active": true,
-        "roles": ["User", "Developer"]
+        "userName": "ann",
+        "department": "Finance",
+        "active": true
     },
     {
         "id": 2,
-        "firstName": "Jane",
-        "lastName": "Smith",
-        "email": "jane.smith@company.com",
-        "department": "HR",
-        "active": true,
-        "roles": ["User", "Manager"]
+        "userName": "bob",
+        "department": "Operations",
+        "active": false
     }
 ]
 ```
 
-## Test Data Best Practices
-
-### Data Isolation
-
 ```powershell
-BeforeEach {
-    # Create isolated test data for each test.
-    $script:TestUsers = New-TestUsers -Count 3 -Type 'Standard'
-    $script:TestConfig = New-TestConfiguration -Environment 'Testing'
-}
-
-AfterEach {
-    # Clean up test data
-    Clear-TestDataCache
-    Remove-Variable -Name 'TestUsers', 'TestConfig' -Scope Script -ErrorAction SilentlyContinue
+BeforeAll {
+    $testsRoot = Split-Path -Path $PSScriptRoot -Parent
+    $dataPath = Join-Path -Path $testsRoot -ChildPath 'TestData'
+    $userJson = Get-Content -LiteralPath (Join-Path -Path $dataPath -ChildPath 'users.json') -Raw
+    $users = ConvertFrom-Json -InputObject $userJson
 }
 ```
 
-The `TestDataFactory` cache is **per-runspace**. Under `Run.Parallel` each test file gets its own
-runspace and therefore its own cache, so cached data is never shared between files. Do not rely on
-one file warming the cache for another - that was already fragile in Pester 5 and is impossible in
-a parallel v6 run.
+Pass the text with `-InputObject` and assign the result. On Windows PowerShell 5.1,
+`$userJson | ConvertFrom-Json` sends a JSON array down the pipeline as one object, so wrapping that
+pipeline in `@()` gives an array with one element.
 
-Use `TestDrive:` for file-based test data rather than `$env:TEMP`. Pester creates and removes it per
-container, so it is isolated between files even under parallel:
+Treat the files under `TestData` as read-only. A test that has to change a file copies it to
+`$TestDrive` first. Data files MUST NOT contain real secrets or personal data (SEC-01).
+
+## Files That a Test Creates
+
+Files that a test creates go in `$TestDrive` (TST-03). Measured on Pester 6.2.0:
+
+- Each test file gets its own `$TestDrive` folder, so files do not leak from one test file to
+  another.
+- A file is removed when the block that created it ends. A file created in a `Describe`-level
+  `BeforeAll` exists for the whole `Describe` block. A file created inside an `It` exists until the
+  enclosing `Context` or `Describe` ends, so a later `It` in the same block can still see it.
+- `$TestDrive` holds a real file system path, so it also works with .NET methods and native
+  programs. The `TestDrive:` drive points at the same folder.
+
+Create the files in `BeforeAll` or `BeforeEach`, not in one test for use by another (TST-31):
+
+```powershell
+Describe 'Import-UserList' -Tag 'Unit' {
+    BeforeAll {
+        $userFile = Join-Path -Path $TestDrive -ChildPath 'users.json'
+        $json = '[{ "userName": "ann" }, { "userName": "bob" }]'
+        Set-Content -LiteralPath $userFile -Value $json -Encoding ascii
+    }
+
+    It 'Reads every user in the file' {
+        $result = @(Import-UserList -LiteralPath $userFile)
+
+        $result | Should-BeCollection -Count 2
+        $result[0].UserName | Should-Be 'ann'
+        $result[1].UserName | Should-Be 'bob'
+    }
+}
+```
+
+A test that changes anything outside `$TestDrive` restores it (TST-31):
+
+```powershell
+Describe 'Get-DeploymentRegion' -Tag 'Unit' {
+    BeforeAll {
+        $originalRegion = $env:DEPLOYMENT_REGION
+        $env:DEPLOYMENT_REGION = 'westeurope'
+    }
+
+    AfterAll {
+        $env:DEPLOYMENT_REGION = $originalRegion
+    }
+
+    It 'Reads the region from the environment' {
+        Get-DeploymentRegion | Should-Be 'westeurope'
+    }
+}
+```
+
+## Functions That Build Test Objects
+
+When many tests need the same kind of object, write a small function that builds it from fixed
+defaults, and let each test pass only the values it cares about. Keep the function free of random
+values and of the clock. Comment-based help is omitted here to keep the example short.
+
+```powershell
+# Tests/TestHelpers/TestData.ps1
+
+function New-TestUser {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Creates an object in memory and changes no state.')]
+    [CmdletBinding()]
+    [OutputType('Test.User')]
+    param(
+        [Parameter(Mandatory)]
+        [string]$UserName,
+
+        [string]$Department = 'Operations',
+
+        [switch]$Disabled
+    )
+
+    [PSCustomObject]@{
+        PSTypeName = 'Test.User'
+        UserName = $UserName
+        Department = $Department
+        Enabled = -not $Disabled
+        MailAddress = "$UserName@example.com"
+    }
+}
+```
+
+PSScriptAnalyzer reports `PSUseShouldProcessForStateChangingFunctions` for any function whose verb is
+`New`. The attribute records why the rule does not apply here.
+
+Dot-source the file in the top-level `BeforeAll` of each test file that uses it, or in the
+`BeforeAll` of a shared setup file. A function that `-ForEach` data needs is dot-sourced in
+`BeforeDiscovery` as well.
 
 ```powershell
 BeforeAll {
-    $dataFile = Join-Path $TestDrive 'users.json'
-    New-TestUsers -Count 3 | ConvertTo-Json | Set-Content $dataFile
+    $testsRoot = Split-Path -Path $PSScriptRoot -Parent
+    $helperPath = Join-Path -Path $testsRoot -ChildPath 'TestHelpers'
+    . (Join-Path -Path $helperPath -ChildPath 'TestData.ps1')
 }
-```
 
-### Data Validation
+Describe 'Get-UserSummary' -Tag 'Unit' {
+    It 'Describes a disabled user as inactive' {
+        $user = New-TestUser -UserName 'ann' -Disabled
 
-```powershell
-function Test-TestDataIntegrity {
-    param([object[]]$Data, [string]$Type)
-
-    switch ($Type) {
-        'Users' {
-            $Data | Should-All { $null -ne $_.Id }
-            $Data | Should-All { $_.Email -match '^[^@]+@[^@]+\.[^@]+$' }
-            $Data | Should-All { -not [string]::IsNullOrWhiteSpace($_.FirstName) }
-            $Data | Should-All { -not [string]::IsNullOrWhiteSpace($_.LastName) }
-        }
-        'Servers' {
-            $Data | Should-All { -not [string]::IsNullOrWhiteSpace($_.Name) }
-            $Data | Should-All { $_.IPAddress -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$' }
-            # Should -BeIn has no direct Should-* equivalent - test membership in the filter
-            $Data | Should-All { $_.Environment -in @('Production', 'Development', 'Testing', 'Staging') }
-        }
+        Get-UserSummary -User $user | Should-Be 'ann (inactive)'
     }
 }
 ```
 
-`Should-All` reports which item failed and why, where a `foreach` loop of individual assertions
-stops at the first failure and does not tell you the index.
+## Credentials in Test Data
 
-### Performance Test Data
+A password MUST NOT be written in a test file or a data file, and
+`ConvertTo-SecureString -AsPlainText` MUST NOT be applied to a literal (SEC-01, SEC-04). When a test
+needs a `PSCredential` object only to pass it to the code under test, build one from a value created
+at run time:
 
 ```powershell
-function New-PerformanceTestData {
-    param([int]$ItemCount = 1000, [string]$DataType = 'Users')
-
-    # Generate large datasets for performance testing
-    $data = switch ($DataType) {
-        'Users' {
-            1..$ItemCount | ForEach-Object {
-                [TestDataFactory]::CreateUsers(1, 'Standard')[0]
-            }
-        }
-        'LargeText' {
-            1..$ItemCount | ForEach-Object {
-                @{
-                    Id = $_
-                    Content = 'Lorem ipsum dolor sit amet ' * 100  # ~2KB per item
-                    Timestamp = Get-Date
-                }
-            }
-        }
+BeforeAll {
+    $password = [System.Security.SecureString]::new()
+    foreach ($character in [guid]::NewGuid().ToString('N').ToCharArray()) {
+        $password.AppendChar($character)
     }
-
-    return $data
+    $testCredential = [System.Management.Automation.PSCredential]::new('test-user', $password)
 }
 ```
 
-### Secure Test Data
+The tests assert on the user name or on the call that received the credential, never on the
+password. A test that needs a real secret is an integration test, and the secret comes from the CI
+system (CIC-06).
+
+## Checking a Data Set
+
+To assert something about every item in a collection, assert the count and then use `Should-All`
+(TST-12):
 
 ```powershell
-function New-SecureTestCredentials {
-    param([int]$Count = 5)
-
-    # Generate test credentials with secure handling
-    return 1..$Count | ForEach-Object {
-        @{
-            Username = "testuser$_"
-            Credential = New-Object PSCredential("testuser$_", (ConvertTo-SecureString "TestPass$_!" -AsPlainText -Force))
-            Permissions = @('Read', 'Write', 'Execute')
-            ExpirationDate = (Get-Date).AddDays(30)
-        }
-    }
+It 'Loads three users that all have a name and a known department' {
+    $users | Should-BeCollection -Count 3
+    $users | Should-All { -not [string]::IsNullOrWhiteSpace($_.userName) }
+    $users | Should-All { $_.department -in 'Finance', 'Operations' }
 }
 ```
+
+`Should-All` fails for an empty collection and names the items that did not pass the filter. A
+`foreach` loop with an assertion inside it passes when the collection is empty, because the
+assertion never runs.
+
+## Data in Parallel Runs
+
+In a parallel run each test file has its own runspace. A `$script:` variable, a cache in a helper,
+or a loaded module in one file is not visible in another, and each file has its own `$TestDrive`.
+Data that follows this guide needs no change for a parallel run. See
+[Test Execution Guide](./test-execution.md#parallel-test-execution).

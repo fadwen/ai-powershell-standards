@@ -1,123 +1,121 @@
-# Module Structure Example
+# ModuleExample
 
-A minimal but working module showing the layout the standards expect, and - more importantly - the
-export boundary that layout exists to create.
+A small working module that shows how the PowerShell standards in this repository lay a module out.
+It is an example to read and to copy from. There is no real service behind it: the statuses it
+returns come from a fixed table that knows the services Billing, Identity, and Reporting.
 
-Small enough to read in one sitting. For a fuller starting point to copy, use
-[Templates/Powershell-Module](https://github.com/fadwen/ai-powershell-standards/tree/main/Templates/Powershell-Module).
+## Requirements
+
+- PowerShell 7.6 or later, Core edition. The module calls no platform-specific commands.
+- No other module is needed to use it.
+- Pester 6.2.0 or later, to run the tests.
+- Microsoft.PowerShell.PlatyPS 1.0.3 or later, to rebuild the help.
+
+## Installation
+
+The module is not published. Import it from this folder:
+
+```powershell
+Import-Module -Name ./ModuleExample.psd1 -Force
+```
+
+## Usage
+
+```powershell
+Get-ExampleData -ServiceName 'Billing'
+```
+
+Gets the status of the Billing service in the Development environment. The result is an
+`ExampleServiceResult` object with `ServiceName`, `Environment`, `Status`, and `CheckedAt` properties.
+
+```powershell
+'Billing', 'Identity', 'Reporting' | Get-ExampleData -Environment 'Test'
+```
+
+Takes the service names from the pipeline and queries the Test environment.
+
+```powershell
+Get-ExampleData -ServiceName 'Billing', 'Missing', 'Reporting'
+```
+
+Returns the results for Billing and Reporting, and writes a non-terminating error for Missing. Add
+`-ErrorAction Stop` to end the command at the first error instead.
+
+Run `Get-Help Get-ExampleData -Full` for every parameter, and `Get-Help about_ModuleExample` for the
+behaviour that the examples above rely on.
 
 ## Layout
 
 ```text
 Module-Structure-Example/
-├── ModuleExample.psd1     # Manifest. Declares the public surface explicitly
-├── ModuleExample.psm1     # Loader. Classes, then private, then public
-├── Classes/
-│   └── ExampleClass.ps1   # ExampleServiceResult - a named output type
-├── Private/
-│   └── Connect-ExampleService.ps1   # Internal, never exported
-├── Public/
-│   └── Get-ExampleData.ps1          # The only exported function
-├── docs/                            # PlatyPS Markdown - the help source you edit
-│   └── ModuleExample/
-│       ├── ModuleExample.md         # Module page
-│       └── Get-ExampleData.md       # Command help, canonical
-└── en-US/
-    ├── ModuleExample-Help.xml       # Compiled MAML - what Get-Help reads
-    └── about_ModuleExample.help.txt # Hand-written; PlatyPS never touches it
+    ModuleExample.psd1                  manifest; names the one exported function
+    ModuleExample.psm1                  root module; loads Classes, Private, Public in that order
+    Classes/
+        ExampleClass.ps1                the ExampleServiceResult class
+    Private/
+        Connect-ExampleService.ps1      not exported
+        Get-ExampleServiceStatus.ps1    not exported
+    Public/
+        Get-ExampleData.ps1             the exported function
+    Tests/
+        ModuleExample.Tests.ps1
+    docs/
+        ModuleExample/
+            Get-ExampleData.md          source of the help for Get-ExampleData
+            ModuleExample.md            module page
+    en-US/
+        ModuleExample-Help.xml          compiled from docs; this is what Get-Help reads
+        about_ModuleExample.help.txt    written by hand
 ```
 
-## Why the folders exist
+## What the example shows
 
-**Load order is not arbitrary.** `ModuleExample.psm1` loads `Classes/` first, because
-`Get-ExampleData` returns an `ExampleServiceResult` and the type must exist before the function
-referencing it is defined. Private functions load next, so public functions can call them.
+| Rule | File | What to look at |
+| --- | --- | --- |
+| MOD-02 | `ModuleExample.psd1` | `FunctionsToExport` names the one public function. The two functions in `Private` are loaded but not exported. |
+| MOD-05 | `ModuleExample.psm1` | Strict mode, then `Classes`, `Private`, and `Public`. A file that fails to load fails the import. |
+| FUN-10 | `Public/Get-ExampleData.ps1` | `[OutputType('ExampleServiceResult')]` names the class as a string. |
+| FUN-21 | `Public/Get-ExampleData.ps1` | `ServiceName` is an array that the `process` block loops over, so the pipeline and an array argument behave the same way. |
+| ERR-10 | `Private/Get-ExampleServiceStatus.ps1` | An unknown service becomes an `ErrorRecord` with the ID `ServiceNotFound`, passed to `$PSCmdlet.ThrowTerminatingError()`. |
+| ERR-13 | `Public/Get-ExampleData.ps1` | The `catch` block passes that error to `$PSCmdlet.WriteError()` and continues with the next name. |
+| DOC-09 | `Public/Get-ExampleData.ps1` | The exported function carries `.EXTERNALHELP` and a one-line synopsis. The private functions keep full comment-based help. |
+| MOD-07 | `Tests/ModuleExample.Tests.ps1` | The private functions and the class are tested inside `InModuleScope`. |
+| TST-17 | `Tests/ModuleExample.Tests.ps1` | The partial-failure tests merge the error stream and count the error records. |
+| TST-20 | `Tests/ModuleExample.Tests.ps1` | The only mock is `Get-Date`, the clock. |
 
-**The manifest controls export, not the loader.** `FunctionsToExport = @('Get-ExampleData')` names
-the public surface. `Connect-ExampleService` is dot-sourced and callable inside the module, but is
-never exported - so its signature can change without a breaking release. A wildcard export would
-remove that freedom and slow module autoloading.
-
-**A class replaces `[PSCustomObject]`.** `[OutputType('ExampleServiceResult')]` tells a caller what
-they receive and gives them IntelliSense. The standards discourage `[OutputType([PSCustomObject])]`
-because it communicates nothing.
-
-**Help is generated, not hand-written.** `Get-ExampleData.ps1` keeps only `.EXTERNALHELP` and a
-one-line `.SYNOPSIS`; everything a user sees lives in `docs/ModuleExample/Get-ExampleData.md` and
-compiles to `en-US/ModuleExample-Help.xml`. Import the module and run
-`Get-Help Get-ExampleData -Full` to see the compiled help served.
-
-Rebuild after editing the Markdown:
-
-```powershell
-Import-Module Microsoft.PowerShell.PlatyPS
-
-Measure-PlatyPSMarkdown -Path ./docs/ModuleExample/*.md |
-    Where-Object Filetype -match 'CommandHelp' |
-    Import-MarkdownCommandHelp -Path {$_.FilePath} |
-    Export-MamlCommandHelp -OutputFolder ./maml -Force
-
-Copy-Item ./maml/ModuleExample/ModuleExample-Help.xml ./en-US/ -Force
-```
-
-**`RELATED LINKS` uses two forms, and the choice is not stylistic.** `Get-Help` rejects a relative
-path outright — it throws `The specified URI ... is not valid` and returns nothing — so a `.LINK`
-value is either a bare topic name or an absolute URL:
-
-```markdown
-- [about_ModuleExample]()                      <- bare topic: a command or about_ topic
-- [Module structure standards](https://...)    <- absolute URL: anything outside the module
-```
-
-The empty parentheses are the PlatyPS form for a cross-reference `Get-Help` can resolve itself, and
-they render as a plain name rather than a URL. Use them for sibling commands and about topics.
-Absolute URLs are for documentation that lives outside the installed module — someone who installed
-from the Gallery has no repository checkout, so a relative path to a repo file would be unusable
-even if `Get-Help` accepted it. That is why the three standards links here are absolute rather than
-relative: it is the correct form for their target, not a workaround.
-
-**An about topic covers what no single command owns.** `about_ModuleExample.help.txt` documents the
-correlation-ID convention, the environment parameter, and partial-failure behaviour — concepts that
-span commands. It is plain text, hand-written, and PlatyPS neither generates nor rewrites it. Run
-`Get-Help about_ModuleExample` after importing.
-
-`.EXTERNALHELP` sits **inside** the `<# #>` block deliberately. As a bare `#` comment preceded by
-ordinary prose it stops being recognized, and `Get-Help` silently falls back to the stub synopsis
-instead of the compiled help. See
-[platyps.instructions.md](../../../.github/instructions/platyps.instructions.md).
-
-## Patterns demonstrated
-
-| Pattern | Where |
-| --- | --- |
-| Approved verb, descriptive `[OutputType]` | `Public/Get-ExampleData.ps1` |
-| Pipeline input via `ValueFromPipeline` | `Public/Get-ExampleData.ps1` |
-| Correlation ID generated once, passed through | All three files |
-| `$_` in `catch`, not `$Error[0]` | `Public/Get-ExampleData.ps1` |
-| Per-item failure that does not abort the batch | `Public/Get-ExampleData.ps1` |
-| Class with validation and behaviour | `Classes/ExampleClass.ps1` |
-| A fallible call, so the catch is reachable | `Private/Get-ExampleServiceStatus.ps1` |
+The rules are in
+[powershell-modules](../../../.github/instructions/powershell-modules.instructions.md),
+[powershell-functions](../../../.github/instructions/powershell-functions.instructions.md),
+[powershell-error-handling](../../../.github/instructions/powershell-error-handling.instructions.md),
+[powershell-help](../../../.github/instructions/powershell-help.instructions.md), and
+[powershell-pester](../../../.github/instructions/powershell-pester.instructions.md).
 
 ## Tests
 
-[Tests/ModuleExample.Tests.ps1](./Tests/ModuleExample.Tests.ps1) covers the module contract, the
-class, both private helpers via `InModuleScope`, and the per-item failure path.
-
-`Get-ExampleServiceStatus` exists so that failure path is real. Without a fallible call inside the
-loop, a `catch` block in an example is decorative - it looks like resilience, but nothing can
-exercise it and no test can prove it works.
-
-## Trying it
+Run the tests from this folder:
 
 ```powershell
-Import-Module ./ModuleExample.psd1 -Force
-
-Get-ExampleData -ServiceName 'Billing'
-'Billing', 'Identity' | Get-ExampleData -Environment Test -Verbose
-
-# The private helper is deliberately not available
-Get-Command Connect-ExampleService -ErrorAction SilentlyContinue   # returns nothing
+Invoke-Pester -Path ./Tests
 ```
 
-There is no real service behind this module. `Connect-ExampleService` sleeps briefly to stand in for
-connection latency, and status is derived from the environment so the result set is not uniform.
+## Help
+
+The help for `Get-ExampleData` is written in `docs/ModuleExample/Get-ExampleData.md`. After editing
+it, compile it again from this folder:
+
+```powershell
+Measure-PlatyPSMarkdown -Path ./docs/ModuleExample/*.md |
+    Where-Object Filetype -Match 'CommandHelp' |
+    Import-MarkdownCommandHelp -Path { $_.FilePath } |
+    Export-MamlCommandHelp -OutputFolder ./maml -Force
+
+Copy-Item -LiteralPath ./maml/ModuleExample/ModuleExample-Help.xml -Destination ./en-US -Force
+```
+
+The `maml` folder is a build intermediate, and the repository's `.gitignore` excludes it. The rules
+for the Markdown are in
+[powershell-platyps](../../../.github/instructions/powershell-platyps.instructions.md).
+
+## License
+
+MIT. See [LICENSE](../../../LICENSE).

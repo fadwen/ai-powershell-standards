@@ -1,573 +1,393 @@
-#Requires -Module Pester
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
 
-BeforeAll {
-    $script:ScriptPath = Join-Path $PSScriptRoot '..' 'Test-StandardsCompliance.ps1' | Resolve-Path
+BeforeDiscovery {
+    $helpBlock = @'
+    <#
+    .SYNOPSIS
+    Gets a thing.
 
-    # Invoke with -PassThru so the script returns its results object rather than
-    # calling exit, which would terminate the Pester run.
-    function Invoke-Compliance {
-        param([string]$Path, [hashtable]$Extra = @{})
-        & $script:ScriptPath -Path $Path -PassThru -InformationAction SilentlyContinue @Extra
-    }
+    .DESCRIPTION
+    Gets a thing.
 
-    function New-Fixture {
-        param([string]$Name, [string]$Content)
-        $file = Join-Path $script:FixturePath $Name
-        Set-Content -LiteralPath $file -Value $Content -Encoding UTF8
-        return $file
-    }
-}
+    .EXAMPLE
+    Get-Thing
 
-Describe 'Test-StandardsCompliance' -Tag 'Unit', 'Tools' {
+    Gets a thing.
 
-    BeforeEach {
-        # Under $TestDrive, which Pester removes per container - see test-data-guide.md.
-        $script:FixturePath = Join-Path $TestDrive "tsc-$([System.Guid]::NewGuid().ToString('N'))"
-        New-Item -Path $script:FixturePath -ItemType Directory -Force | Out-Null
-    }
+    .INPUTS
+    None.
 
-    Context 'Parameter validation' {
-
-        It 'Rejects a Path that does not exist' {
-            { & $script:ScriptPath -Path (Join-Path $script:FixturePath 'nope') -PassThru -InformationAction SilentlyContinue } |
-                Should-Throw
-        }
-
-        It 'Rejects an unsupported OutputFormat' {
-            { & $script:ScriptPath -Path $script:FixturePath -OutputFormat 'Interpretive-Dance' -PassThru -InformationAction SilentlyContinue } |
-                Should-Throw -ExceptionMessage '*ValidateSet*'
-        }
-    }
-
-    Context 'Analysis results' {
-
-        It 'Returns a results object when -PassThru is supplied' {
-            New-Fixture -Name 'Get-Clean.ps1' -Content @'
-function Get-Clean {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$Name
-    )
-    Write-Output $Name
-}
+    .OUTPUTS
+    System.String.
+    #>
 '@
-            $result = Invoke-Compliance -Path $script:FixturePath
 
-            $result | Should-NotBeNull
-            $result.TotalFiles | Should-Be 1
-            $result.CorrelationId | Should-NotBeNull
-            @('PASSED', 'WARNING', 'FAILED') | Should-Any { $_ -eq $result.Summary.OverallStatus }
+    # Code that breaks exactly the named rule. Each fixture is otherwise written to the standards.
+    $violationCases = @(
+        @{
+            RuleId = 'FUN-01'
+            Reason = 'a function has no CmdletBinding attribute'
+            FileName = 'Fixture.ps1'
+            Code = "function Get-Thing {`n$helpBlock`n    param()`n`n    'thing'`n}"
         }
-
-        It 'Counts every PowerShell file it finds' {
-            New-Fixture -Name 'One.ps1' -Content 'Write-Output 1'
-            New-Fixture -Name 'Two.psm1' -Content 'Write-Output 2'
-            New-Fixture -Name 'Three.psd1' -Content '@{ ModuleVersion = ''1.0.0'' }'
-
-            (Invoke-Compliance -Path $script:FixturePath).TotalFiles | Should-Be 3
+        @{
+            RuleId = 'DOC-01'
+            Reason = 'a function has no help'
+            FileName = 'Fixture.ps1'
+            Code = "function Get-Thing {`n    [CmdletBinding()]`n    param()`n`n    'thing'`n}"
         }
-
-        It 'Accepts a single file as the Path' {
-            $file = New-Fixture -Name 'Single.ps1' -Content 'Write-Output 1'
-
-            (Invoke-Compliance -Path $file).TotalFiles | Should-Be 1
-        }
-    }
-
-    Context 'Community standards detection' {
-
-        It 'Flags a function using a non-approved verb' {
-            New-Fixture -Name 'BadVerb.ps1' -Content @'
-function Process-Thing {
-    param([string]$Data)
-    Write-Output $Data
-}
-'@
-            $result = Invoke-Compliance -Path $script:FixturePath
-
-            $result.ComplianceIssues.RuleName | Should-ContainCollection 'UseApprovedVerbs'
-            ($result.ComplianceIssues | Where-Object RuleName -eq 'UseApprovedVerbs').Message | Should-MatchString 'Process'
-        }
-
-        It 'Does not flag a function using an approved verb' {
-            New-Fixture -Name 'GoodVerb.ps1' -Content @'
-function Get-Thing {
-    param([string]$Data)
-    Write-Output $Data
-}
-'@
-            $result = Invoke-Compliance -Path $script:FixturePath
-
-            $result.ComplianceIssues.RuleName | Should-NotContainCollection 'UseApprovedVerbs'
-        }
-    }
-
-    Context 'Approved verb detection' {
-
-        It 'Flags a non-approved verb that is not the first function in the file' {
-            # -match returns only the first match in a multi-line string, so the
-            # previous implementation inspected function one and ignored the rest.
-            New-Fixture -Name 'SecondBad.ps1' -Content @'
-function Get-Good {
-    param([Parameter(Mandatory)][string]$Name)
-    Write-Output $Name
-}
-
-function Process-Bad {
-    param([Parameter(Mandatory)][string]$Name)
-    Write-Output $Name
-}
-'@
-            $result = Invoke-Compliance -Path $script:FixturePath
-
-            $result.ComplianceIssues.RuleName | Should-ContainCollection 'UseApprovedVerbs'
-            ($result.ComplianceIssues | Where-Object RuleName -eq 'UseApprovedVerbs').Message |
-                Should-MatchString 'Process'
-        }
-
-        It 'Flags every offending function, not just one' {
-            New-Fixture -Name 'TwoBad.ps1' -Content @'
-function Process-One { param([Parameter(Mandatory)][string]$A) $A }
-function Handle-Two { param([Parameter(Mandatory)][string]$A) $A }
-'@
-            $verbIssues = (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues |
-                Where-Object RuleName -eq 'UseApprovedVerbs'
-
-            $verbIssues | Should-BeCollection -Count 2
-        }
-
-        It 'Ignores a function name that only appears in a comment' {
-            New-Fixture -Name 'CommentedVerb.ps1' -Content @'
-# Do not write: function Process-Thing { }
-function Get-Thing {
-    param([Parameter(Mandatory)][string]$Name)
-    Write-Output $Name
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-NotContainCollection 'UseApprovedVerbs'
-        }
-    }
-
-    Context 'Documented anti-patterns' {
-
-        It 'Flags $Error[0] used in a catch block' {
-            New-Fixture -Name 'ErrorZero.ps1' -Content @'
-function Get-Thing {
-    param([Parameter(Mandatory)][string]$Name)
-    try { Get-Item $Name } catch { Write-Error $Error[0].Exception.Message }
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-ContainCollection 'UseDollarUnderscoreInCatch'
-        }
-
-        It 'Flags a misleading PSCustomObject output type' {
-            New-Fixture -Name 'BadOutputType.ps1' -Content @'
-function Get-Thing {
-    [OutputType([PSCustomObject])]
-    param([Parameter(Mandatory)][string]$Name)
-    [PSCustomObject]@{ Name = $Name }
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-ContainCollection 'AvoidPSCustomObjectOutputType'
-        }
-
-        It 'Flags New-Object credential creation' {
-            New-Fixture -Name 'OldCred.ps1' -Content @'
-function Get-Thing {
-    param([Parameter(Mandatory)][string]$User, [Parameter(Mandatory)][securestring]$Pass)
-    New-Object PSCredential $User, $Pass
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-ContainCollection 'UseModernCredentialCreation'
-        }
-
-        It 'Flags a requires directive targeting a retired version' {
-            New-Fixture -Name 'Retired.ps1' -Content @'
-#requires -Version 7.0
-function Get-Thing { param([Parameter(Mandatory)][string]$A) $A }
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-ContainCollection 'AvoidRetiredVersionRequires'
-        }
-
-        It 'Does not flag a requires directive targeting a supported version' {
-            New-Fixture -Name 'Supported.ps1' -Content @'
-#requires -Version 7.6
-function Get-Thing { param([Parameter(Mandatory)][string]$A) $A }
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-NotContainCollection 'AvoidRetiredVersionRequires'
-        }
-
-        It 'Flags comment-based help that Get-Help cannot see' {
-            New-Fixture -Name 'BrokenHelp.ps1' -Content @'
-# .SYNOPSIS
-#     This never reaches Get-Help - it needs a <# ... #> block
-function Get-Thing {
-    param([Parameter(Mandatory)][string]$A)
-    $A
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-ContainCollection 'UseBlockCommentBasedHelp'
-        }
-
-        It 'Flags a retired platyPS 0.14 cmdlet' {
-            New-Fixture -Name 'OldPlatyPS.ps1' -Content @'
-function Build-Docs {
-    param([Parameter(Mandatory)][string]$ModuleName)
-    New-MarkdownHelp -Module $ModuleName -OutputFolder ./docs
-    New-ExternalHelp -Path ./docs -OutputPath ./en-US
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-ContainCollection 'AvoidRetiredPlatyPSCmdlets'
-        }
-
-        It 'Does not flag the supported Microsoft.PowerShell.PlatyPS cmdlets' {
-            New-Fixture -Name 'NewPlatyPS.ps1' -Content @'
-function Build-Docs {
-    param([Parameter(Mandatory)][string]$ModuleName)
-    New-MarkdownCommandHelp -ModuleInfo (Get-Module $ModuleName) -OutputFolder ./docs
-    Export-MamlCommandHelp -OutputFolder ./maml
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues.RuleName |
-                Should-NotContainCollection 'AvoidRetiredPlatyPSCmdlets'
-        }
-    }
-
-    Context 'Anti-pattern rules ignore comments and strings' {
-
-        It 'Does not flag a file that merely documents an anti-pattern' {
-            # Every rule below appears here only inside a comment or a string. A
-            # naive text match flagged the repository's own examples and this very
-            # script, whose rule table names the patterns it searches for.
-            New-Fixture -Name 'DocumentsThem.ps1' -Content @'
+        @{
+            RuleId = 'DOC-07'
+            Reason = 'help carries a version stamp'
+            FileName = 'Fixture.ps1'
+            Code = @'
 function Get-Thing {
     <#
-        .SYNOPSIS
-            Documents what not to do.
-        .DESCRIPTION
-            Avoid [OutputType([PSCustomObject])]. Use $_ in catch, never $Error[0].
-            Prefer [PSCredential]::new() over New-Object PSCredential.
+    .SYNOPSIS
+    Gets a thing.
+
+    .NOTES
+    Version: 1.0.0
     #>
-    param([Parameter(Mandatory)][string]$Name)
-    $guidance = 'do not use $Error[0] in a catch block'
-    Write-Output "$Name $guidance"
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).ComplianceIssues | Should-BeFalsy
-        }
-    }
-
-    Context 'Security detection' {
-
-        It 'Flags a hardcoded password' {
-            New-Fixture -Name 'Secret.ps1' -Content @'
-$config = @{
-    password = "hunter2plus"
-}
-Write-Output $config
-'@
-            $result = Invoke-Compliance -Path $script:FixturePath
-
-            $result.SecurityIssues | Should-NotBeNull
-            $result.SecurityIssues.Type | Should-ContainCollection 'HardcodedPassword'
-        }
-
-        It 'Does not flag a file with no secrets' {
-            New-Fixture -Name 'NoSecret.ps1' -Content 'Write-Output "nothing to see"'
-
-            (Invoke-Compliance -Path $script:FixturePath).SecurityIssues | Should-BeFalsy
-        }
-    }
-
-    Context 'Version-aware array append rule' {
-
-        # PowerShell 7.5 optimised += on object arrays, so the rule only applies to
-        # files that declare a target where it is still O(n^2).
-
-        It 'Flags += when the file declares no target version' {
-            New-Fixture -Name 'NoRequires.ps1' -Content @'
-$items = @()
-foreach ($x in 1..10) { $items += $x }
-Write-Output $items
-'@
-            $result = Invoke-Compliance -Path $script:FixturePath
-
-            $result.PerformanceIssues.Type | Should-ContainCollection 'ArrayAppending'
-        }
-
-        It 'Flags += when the file targets 5.1' {
-            New-Fixture -Name 'Legacy.ps1' -Content @'
-#requires -Version 5.1
-$items = @()
-foreach ($x in 1..10) { $items += $x }
-Write-Output $items
-'@
-            (Invoke-Compliance -Path $script:FixturePath).PerformanceIssues.Type | Should-ContainCollection 'ArrayAppending'
-        }
-
-        It 'Does not flag += when the file targets 7.6' {
-            New-Fixture -Name 'Modern.ps1' -Content @'
-#requires -Version 7.6
-$items = @()
-foreach ($x in 1..10) { $items += $x }
-Write-Output $items
-'@
-            (Invoke-Compliance -Path $script:FixturePath).PerformanceIssues.Type | Should-NotContainCollection 'ArrayAppending'
-        }
-
-        It 'Flags ArrayList on any version' {
-            New-Fixture -Name 'Legacy-Collection.ps1' -Content @'
-#requires -Version 7.6
-$items = [System.Collections.ArrayList]::new()
-[void]$items.Add(1)
-Write-Output $items
-'@
-            (Invoke-Compliance -Path $script:FixturePath).PerformanceIssues.Type | Should-ContainCollection 'LegacyCollectionType'
-        }
-    }
-
-    Context 'Output formats' {
-
-        It 'Writes a JSON report when asked' {
-            New-Fixture -Name 'Sample.ps1' -Content 'Write-Output 1'
-            $out = Join-Path $script:FixturePath 'report.json'
-
-            Invoke-Compliance -Path $script:FixturePath -Extra @{ OutputFormat = 'JSON'; OutputPath = $out } | Out-Null
-
-            Test-Path $out | Should-BeTrue
-            $null = Get-Content $out -Raw | ConvertFrom-Json   # invalid JSON throws, failing the test
-            (Get-Content $out -Raw | ConvertFrom-Json).TotalFiles | Should-Be 1
-        }
-    }
-
-    Context 'Empty input' {
-
-        It 'Handles a directory with no PowerShell files' {
-            $result = Invoke-Compliance -Path $script:FixturePath
-
-            $result.TotalFiles | Should-Be 0
-        }
-
-        It 'Does not claim success when nothing was analysed' {
-            # Analysing zero files is not compliance. It previously printed
-            # "All files meet PowerShell enterprise standards!" and exited 0.
-            & $script:ScriptPath -Path $script:FixturePath -PassThru `
-                -InformationAction SilentlyContinue -WarningVariable warned | Out-Null
-
-            "$warned" | Should-MatchString 'nothing has been verified'
-        }
-
-        It 'Reports a coherent summary when nothing was analysed' {
-            $result = & $script:ScriptPath -Path $script:FixturePath -PassThru `
-                -InformationAction SilentlyContinue -WarningAction SilentlyContinue
-
-            # Previously the summary stayed empty and the console printed "Compliance: %"
-            $result.Summary.CompliancePercentage | Should-Be 0
-            $result.Summary.OverallStatus | Should-Be 'NOT-RUN'
-        }
-
-        It 'Emits exactly one results object, not one per code path' {
-            New-Fixture -Name 'Sample.ps1' -Content 'Write-Output 1'
-
-            @(Invoke-Compliance -Path $script:FixturePath).Count | Should-Be 1
-        }
-    }
-
-    Context 'Reporting' {
-
-        It 'Reports a clean run as PASSED' {
-            New-Fixture -Name 'Clean.ps1' -Content @'
-function Get-Clean {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Name)
-    Write-Output $Name
+    param()
+
+    'thing'
 }
 '@
-            $result = Invoke-Compliance -Path $script:FixturePath
+        }
+        @{
+            RuleId = 'FUN-10'
+            Reason = 'the output type is PSCustomObject'
+            FileName = 'Fixture.ps1'
+            Code = @(
+                'function Get-Thing {'
+                $helpBlock
+                '    [CmdletBinding()]'
+                '    [OutputType([PSCustomObject])]'
+                '    param()'
+                ''
+                "    'thing'"
+                '}'
+            ) -join "`n"
+        }
+        @{
+            RuleId = 'ERR-11'
+            Reason = 'an advanced function uses throw'
+            FileName = 'Fixture.ps1'
+            Code = "function Get-Thing {`n$helpBlock`n    [CmdletBinding()]`n    param()`n`n    throw 'failed'`n}"
+        }
+        @{
+            RuleId = 'ERR-11'
+            Reason = 'an advanced function uses Write-Error -ErrorAction Stop'
+            FileName = 'Fixture.ps1'
+            Code = @(
+                'function Get-Thing {'
+                $helpBlock
+                '    [CmdletBinding()]'
+                '    param()'
+                ''
+                "    Write-Error -Message 'failed' -ErrorAction Stop"
+                '}'
+            ) -join "`n"
+        }
+        @{
+            RuleId = 'ERR-21'
+            Reason = 'a catch block reads $Error[0]'
+            FileName = 'Fixture.ps1'
+            Code = @(
+                'try {'
+                '    Get-Item -LiteralPath $PSHOME -ErrorAction Stop'
+                '} catch {'
+                '    Write-Warning $Error[0].Exception.Message'
+                '}'
+            ) -join "`n"
+        }
+        @{
+            RuleId = 'ERR-02'
+            Reason = 'a root module sets $ErrorActionPreference'
+            FileName = 'Fixture.psm1'
+            Code = "Set-StrictMode -Version Latest`n`$ErrorActionPreference = 'Stop'"
+        }
+        @{
+            RuleId = 'STY-40'
+            Reason = 'an array is grown with += in a loop'
+            FileName = 'Fixture.ps1'
+            Code = "`$items = @()`nforeach (`$number in 1..3) {`n    `$items += `$number`n}`n`$items"
+        }
+        @{
+            RuleId = 'STY-41'
+            Reason = 'ArrayList is used'
+            FileName = 'Fixture.ps1'
+            Code = "`$items = [System.Collections.ArrayList]::new()`n`$items"
+        }
+        @{
+            RuleId = 'VER-05'
+            Reason = 'the script requires a version past its end of support'
+            FileName = 'Fixture.ps1'
+            Code = "#requires -Version 7.4`n`n'text'"
+        }
+        @{
+            RuleId = 'VER-06'
+            Reason = 'a Windows PowerShell command is used'
+            FileName = 'Fixture.ps1'
+            Code = "Get-EventLog -LogName Application -Newest 1"
+        }
+        @{
+            RuleId = 'PLT-01'
+            Reason = 'a retired platyPS command is used'
+            FileName = 'Fixture.ps1'
+            Code = "New-MarkdownHelp -Module Example -OutputFolder ./docs"
+        }
+        @{
+            RuleId = 'SEC-01'
+            Reason = 'a literal is assigned to a secret variable'
+            FileName = 'Fixture.ps1'
+            Code = "`$apiToken = 'abc123def456'`n`$apiToken"
+        }
+        @{
+            RuleId = 'SEC-01'
+            Reason = 'a literal is assigned to a secret key in a hashtable'
+            FileName = 'Fixture.ps1'
+            Code = "`$settings = @{`n    Password = 'hunter22'`n}`n`$settings"
+        }
+        @{
+            RuleId = 'MOD-03'
+            Reason = 'a manifest still has the placeholder GUID'
+            FileName = 'Fixture.psd1'
+            Code = "@{`n    ModuleVersion = '1.0.0'`n    GUID = '00000000-0000-0000-0000-000000000000'`n}"
+        }
+        @{
+            RuleId = 'STY-14'
+            Reason = 'an alias is used'
+            FileName = 'Fixture.ps1'
+            Code = "gci -LiteralPath `$PSHOME"
+        }
+        @{
+            RuleId = 'STY-20'
+            Reason = '$null is on the right of a comparison'
+            FileName = 'Fixture.ps1'
+            Code = "`$value = Get-Item -LiteralPath `$PSHOME`nif (`$value -eq `$null) {`n    'none'`n}"
+        }
+    )
 
-            $result.Summary.OverallStatus | Should-Be 'PASSED'
-            $result.PassedFiles | Should-Be 1
-            $result.FailedFiles | Should-Be 0
+    # Code that looks close to a violation and is allowed.
+    $allowedCases = @(
+        @{
+            RuleId = 'ERR-11'
+            Reason = 'throw is at the top level of a script'
+            FileName = 'Fixture.ps1'
+            Code = "[CmdletBinding()]`nparam()`n`nthrow 'failed'"
+        }
+        @{
+            RuleId = 'ERR-11'
+            Reason = 'throw is inside a ValidateScript block'
+            FileName = 'Fixture.ps1'
+            Code = @(
+                'function Get-Thing {'
+                $helpBlock
+                '    [CmdletBinding()]'
+                '    param('
+                "        [ValidateScript({ if (`$_ -gt 0) { `$true } else { throw 'Must be positive.' } })]"
+                '        [int]$Count = 1'
+                '    )'
+                ''
+                '    $Count'
+                '}'
+            ) -join "`n"
+        }
+        @{
+            RuleId = 'ERR-11'
+            Reason = 'throw is inside a class method'
+            FileName = 'Fixture.ps1'
+            Code = "class Thing {`n    [string] GetName() {`n        throw 'Not implemented.'`n    }`n}"
+        }
+        @{
+            RuleId = 'FUN-01'
+            Reason = 'a class method is not a function'
+            FileName = 'Fixture.ps1'
+            Code = "class Thing {`n    [string] GetName() {`n        return 'thing'`n    }`n}"
+        }
+        @{
+            RuleId = 'STY-40'
+            Reason = 'a number is increased with += in a loop'
+            FileName = 'Fixture.ps1'
+            Code = "`$total = 0`nforeach (`$number in 1..3) {`n    `$total += `$number`n}`n`$total"
+        }
+        @{
+            RuleId = 'VER-05'
+            Reason = 'the script requires Windows PowerShell 5.1'
+            FileName = 'Fixture.ps1'
+            Code = "#requires -Version 5.1`n`n'text'"
+        }
+        @{
+            RuleId = 'VER-05'
+            Reason = 'the script requires PowerShell 7.6'
+            FileName = 'Fixture.ps1'
+            Code = "#requires -Version 7.6`n`n'text'"
+        }
+        @{
+            RuleId = 'SEC-01'
+            Reason = 'the variable name only starts with a secret word'
+            FileName = 'Fixture.ps1'
+            Code = "`$passwordPrompt = 'Enter the password'`n`$passwordPrompt"
+        }
+        @{
+            RuleId = 'SEC-01'
+            Reason = 'the secret comes from the environment'
+            FileName = 'Fixture.ps1'
+            Code = "`$apiToken = `$env:API_TOKEN`n`$apiToken"
+        }
+        @{
+            RuleId = 'ERR-02'
+            Reason = 'a script, not a module, sets $ErrorActionPreference'
+            FileName = 'Fixture.ps1'
+            Code = "Set-StrictMode -Version Latest`n`$ErrorActionPreference = 'Stop'"
+        }
+    )
+}
+
+BeforeAll {
+    $repositoryRoot = Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent
+    $complianceScript = Join-Path -Path $repositoryRoot -ChildPath 'Tools/Test-StandardsCompliance.ps1'
+
+    # Writes code to a new file in its own folder under TestDrive and returns the file's path.
+    $newFixtureFile = {
+        param([string]$Code, [string]$FileName)
+        $folder = Join-Path -Path $TestDrive -ChildPath ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -Path $folder -ItemType Directory
+        $filePath = Join-Path -Path $folder -ChildPath $FileName
+        [System.IO.File]::WriteAllText($filePath, $Code + "`n", [System.Text.UTF8Encoding]::new($false))
+        $filePath
+    }
+
+    # A line that breaks VER-06, for tests that only need some finding.
+    $eventLogCode = 'Get-EventLog -LogName Application -Newest 1'
+}
+
+Describe 'Test-StandardsCompliance.ps1' -Tag 'Unit' {
+    Context 'When code breaks a rule' {
+        It 'Reports <RuleId> when <Reason>' -ForEach $violationCases {
+            $filePath = & $newFixtureFile -Code $Code -FileName $FileName
+
+            $ruleIds = @(& $complianceScript -Path $filePath -PassThru | ForEach-Object { $_.RuleId })
+
+            $ruleIds -contains $RuleId | Should-BeTrue
         }
 
-        It 'Reports a run with a non-approved verb as FAILED' {
-            New-Fixture -Name 'BadVerb.ps1' -Content 'function Process-Thing { Write-Output 1 }'
-            $result = Invoke-Compliance -Path $script:FixturePath
+        It 'Reports STY-06 when a comment contains a non-ASCII character' {
+            $code = "# Range 1$([char]0x2013)5`n'text'"
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
 
-            $result.Summary.OverallStatus | Should-Be 'FAILED'
-            $result.FailedFiles | Should-Be 1
-            $result.Summary.CompliancePercentage | Should-Be 0
+            $findings = @(& $complianceScript -Path $filePath -PassThru)
+
+            @($findings | Where-Object { $_.RuleId -eq 'STY-06' -and $_.Source -eq 'Standards' }) |
+                Should-BeCollection -Count 1
         }
 
-        It 'Totals analysis time across files as a TimeSpan' {
-            New-Fixture -Name 'A.ps1' -Content 'Write-Output 1'
-            New-Fixture -Name 'B.ps1' -Content 'Write-Output 2'
-            $result = Invoke-Compliance -Path $script:FixturePath
+        It 'Gives a finding the file, the line, a message, and its source' {
+            $code = "`$first = 1`n`$items = [System.Collections.ArrayList]::new()`n`$first, `$items"
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
 
-            $result.Summary.TotalAnalysisTime | Should-HaveType ([TimeSpan])
-            $result.Summary.TotalAnalysisTime.Ticks | Should-BeGreaterThan 0
-        }
+            $finding = @(& $complianceScript -Path $filePath -PassThru | Where-Object { $_.RuleId -eq 'STY-41' })
 
-        It 'Produces per-file results with distinct issue sets' {
-            New-Fixture -Name 'Clean.ps1' -Content 'Write-Output 1'
-            New-Fixture -Name 'BadVerb.ps1' -Content 'function Process-Thing { Write-Output 1 }'
-            $result = Invoke-Compliance -Path $script:FixturePath
-
-            # Regression: the analysis used to mutate the *previous* file's result,
-            # so issues leaked between files.
-            $bad = $result.FileResults | Where-Object FileName -eq 'BadVerb.ps1'
-            $clean = $result.FileResults | Where-Object FileName -eq 'Clean.ps1'
-            $bad.Issues.Count | Should-BeGreaterThan 0
-            $clean.Issues.Count | Should-Be 0
-        }
-
-        It 'Writes detailed output when -Detailed is supplied' {
-            New-Fixture -Name 'BadVerb.ps1' -Content 'function Process-Thing { Write-Output 1 }'
-
-            $output = & $script:ScriptPath -Path $script:FixturePath -PassThru -Detailed `
-                -InformationAction Continue 6>&1 | Out-String
-
-            $output | Should-MatchString 'BadVerb\.ps1'
-        }
-
-        It 'Does not exclude everything when the project path contains "test"' {
-            # Regression: the filter tested $_.FullName, so a project under
-            # C:\testing\... excluded every file and still reported success.
-            # The directory name must contain "test" for this regression to bite
-            $pathWithTest = Join-Path $TestDrive "testing-$([guid]::NewGuid().ToString('N'))"
-            New-Item -Path $pathWithTest -ItemType Directory -Force | Out-Null
-
-            Set-Content (Join-Path $pathWithTest 'Get-Real.ps1') 'function Get-Real { param([Parameter(Mandatory)][string]$N) $N }'
-            Set-Content (Join-Path $pathWithTest 'Thing.Tests.ps1') 'Describe "x" { It "y" { $true } }'
-
-            $result = & $script:ScriptPath -Path $pathWithTest -ExcludeTests -PassThru `
-                -InformationAction SilentlyContinue -WarningAction SilentlyContinue
-
-            $result.TotalFiles | Should-Be 1
-        }
-
-        It 'Skips test files when -ExcludeTests is supplied' {
-            New-Fixture -Name 'Regular.ps1' -Content 'Write-Output 1'
-            New-Fixture -Name 'Thing.Tests.ps1' -Content 'Write-Output 2'
-
-            $withTests = Invoke-Compliance -Path $script:FixturePath
-            $withoutTests = Invoke-Compliance -Path $script:FixturePath -Extra @{ ExcludeTests = $true }
-
-            $withTests.TotalFiles | Should-Be 2
-            $withoutTests.TotalFiles | Should-BeLessThan $withTests.TotalFiles
+            $finding | Should-BeCollection -Count 1
+            $finding[0] | Should-HaveType 'PowerShellStandards.Finding'
+            $finding[0].File | Should-BeString $filePath
+            $finding[0].Line | Should-Be 2
+            $finding[0].Severity | Should-BeString 'Error'
+            $finding[0].Source | Should-BeString 'Standards'
+            $finding[0].Message | Should-MatchString 'ArrayList'
         }
     }
 
-    Context 'Issue severity classification' {
+    Context 'When code is allowed' {
+        It 'Does not report <RuleId> when <Reason>' -ForEach $allowedCases {
+            $filePath = & $newFixtureFile -Code $Code -FileName $FileName
 
-        It 'Counts an analyzer Error as critical' {
-            # PSAvoidUsingComputerNameHardcoded is an Error-severity rule
-            New-Fixture -Name 'HardCoded.ps1' -Content @'
-function Get-Thing {
-    Get-CimInstance -ComputerName "SERVER01" -ClassName Win32_OperatingSystem
-}
-'@
-            (Invoke-Compliance -Path $script:FixturePath).CriticalIssues | Should-BeGreaterThan 0
+            $ruleIds = @(& $complianceScript -Path $filePath -PassThru | ForEach-Object { $_.RuleId })
+
+            $ruleIds -contains $RuleId | Should-BeFalse
         }
 
-        It 'Counts an analyzer Information finding as low' {
-            New-Fixture -Name 'Positional.ps1' -Content @'
-function Get-Thing {
-    Write-Output "a" "b" "c"
-}
-Get-Thing
-'@
-            $result = Invoke-Compliance -Path $script:FixturePath
-            ($result.LowIssues + $result.HighIssues) | Should-BeGreaterThan 0
-        }
+        It 'Reports nothing for the function template' {
+            $templatePath = Join-Path -Path $repositoryRoot -ChildPath 'standards/examples/Get-ConfigValue.ps1'
 
-        It 'Counts a High-severity security pattern separately from Critical' {
-            # Invoke-Expression is classified High, not Critical
-            New-Fixture -Name 'Iex.ps1' -Content 'Invoke-Expression "Get-Date"'
-            $result = Invoke-Compliance -Path $script:FixturePath
+            $findings = @(& $complianceScript -Path $templatePath -PassThru)
 
-            $result.SecurityIssues.Type | Should-ContainCollection 'InvokeExpression'
-            $result.HighIssues | Should-BeGreaterThan 0
+            $findings.Count | Should-Be 0
         }
     }
 
-    Context 'Detailed output' {
+    Context 'Failing and passing' {
+        It 'Fails after reporting when a finding is an error' {
+            $filePath = & $newFixtureFile -Code $eventLogCode -FileName 'Fixture.ps1'
 
-        It 'Marks a compliant file as passing' {
-            New-Fixture -Name 'Clean.ps1' -Content @'
-function Get-Clean {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Name)
-    Write-Output $Name
+            { & $complianceScript -Path $filePath } | Should-Throw -ExceptionMessage '*finding(s) with severity*'
+        }
+
+        It 'Does not fail when nothing is found' {
+            $filePath = & $newFixtureFile -Code "'text'" -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath)
+
+            $findings.Count | Should-Be 0
+        }
+
+        It 'Checks every PowerShell file under a folder' {
+            $firstPath = & $newFixtureFile -Code $eventLogCode -FileName 'First.ps1'
+            $folder = Split-Path -Path $firstPath -Parent
+            $secondPath = Join-Path -Path $folder -ChildPath 'Second.psm1'
+            Set-Content -LiteralPath $secondPath -Value "`$ErrorActionPreference = 'Stop'" -Encoding ascii
+
+            $ruleIds = @(& $complianceScript -Path $folder -PassThru | ForEach-Object { $_.RuleId })
+
+            $ruleIds -contains 'VER-06' | Should-BeTrue
+            $ruleIds -contains 'ERR-02' | Should-BeTrue
+        }
+
+        It 'Leaves out test files when -ExcludeTests is given' {
+            $testPath = & $newFixtureFile -Code $eventLogCode -FileName 'Sample.Tests.ps1'
+            $cleanPath = Join-Path -Path (Split-Path -Path $testPath -Parent) -ChildPath 'Clean.ps1'
+            $folder = Split-Path -Path $testPath -Parent
+            Set-Content -LiteralPath $cleanPath -Value "'text'" -Encoding ascii
+
+            $findings = @(& $complianceScript -Path $folder -ExcludeTests -PassThru)
+
+            $findings.Count | Should-Be 0
+        }
+
+        It 'Fails when there is nothing to check' {
+            $folder = Join-Path -Path $TestDrive -ChildPath ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -Path $folder -ItemType Directory
+
+            { & $complianceScript -Path $folder } | Should-Throw -ExceptionMessage '*Nothing was checked*'
+        }
+
+        It 'Fails when the settings file does not exist' {
+            $filePath = & $newFixtureFile -Code "'text'" -FileName 'Fixture.ps1'
+            $missingSettings = Join-Path -Path $TestDrive -ChildPath 'absent.psd1'
+
+            { & $complianceScript -Path $filePath -SettingsPath $missingSettings } |
+                Should-Throw -ExceptionMessage '*does not exist*'
+        }
+    }
 }
-'@
-            $output = & $script:ScriptPath -Path $script:FixturePath -PassThru -Detailed `
-                -InformationAction Continue 6>&1 | Out-String
 
-            $output | Should-MatchString '\[PASS\]'
-        }
+Describe 'The repository''s own PowerShell files' -Tag 'Integration' {
+    It 'Pass the compliance check in <Folder>' -ForEach @(
+        @{ Folder = 'Tools' }
+        @{ Folder = 'standards' }
+        @{ Folder = 'Templates' }
+        @{ Folder = 'powershell-standards/Examples' }
+    ) {
+        $folderPath = Join-Path -Path $repositoryRoot -ChildPath $Folder
 
-        It 'Lists security and performance findings when -Detailed is supplied' {
-            New-Fixture -Name 'Messy.ps1' -Content @'
-#requires -Version 5.1
-Invoke-Expression "Get-Date"
-$items = @()
-foreach ($x in 1..5) { $items += $x }
-Write-Output $items
-'@
-            $output = & $script:ScriptPath -Path $script:FixturePath -PassThru -Detailed `
-                -InformationAction Continue 6>&1 | Out-String
+        # Test-QualityGates.ps1 breaks the rules on purpose, to give the quality gates something to catch.
+        $findings = @(& $complianceScript -Path $folderPath -PassThru |
+                Where-Object { (Split-Path -Path $_.File -Leaf) -ne 'Test-QualityGates.ps1' })
+        $summary = $findings | ForEach-Object { "$(Split-Path -Path $_.File -Leaf):$($_.Line) $($_.RuleId)" }
 
-            $output | Should-MatchString 'Security Issues'
-            $output | Should-MatchString 'Performance Issues'
-        }
-    }
-
-    Context 'Output failures' {
-
-        It 'Warns rather than throwing when the report cannot be written' {
-            New-Fixture -Name 'Sample.ps1' -Content 'Write-Output 1'
-            $unwritable = Join-Path $script:FixturePath 'no-such-directory\report.json'
-
-            $result = & $script:ScriptPath -Path $script:FixturePath -PassThru `
-                -OutputFormat 'JSON' -OutputPath $unwritable `
-                -InformationAction SilentlyContinue -WarningAction SilentlyContinue -WarningVariable warned
-
-            # The analysis result still comes back; only the file write failed
-            $result.TotalFiles | Should-Be 1
-            "$warned" | Should-MatchString 'Failed to save results'
-        }
-    }
-
-    Context 'Additional output formats' {
-
-        It 'Writes an XML report' {
-            New-Fixture -Name 'Sample.ps1' -Content 'Write-Output 1'
-            $out = Join-Path $script:FixturePath 'report.xml'
-
-            Invoke-Compliance -Path $script:FixturePath -Extra @{ OutputFormat = 'XML'; OutputPath = $out } | Out-Null
-
-            Test-Path $out | Should-BeTrue
-            (Get-Item $out).Length | Should-BeGreaterThan 0
-        }
-
-        It 'Writes an HTML report' {
-            New-Fixture -Name 'Sample.ps1' -Content 'Write-Output 1'
-            $out = Join-Path $script:FixturePath 'report.html'
-
-            Invoke-Compliance -Path $script:FixturePath -Extra @{ OutputFormat = 'HTML'; OutputPath = $out } | Out-Null
-
-            Test-Path $out | Should-BeTrue
-            Get-Content $out -Raw | Should-MatchString '<html'
-        }
+        @($summary) -join '; ' | Should-BeString ''
     }
 }
