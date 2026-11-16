@@ -12,47 +12,53 @@ otherwise.
 
 Most of what ships here is text, but it is text that other repositories trust in two ways:
 
-- **AI coding agents follow it.** GitHub Copilot and Claude Code load the instruction files, the
-  Claude rules, and the prompt commands as guidance, and write code to match. An instruction that
-  tells an agent to weaken a control, leak a secret, run a remote script, or ignore the user is a
-  vulnerability, whether it arrived by mistake or on purpose. So is a code sample presented as the
-  secure pattern that is not.
-- **The sync workflow copies it into other repositories.** Every consuming repository runs
-  `sync-copilot-standards.yml`, which checks out this repository's default branch and replaces its
-  own copies of the mirrored paths with it. A change merged here reaches every consumer on its next
-  sync, as a pull request the consumer still has to merge.
+- **AI coding agents follow it.** GitHub Copilot, Claude Code, and Codex load the instruction files,
+  the rules, and the skills as guidance, and write code to match. An instruction that tells an agent
+  to weaken a control, leak a secret, run a remote script, or ignore the user is a vulnerability,
+  whether it arrived by mistake or on purpose. So is a code sample presented as the secure pattern
+  that is not.
+- **The sync workflow copies it into other repositories.** A consuming repository runs
+  `sync-copilot-standards.yml`, which checks out this repository at the reference it names and
+  installs the files from it. A change merged here reaches every consumer on its next sync, as a
+  pull request the consumer still has to merge.
 
 Report either kind of problem the same way as a code vulnerability.
 
 ## What the tooling touches
 
-`Tools/Test-StandardsCompliance.ps1` reads the PowerShell files under the path you give it and
-changes nothing. With `-OutputPath` it writes a JSON, XML, or HTML report to that file.
+`Tools/Test-StandardsCompliance.ps1` reads the PowerShell files under the path it is given and
+changes nothing. It returns its findings as objects.
 
-`Tools/Install-CopilotStandards.ps1` writes into the project folder you give it and supports
+`Tools/Build-AgentInstructions.ps1` writes the generated agent files in this repository from the
+sources under `standards/`. With `-Check` it writes nothing.
+
+`Tools/Invoke-QualityGate.ps1` runs the tests and writes `coverage.xml` in the repository root.
+
+`Tools/Install-CopilotStandards.ps1` writes into the project folder it is given and supports
 `-WhatIf`:
 
-- **Copy mode** overwrites that project's `.github/copilot-instructions.md`, `.github/instructions/`,
-  `.github/prompts/`, `powershell-standards/`, `.claude/rules/powershell-standards/`, and
-  `.claude/commands/powershell-standards/` with this repository's copies. It creates the project's
-  folder layout, and a `.gitignore` only when none exists.
-- **Symlink mode** links `.github/copilot-instructions.md` to this repository instead of copying it.
-  On Windows that needs Administrator rights; without them the script falls back to copy mode.
-- **Submodule mode** runs `git submodule add` against this repository's GitHub URL.
-- **`-IncludeSyncWorkflow`** installs the sync workflow, and never replaces one already present.
+- It replaces the files that the standards own: `.github/instructions/powershell-*.instructions.md`,
+  the Pester guides beside them, `.claude/rules/powershell-standards/`, and the skills whose names
+  start with `powershell-`. It removes files in those locations that it no longer installs.
+- It writes `.github/copilot-instructions.md` and `AGENTS.md` only when the project has none or an
+  earlier installation wrote them. `-Force` replaces a file the project wrote itself.
+- It never touches the project's `CLAUDE.md`.
+- `-RemoveLegacyFiles` removes the files that earlier versions installed or mirrored, including the
+  mirrored `powershell-standards/` folder.
+- `-IncludeSyncWorkflow` installs the sync workflow, and never replaces one the project wrote.
 
 The installed sync workflow runs with `contents: write` and `pull-requests: write` in the consuming
-repository. It changes only the mirrored paths and proposes the change as a pull request; it never
-pushes to the default branch. Its actions are pinned by major version.
+repository. It runs the installer and proposes the result as a pull request; it never pushes to the
+default branch. Its actions are pinned to commit IDs.
 
 Of the worked examples under `powershell-standards/Examples/`, only `Basic-Function-Example.ps1`
-reaches another machine: it pings the computers you name with `Test-Connection` and queries them
-through CIM, and it supports `-WhatIf`. The module example's service is simulated and connects to
-nothing. The examples' tests mock every call that would leave the machine.
+reaches another machine: it queries the computers it is given through CIM and changes nothing. The
+module example's service is simulated and connects to nothing. The examples' tests mock every call
+that would leave the machine.
 
 `Documentation/Anti-Patterns/Test-QualityGates.ps1` breaks the coding standards on purpose so the
 quality gates have something to catch. It contains no real credentials or injectable queries, and it
-is never mirrored into consuming repositories.
+is never installed into consuming repositories.
 
 ## Supported versions
 

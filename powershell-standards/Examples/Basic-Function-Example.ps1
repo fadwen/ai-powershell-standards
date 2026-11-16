@@ -1,250 +1,132 @@
-<#
-.SYNOPSIS
-    Example of a basic enterprise-standard PowerShell function
-
-.DESCRIPTION
-    This function demonstrates all the key patterns and standards
-    required for enterprise PowerShell development using our
-    GitHub Copilot standards.
-
-.PARAMETER ComputerName
-    [String[]] (Mandatory: Yes, Pipeline: ByValue, ByPropertyName)
-    
-    One or more computer names to query for information.
-    
-    VALIDATION:
-    - Must be valid computer names (NetBIOS or FQDN)
-    - Pattern: Letters, numbers, hyphens, and dots only
-    - Length: 1-255 characters
-    
-    EXAMPLES:
-    - "SERVER01"
-    - "web01.contoso.com"
-    - @("APP01", "APP02", "DB01")
-
-.PARAMETER Credential
-    [PSCredential] (Mandatory: No, Pipeline: No)
-    
-    Credential to use for remote connections. If not provided,
-    uses current user context.
-
-.PARAMETER IncludeServices
-    [Switch] (Mandatory: No, Pipeline: No)
-    
-    Include running services information in the output.
-
-.EXAMPLE
-    PS> Get-BasicServerInfo -ComputerName "SERVER01"
-    
-    DESCRIPTION: Basic server information retrieval
-    OUTPUT: Server information object with OS and hardware details
-    USE CASE: Daily server health checks
-
-.EXAMPLE
-    PS> @("WEB01", "WEB02") | Get-BasicServerInfo -IncludeServices
-    
-    DESCRIPTION: Pipeline processing with service information
-    OUTPUT: Server info objects including running services
-    USE CASE: Comprehensive server inventory
-
-.EXAMPLE
-    PS> Get-BasicServerInfo -ComputerName "PROD-DB01" -Credential $cred | Export-Csv "server-info.csv"
-    
-    DESCRIPTION: Secure connection with credential and export
-    OUTPUT: CSV file with server information
-    USE CASE: Automated reporting for compliance
-
-.NOTES
-    Author: Jeffrey Stuhr
-    Blog: https://www.techbyjeff.net
-    LinkedIn: https://www.linkedin.com/in/jeffrey-stuhr-034214aa/
-    Version: 1.0.0
-    Last Updated: 2024-01-15
-    
-    DEPENDENCIES:
-    - PowerShell 7.6 (LTS) or Windows PowerShell 5.1
-    - WinRM enabled on target computers
-    - Appropriate permissions on target systems
-    
-    PERFORMANCE:
-    - Execution time: ~10-30 seconds per server
-    - Memory usage: ~5MB per server
-    - Network bandwidth: Minimal (WMI queries only)
-    
-    TROUBLESHOOTING:
-    - Connection issues: .\Troubleshooting\Common\Function-Issues.md
-    - WinRM problems: .\Troubleshooting\Security\WinRM-Setup.md
-    - Performance: .\Troubleshooting\Performance\Server-Monitoring.md
-#>
-
 function Get-BasicServerInfo {
-    [CmdletBinding(SupportsShouldProcess = $true)]
-    # Quoted, and named. [OutputType([PSCustomObject])] is the anti-pattern the
-    # standards call out: it tells a caller nothing about the shape returned.
-    [OutputType('BasicServerInfo')]
+    <#
+    .SYNOPSIS
+    Gets operating system and hardware information from Windows computers.
+
+    .DESCRIPTION
+    Opens a CIM session to each computer, reads its operating system and computer system
+    information, and emits one object for each computer. A computer that cannot be queried is
+    reported as a non-terminating error and the remaining computers are still processed. Each
+    session is closed before the next computer is queried.
+
+    .PARAMETER ComputerName
+    One or more computer names, as NetBIOS names or fully qualified domain names. A name starts
+    with a letter or a digit and contains only letters, digits, hyphens, and dots.
+
+    .PARAMETER Credential
+    Credential for the CIM sessions. Without it, the sessions use the identity of the current
+    user.
+
+    .PARAMETER IncludeServices
+    Adds the running services of each computer to the RunningServices property.
+
+    .EXAMPLE
+    Get-BasicServerInfo -ComputerName 'SERVER01'
+
+    Gets operating system and hardware information from SERVER01.
+
+    .EXAMPLE
+    'WEB01', 'WEB02' | Get-BasicServerInfo -IncludeServices
+
+    Takes the computer names from the pipeline and adds the running services of each computer.
+
+    .EXAMPLE
+    Get-BasicServerInfo -ComputerName 'DB01' -Credential (Get-Credential)
+
+    Asks for a credential and uses it to query DB01.
+
+    .INPUTS
+    System.String. You can pipe computer names, or objects that have a ComputerName property, to
+    this function.
+
+    .OUTPUTS
+    Example.ServerInfo. An object with ComputerName, OperatingSystem, Version, Architecture,
+    LastBootTime, UptimeDays, Manufacturer, Model, Domain, TotalMemoryGB, LogicalProcessors, and
+    RunningServices properties. RunningServices is empty unless IncludeServices is specified.
+    #>
+    [CmdletBinding()]
+    [OutputType('Example.ServerInfo')]
     param(
-        [Parameter(Mandatory = $true, 
-                   ValueFromPipeline = $true,
-                   ValueFromPipelineByPropertyName = $true,
-                   HelpMessage = "Enter one or more computer names")]
-        [ValidateNotNullOrEmpty()]
-        [ValidatePattern('^[a-zA-Z0-9\-\.]+$')]
-        [ValidateLength(1, 255)]
-        [Alias('CN', 'ServerName', 'Name')]
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$')]
+        [Alias('CN', 'ServerName')]
         [string[]]$ComputerName,
-        
+
         [Parameter()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
-        $Credential,
-        
+        $Credential = [System.Management.Automation.PSCredential]::Empty,
+
         [Parameter()]
         [switch]$IncludeServices
     )
-    
+
     begin {
-        # Initialize correlation tracking for enterprise monitoring
-        $correlationId = [System.Guid]::NewGuid()
-        $startTime = Get-Date
-        
-        Write-Verbose "Starting $($MyInvocation.MyCommand.Name) - CorrelationId: $correlationId"
-        Write-Verbose "Parameters: ComputerName count = $($ComputerName.Count), IncludeServices = $IncludeServices"
-        
-        # Initialize counters for performance tracking
-        $processedCount = 0
-        $successCount = 0
-        $failureCount = 0
-        
-        # Prepare credential for CIM sessions if provided
-        $cimSessionOptions = New-CimSessionOption -Protocol WSMan
-        $sessionParams = @{
-            SessionOption = $cimSessionOptions
+        $sessionParameters = @{
             ErrorAction = 'Stop'
         }
-        if ($Credential) {
-            $sessionParams.Credential = $Credential
+        if ($Credential -ne [System.Management.Automation.PSCredential]::Empty) {
+            $sessionParameters['Credential'] = $Credential
         }
     }
-    
+
     process {
         foreach ($computer in $ComputerName) {
-            $processedCount++
-            $computerStartTime = Get-Date
-            
+            $cimSession = $null
             try {
-                Write-Verbose "Processing computer: $computer (CorrelationId: $correlationId)"
-                
-                if ($PSCmdlet.ShouldProcess($computer, "Retrieve server information")) {
-                    
-                    # Test connectivity first
-                    $connectionTest = Test-Connection -ComputerName $computer -Count 1 -Quiet -ErrorAction SilentlyContinue
-                    if (-not $connectionTest) {
-                        throw "Computer $computer is not reachable via ping"
-                    }
-                    
-                    # Create CIM session for efficient querying
-                    $sessionParams.ComputerName = $computer
-                    $cimSession = New-CimSession @sessionParams
-                    
-                    try {
-                        # Gather basic system information
-                        Write-Verbose "Querying system information for $computer"
-                        $os = Get-CimInstance -CimSession $cimSession -ClassName Win32_OperatingSystem
-                        $computerSystem = Get-CimInstance -CimSession $cimSession -ClassName Win32_ComputerSystem
-                        $processor = Get-CimInstance -CimSession $cimSession -ClassName Win32_Processor | Select-Object -First 1
-                        
-                        # Calculate uptime
-                        $uptime = (Get-Date) - $os.LastBootUpTime
-                        
-                        # Build result object with raw data for maximum reusability.
-                        # PSTypeName gives the output a name that matches [OutputType].
-                        $result = [PSCustomObject]@{
-                            PSTypeName = 'BasicServerInfo'
-                            ComputerName = $computer
-                            OperatingSystem = $os.Caption
-                            Version = $os.Version
-                            ServicePackLevel = $os.ServicePackMajorVersion
-                            Architecture = $os.OSArchitecture
-                            LastBootTime = $os.LastBootUpTime
-                            UptimeDays = [math]::Round($uptime.TotalDays, 2)
-                            TotalMemoryGB = [math]::Round($computerSystem.TotalPhysicalMemory / 1GB, 2)
-                            Manufacturer = $computerSystem.Manufacturer
-                            Model = $computerSystem.Model
-                            ProcessorName = $processor.Name
-                            ProcessorCores = $processor.NumberOfCores
-                            ProcessorLogicalProcessors = $processor.NumberOfLogicalProcessors
-                            Domain = $computerSystem.Domain
-                            Workgroup = $computerSystem.Workgroup
-                            CorrelationId = $correlationId
-                            QueryTime = Get-Date
-                            QueryDurationMs = ((Get-Date) - $computerStartTime).TotalMilliseconds
-                        }
-                        
-                        # Add services information if requested
-                        if ($IncludeServices) {
-                            Write-Verbose "Querying services information for $computer"
-                            $runningServices = Get-CimInstance -CimSession $cimSession -ClassName Win32_Service |
-                                Where-Object State -eq 'Running' |
-                                Select-Object Name, DisplayName, StartMode
-                            
-                            $result | Add-Member -MemberType NoteProperty -Name 'RunningServices' -Value $runningServices
-                            $result | Add-Member -MemberType NoteProperty -Name 'RunningServiceCount' -Value $runningServices.Count
-                        }
-                        
-                        $successCount++
-                        Write-Verbose "Successfully processed $computer in $([math]::Round($result.QueryDurationMs, 0))ms"
-                        
-                        # Return the result object
-                        $result
-                        
-                    }
-                    finally {
-                        # Clean up CIM session
-                        if ($cimSession) {
-                            Remove-CimSession -CimSession $cimSession -ErrorAction SilentlyContinue
-                        }
-                    }
+                Write-Verbose "Querying '$computer'."
+                $cimSession = New-CimSession -ComputerName $computer @sessionParameters
+                $queryParameters = @{
+                    CimSession = $cimSession
+                    ErrorAction = 'Stop'
                 }
-                
-            }
-            catch {
-                $failureCount++
-                $errorDetails = @{
+                $operatingSystem = Get-CimInstance -ClassName 'Win32_OperatingSystem' @queryParameters
+                $computerSystem = Get-CimInstance -ClassName 'Win32_ComputerSystem' @queryParameters
+
+                $runningServices = @()
+                if ($IncludeServices) {
+                    $serviceParameters = @{
+                        ClassName = 'Win32_Service'
+                        Filter = 'State = "Running"'
+                    }
+                    $runningServices = @(
+                        Get-CimInstance @serviceParameters @queryParameters |
+                            Select-Object -Property Name, DisplayName, StartMode
+                    )
+                }
+
+                $uptime = (Get-Date) - $operatingSystem.LastBootUpTime
+                $serverInfo = [PSCustomObject]@{
+                    PSTypeName = 'Example.ServerInfo'
                     ComputerName = $computer
-                    CorrelationId = $correlationId
-                    ErrorMessage = $_.Exception.Message
-                    ErrorTime = Get-Date
-                    Function = $MyInvocation.MyCommand.Name
+                    OperatingSystem = $operatingSystem.Caption
+                    Version = $operatingSystem.Version
+                    Architecture = $operatingSystem.OSArchitecture
+                    LastBootTime = $operatingSystem.LastBootUpTime
+                    UptimeDays = [math]::Round($uptime.TotalDays, 2)
+                    Manufacturer = $computerSystem.Manufacturer
+                    Model = $computerSystem.Model
+                    Domain = $computerSystem.Domain
+                    TotalMemoryGB = [math]::Round($computerSystem.TotalPhysicalMemory / 1GB, 2)
+                    LogicalProcessors = $computerSystem.NumberOfLogicalProcessors
+                    RunningServices = $runningServices
                 }
-                
-                Write-Error "Failed to process computer '$computer': $($_.Exception.Message) (CorrelationId: $correlationId)"
-                Write-Verbose "Error details: $($errorDetails | ConvertTo-Json -Compress)"
-                
-                # Continue processing other computers instead of terminating
+            } catch {
+                $message = "Server information could not be read from '$computer'. $($_.Exception.Message)"
+                $exception = [System.InvalidOperationException]::new($message, $_.Exception)
+                $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                    $exception, 'ServerInfoQueryFailed', $_.CategoryInfo.Category, $computer)
+                $PSCmdlet.WriteError($errorRecord)
                 continue
+            } finally {
+                if ($null -ne $cimSession) {
+                    Remove-CimSession -CimSession $cimSession
+                }
             }
-        }
-    }
-    
-    end {
-        $endTime = Get-Date
-        $totalDuration = ($endTime - $startTime).TotalSeconds
-        
-        # Performance and summary logging
-        $summary = @{
-            CorrelationId = $correlationId
-            TotalComputers = $processedCount
-            SuccessfulQueries = $successCount
-            FailedQueries = $failureCount
-            SuccessRate = if ($processedCount -gt 0) { [math]::Round(($successCount / $processedCount) * 100, 1) } else { 0 }
-            TotalDurationSeconds = [math]::Round($totalDuration, 2)
-            AverageTimePerServer = if ($successCount -gt 0) { [math]::Round($totalDuration / $successCount, 2) } else { 0 }
-        }
-        
-        Write-Verbose "Completed $($MyInvocation.MyCommand.Name) - Summary: $($summary | ConvertTo-Json -Compress)"
-        
-        if ($failureCount -gt 0) {
-            Write-Warning "Operation completed with $failureCount failures out of $processedCount computers. Check error messages above for details."
+
+            # Emitted outside the try block. An exception thrown by a script block further down the
+            # pipeline would otherwise be caught above and reported as a failed query.
+            $serverInfo
         }
     }
 }

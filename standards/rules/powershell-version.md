@@ -1,0 +1,272 @@
+# PowerShell versions: target, lifecycle, and version-dependent features
+
+These rules apply to every `.ps1`, `.psm1`, and `.psd1` file. They say which PowerShell version to
+write for and which features that version has.
+
+The dates and version numbers on this page were checked against Microsoft's documentation on
+2026-11-15. A version is supported until its end-of-support date; compare that date with today's
+date instead of relying on the wording here.
+
+## Rules
+
+- **VER-01** Write for PowerShell 7.6 (LTS) unless the project declares another target. The
+  declaration is the project's `#requires -Version` lines and the `PowerShellVersion` and
+  `CompatiblePSEditions` keys of its module manifest.
+- **VER-02** Write code that also runs on Windows PowerShell 5.1 only when the project declares it:
+  `PowerShellVersion = '5.1'`, `CompatiblePSEditions` containing `Desktop`, or
+  `#requires -Version 5.1`.
+- **VER-03** Declare the target. A script that is run directly starts with
+  `#requires -Version <target>`, and a module manifest sets `PowerShellVersion` and
+  `CompatiblePSEditions`. A file that only defines functions for a module or script to load needs no
+  `#requires` line.
+- **VER-04** Code MUST NOT use a command, parameter, operator, or type that the declared target does
+  not have. The feature tables in the PowerShell version rules list the ones that differ.
+- **VER-05** Code, `#requires` lines, and CI matrices MUST NOT target a PowerShell version that is
+  past its end-of-support date.
+- **VER-06** Commands that exist only in Windows PowerShell MUST NOT be used in code that targets
+  PowerShell 7: use `Get-CimInstance` in place of `Get-WmiObject`, and `Get-WinEvent` in place of
+  `Get-EventLog`.
+- **VER-07** Compare versions as `[version]` values, never by `Major` alone, and detect the operating
+  system in a way that also works where `$IsWindows` does not exist.
+- **VER-08** Install and publish modules with Microsoft.PowerShell.PSResourceGet (`Install-PSResource`,
+  `Find-PSResource`, `Publish-PSResource`). Use `Install-Module` only on Windows PowerShell 5.1 where
+  PSResourceGet is not installed.
+- **VER-09** Detect a parameter that only some versions have on the command itself, with
+  `(Get-Command -Name <Command>).Parameters.ContainsKey('<Parameter>')`, not from the version number.
+
+## Support lifecycle
+
+| Version | Type | Released | End of support | Runtime |
+| --- | --- | --- | --- | --- |
+| 7.6 | LTS | 18-Mar-2026 | 14-Nov-2028 | .NET 10 |
+| 7.5 | Stable | 23-Jan-2025 | 10-Nov-2026 | .NET 9 |
+| 7.4 | LTS | 16-Nov-2023 | 10-Nov-2026 | .NET 8 |
+| 5.1 | Windows component | Aug-2016 | Follows the Windows lifecycle | .NET Framework 4.x |
+
+Versions 6.x and 7.0 to 7.3 ended support earlier. Windows PowerShell 5.1 ships with Windows and is
+still supported, but it receives no new features: treat it as a compatibility target, never as the
+version to design for.
+
+When a project is pinned to a version whose end-of-support date has passed, say so and recommend
+moving to the current LTS. Do not silently change the project's declared target.
+
+## Choosing and declaring a target
+
+| Situation | Target | Manifest keys |
+| --- | --- | --- |
+| New automation, CI, containers | 7.6 | `PowerShellVersion = '7.6'`, `CompatiblePSEditions = @('Core')` |
+| Module for machines that may not have PowerShell 7 | 5.1 | `PowerShellVersion = '5.1'`, `CompatiblePSEditions = @('Desktop', 'Core')` |
+
+```powershell
+#requires -Version 7.6
+```
+
+## Features by version
+
+### Not available in Windows PowerShell 5.1
+
+Code that must run on 5.1 MUST NOT use these:
+
+| Feature | Use on 5.1 |
+| --- | --- |
+| Ternary `a ? b : c`, `??`, `??=`, `?.`, `?[]` | `if` / `else` |
+| Pipeline chain operators `&&` and `\|\|` | Separate statements that test `$?` or `$LASTEXITCODE` |
+| `ForEach-Object -Parallel` | `Start-Job`, or the ThreadJob module installed separately |
+| `$IsWindows`, `$IsLinux`, `$IsMacOS` | See operating system detection below |
+| `Join-Path` with more than one child path | Nested `Join-Path` calls |
+| `-Encoding utf8NoBOM` | `[System.IO.File]::WriteAllText()` with `[System.Text.UTF8Encoding]::new($false)` |
+| `ConvertFrom-Json -AsHashtable` | Read properties from the object that `ConvertFrom-Json` returns |
+| `Test-Json` | `ConvertFrom-Json` inside `try` / `catch` |
+| `Get-Content -AsByteStream` | `Get-Content -Encoding Byte` |
+| `[ValidateNotNullOrWhiteSpace()]` | `[ValidateScript({ -not [string]::IsNullOrWhiteSpace($_) })]` |
+| `clean { }` block, `Get-Error`, `$PSStyle` | No equivalent; use `try` / `finally` in place of `clean` |
+| `Invoke-WebRequest` without `-UseBasicParsing` | Pass `-UseBasicParsing` in unattended code |
+| `-SkipHttpErrorCheck`, and other parameters added in PowerShell 7 | Test for the parameter on the command (VER-09) |
+
+One use of 7-only syntax in any file that a root module dot-sources fails the whole import on 5.1,
+so one helper can take every command of the module with it.
+
+### Added in PowerShell 7.5
+
+| Feature | Notes |
+| --- | --- |
+| `ConvertTo-CliXml`, `ConvertFrom-CliXml` | Serialize to CLIXML text without a temporary file |
+| `ConvertFrom-Json -DateKind` | Controls how date strings are converted (`Local`, `Utc`, `Offset`, `String`) |
+| `Test-Json -Options IgnoreComments, AllowTrailingCommas` | Validates JSON that has comments or trailing commas |
+| `Resolve-Path -Force`, `Convert-Path -Force` | Wildcard resolution that includes hidden items |
+| `New-Guid -Empty`, `New-Guid -InputObject` | An empty GUID, and conversion of a string to a GUID |
+| `Get-Process -IncludeUserName` | No longer needs elevation on Windows |
+
+### Added in PowerShell 7.6
+
+| Feature | Notes |
+| --- | --- |
+| `Get-Command -ExcludeModule` | Leaves out commands from the named modules |
+| `Get-Clipboard -Delimiter` | Splits clipboard text while reading it |
+| `Register-ArgumentCompleter -NativeFallback` | One completer for native commands that have none |
+| `.PSForEach()`, `.PSWhere()` | Aliases for the `.ForEach()` and `.Where()` intrinsic methods |
+| Redirection to a variable | `Get-Item -LiteralPath $path 2>&1 > variable:itemResult` |
+
+### Behaviour that changed
+
+Code MUST NOT depend on the older behaviour.
+
+| Version | Change |
+| --- | --- |
+| 7.6 | The `ThreadJob` module is now `Microsoft.PowerShell.ThreadJob`. Call `Start-ThreadJob` without a module prefix; `ThreadJob\Start-ThreadJob` and a `RequiredModules` entry for `ThreadJob` no longer resolve. |
+| 7.6 | `Join-Path -ChildPath` accepts an array. An array that used to be joined into one segment is now treated as several segments. |
+| 7.6 | `[WildcardPattern]::Escape()` escapes a lone backtick correctly. Code that escaped twice to work around the old result now escapes too much. |
+| 7.5 | `ConvertTo-Json` writes a `BigInteger` as a number, not as an object. |
+| 7.5 | `Test-Path -OlderThan` and `-NewerThan` both apply when used together. |
+| 7.5 | `New-FileCatalog -CatalogVersion` defaults to 2. |
+| 7.5 | `Select-String` returns `LineNumber` as `[ulong]`. |
+| 7.4 | `Test-Json` accepts only strictly valid JSON and no longer supports Draft 4 schemas. |
+
+### Windows PowerShell commands that are not part of PowerShell 7 (VER-06)
+
+| Do not use | Use instead |
+| --- | --- |
+| `Get-WmiObject`, `Invoke-WmiMethod`, `Set-WmiInstance`, `Remove-WmiObject`, `Register-WmiEvent` | `Get-CimInstance`, `Invoke-CimMethod`, `Set-CimInstance`, `Remove-CimInstance`, `Register-CimIndicationEvent` |
+| `Get-EventLog`, `Write-EventLog`, `New-EventLog`, `Clear-EventLog` | `Get-WinEvent`; `New-WinEvent` to write an event for a registered provider |
+| `New-WebServiceProxy` | `Invoke-RestMethod`, or a generated client |
+| `Add-PSSnapin`, workflows, `*-Transaction` | Modules; no equivalent for workflows and transactions |
+
+On Windows, some of these still resolve in PowerShell 7 through the Windows PowerShell compatibility
+session. That path is slow, exists only on Windows, and returns deserialized objects without methods,
+so do not rely on it. `Send-MailMessage` exists in PowerShell 7 but is obsolete; do not use it in new
+code.
+
+### Behaviour that differs on Windows PowerShell 5.1
+
+None of these raises a parse error. Each was measured on PowerShell 7.6 and Windows PowerShell 5.1.
+
+| Area | PowerShell 7.6 | Windows PowerShell 5.1 |
+| --- | --- | --- |
+| `Group-Object` | Groups are sorted by name | Groups keep the order in which they first appear |
+| `.Count` on a `[PSCustomObject]` | `1` | `$null`, or an error under strict mode |
+| `[System.IO.Compression.ZipFile]::CreateFromDirectory()` | Entry names use `/` | Entry names use `\` |
+| `[System.Net.HttpStatusCode]` | Defines 429 | Does not define 429 |
+| A 4xx or 5xx reply to `Invoke-WebRequest` | Returned when `-SkipHttpErrorCheck` is passed | Thrown as a `WebException` |
+
+Sort explicitly before relying on the order of groups. Build an archive entry by entry, with `/` in
+the names, when it must open on another platform. Read an HTTP status as an integer, not by name.
+
+A statement used as an expression enumerates its output on both versions. A `WebHeaderCollection`
+assigned from an `if` expression therefore arrives as an array of its key names; assign it inside
+the branch instead.
+
+Windows PowerShell 5.1 uses `[System.Net.ServicePointManager]::SecurityProtocol`. Where that is
+`SystemDefault`, the operating system chooses the protocols and the code should leave it alone:
+adding `Tls12` with `-bor` to `SystemDefault` restricts the session to TLS 1.2. Add `Tls12` only when
+the value names specific protocols and TLS 1.2 is not one of them.
+
+### Reading a failed HTTP reply on both versions (VER-09)
+
+On PowerShell 7, `-SkipHttpErrorCheck` returns a 4xx or 5xx reply like any other. Windows PowerShell
+5.1 has no such parameter: the cmdlet throws a `WebException`, and the reply is on the exception.
+The function below gives callers one error on both versions and was run against a local server on
+each. On 5.1 the body came back empty until the stream was moved back to its start.
+
+```powershell
+# Detected once, when the module is imported
+$script:canSkipHttpErrorCheck = (Get-Command -Name Invoke-WebRequest).Parameters.ContainsKey('SkipHttpErrorCheck')
+
+function Invoke-ModuleWebRequest {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Request
+    )
+
+    try {
+        if ($script:canSkipHttpErrorCheck) {
+            $response = Invoke-WebRequest @Request -SkipHttpErrorCheck -ErrorAction Stop
+        } else {
+            $response = Invoke-WebRequest @Request -UseBasicParsing -ErrorAction Stop
+        }
+        $status = [int]$response.StatusCode
+        $body = $response.Content
+    } catch [System.Net.WebException] {
+        $failedResponse = $_.Exception.Response
+        if ($null -eq $failedResponse) {
+            # No reply arrived, so there is no status or body to read.
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        $status = [int]$failedResponse.StatusCode
+        # The cmdlet may already have read the reply, so start again from the beginning.
+        $stream = $failedResponse.GetResponseStream()
+        if ($stream.CanSeek) {
+            $stream.Position = 0
+        }
+        $reader = [System.IO.StreamReader]::new($stream)
+        try {
+            $body = $reader.ReadToEnd()
+        } finally {
+            $reader.Dispose()
+        }
+    } catch {
+        $PSCmdlet.ThrowTerminatingError($_)
+    }
+
+    if ($status -ge 400) {
+        $exception = [System.InvalidOperationException]::new("The request failed with HTTP status $status.")
+        $exception.Data['Body'] = $body
+        $category = [System.Management.Automation.ErrorCategory]::InvalidResult
+        $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+            $exception, 'HttpRequestFailed', $category, $status)
+        $PSCmdlet.ThrowTerminatingError($errorRecord)
+    }
+
+    $body
+}
+```
+
+The body goes into the exception's `Data`, not into the message, because a reply can carry personal
+data (SEC-06).
+
+## Detecting the version and operating system (VER-07)
+
+```powershell
+# Compliant: compares the whole version
+if ($PSVersionTable.PSVersion -ge [version]'7.6') {
+    $delimitedText = Get-Clipboard -Delimiter ','
+}
+
+# Compliant: $IsWindows does not exist on Windows PowerShell 5.1, which runs only on Windows
+$onWindows = $PSVersionTable.PSVersion.Major -lt 6 -or $IsWindows
+
+# Non-compliant: true for every 7.x release, supported or not
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $delimitedText = Get-Clipboard -Delimiter ','
+}
+```
+
+## Installing modules (VER-08)
+
+```powershell
+Install-PSResource -Name Pester -Version 6.2.0 -Scope CurrentUser -TrustRepository
+```
+
+Microsoft.PowerShell.PSResourceGet is included with PowerShell 7.4 and later. On Windows
+PowerShell 5.1 it has to be installed first, so a script that must bootstrap on both checks for it:
+
+```powershell
+if (Get-Command -Name Install-PSResource -ErrorAction SilentlyContinue) {
+    Install-PSResource -Name $moduleName -Scope CurrentUser -TrustRepository
+} else {
+    Install-Module -Name $moduleName -Scope CurrentUser -Force
+}
+```
+
+## Tool versions
+
+| Tool | Version | Notes |
+| --- | --- | --- |
+| PSScriptAnalyzer | 1.25.0 | |
+| Pester | 6.2.0 | See `.github/instructions/powershell-pester.instructions.md` |
+| Microsoft.PowerShell.PlatyPS | 1.0.3 | See `.github/instructions/powershell-platyps.instructions.md` |
+| Microsoft.PowerShell.PSResourceGet | 1.2.0 | Included with PowerShell 7.6 |
+| Microsoft.PowerShell.ThreadJob | 2.2.0 | Included with PowerShell 7.6 |
+| PSReadLine | 2.4.5 | Included with PowerShell 7.6 |

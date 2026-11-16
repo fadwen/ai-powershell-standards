@@ -1,308 +1,183 @@
-#Requires -Module Pester
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
+#Requires -Modules @{ ModuleName = 'PSScriptAnalyzer'; ModuleVersion = '1.25.0' }
 
 BeforeAll {
-    $script:SourcePath = Join-Path $PSScriptRoot 'Test-QualityGates.ps1'
-    . $script:SourcePath
+    $sourcePath = Join-Path -Path $PSScriptRoot -ChildPath 'Test-QualityGates.ps1'
+    . $sourcePath
+}
 
-    # Parse once. The file-level checks below inspect the AST rather than raw
-    # text, because this file documents the patterns it violates - a regex for
-    # 'Write-Host' matches the comments describing the violation as readily as
-    # the call itself, and would report inflated counts that never go to zero.
-    $script:Ast = [System.Management.Automation.Language.Parser]::ParseFile(
-        $script:SourcePath, [ref]$null, [ref]$null)
+# Test-QualityGates.ps1 is a negative example. The first two Describe blocks record what its functions
+# do; they do not endorse how the functions do it. Write-Host output is discarded with 6>$null.
 
-    $script:Functions = $script:Ast.FindAll({
-            param($node)
-            $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
-        }, $true)
+Describe 'Test-QualityGates' -Tag 'Unit' {
+    Context 'When the user name is not blank' {
+        It 'Returns one summary that counts the servers' {
+            $result = @(Test-QualityGates -UserName 'operator' -ServerList 'server1', 'server2' 6>$null)
 
-    function Get-CallsTo {
-        param([string]$Name)
-        $script:Ast.FindAll({
+            $result | Should-BeCollection -Count 1
+            $result[0].UserName | Should-Be 'operator'
+            $result[0].ServersProcessed | Should-Be 2
+            $result[0].LogSize | Should-Be "Processing server1`nProcessing server2`n".Length
+        }
+
+        It 'Returns a summary of no servers when ServerList is omitted' {
+            $result = @(Test-QualityGates -UserName 'operator' 6>$null)
+
+            $result | Should-BeCollection -Count 1
+            $result[0].ServersProcessed | Should-Be 0
+            $result[0].LogSize | Should-Be 0
+        }
+
+        It 'Writes a status message with Write-Host before and after the work' {
+            $output = Test-QualityGates -UserName 'operator' 6>&1
+            $messages = @(
+                $output | Where-Object { $_ -is [System.Management.Automation.InformationRecord] }
+            )
+
+            $messages | Should-BeCollection -Count 2
+            $messages[0].MessageData.ToString() | Should-Be 'Starting quality gate test...'
+            $messages[1].MessageData.ToString() | Should-Be 'Quality gate test completed'
+        }
+    }
+
+    Context 'When the user name is blank' {
+        It 'Throws a string that carries the message of the original error' {
+            { Test-QualityGates -UserName '   ' 6>$null } |
+                Should-Throw -ExceptionMessage 'Processing failed: UserName cannot be blank.'
+        }
+
+        It 'Rejects an empty user name when the parameter is bound' {
+            { Test-QualityGates -UserName '' 6>$null } |
+                Should-Throw -FullyQualifiedErrorId 'ParameterArgumentValidationError,Test-QualityGates'
+        }
+    }
+}
+
+Describe 'Process-TestData' -Tag 'Unit' {
+    It 'Adds the prefix to the text' {
+        Process-TestData -Data 'sample' | Should-Be 'Processed: sample'
+    }
+}
+
+Describe 'Deliberate violations in Test-QualityGates.ps1' -Tag 'Integration' {
+    BeforeAll {
+        $repositoryRoot = Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent
+        $settingsPath = Join-Path -Path $repositoryRoot -ChildPath 'PSScriptAnalyzerSettings.psd1'
+        $findings = @(Invoke-ScriptAnalyzer -Path $sourcePath -Settings $settingsPath)
+
+        # The checks below read the syntax tree and not the text, because the comments in the file
+        # name every construct that the checks look for.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $sourcePath, [ref]$null, [ref]$null)
+    }
+
+    Context 'The label' {
+        It 'Starts the file with the warning not to copy from it' {
+            $firstLine = Get-Content -LiteralPath $sourcePath -TotalCount 1
+
+            $firstLine | Should-Be '# NEGATIVE EXAMPLE. DO NOT COPY CODE FROM THIS FILE.'
+        }
+    }
+
+    Context 'Violations that PSScriptAnalyzer reports' {
+        It 'Reports the rules that the file header lists, and no others' {
+            $reported = $findings |
+                Group-Object -Property RuleName |
+                Sort-Object -Property Name |
+                ForEach-Object { '{0} x{1}' -f $_.Name, $_.Count }
+            $expected = @(
+                'PSAvoidUsingWriteHost x2'
+                'PSPlaceCloseBrace x1'
+                'PSReviewUnusedParameter x1'
+                'PSUseApprovedVerbs x1'
+                'PSUseConsistentWhitespace x2'
+                'PSUseSingularNouns x1'
+            )
+
+            ($reported -join '; ') | Should-Be ($expected -join '; ')
+        }
+
+        It 'Names every reported rule in the file header' {
+            $isFunction = {
                 param($node)
-                $node -is [System.Management.Automation.Language.CommandAst] -and
-                $node.GetCommandName() -eq $Name
-            }, $true)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+            }
+            $functions = @($ast.FindAll($isFunction, $true))
+            $functions | Should-BeCollection -Count 2
+            $header = $ast.Extent.Text.Substring(0, $functions[0].Extent.StartOffset)
+
+            $ruleNames = @($findings.RuleName | Sort-Object -Unique)
+            $missingFromHeader = @($ruleNames | Where-Object { -not $header.Contains($_) })
+
+            $ruleNames | Should-BeCollection -Count 6
+            $missingFromHeader | Should-BeCollection -Count 0
+        }
     }
 
-    # Test-QualityGates calls Get-ADUser, which ships with RSAT and is absent on CI
-    # runners and non-Windows hosts. Pester cannot mock a command that does not
-    # exist, so define a stub for Mock to replace. Every test that exercises the
-    # function must mock it - otherwise the stub returns nothing and the function's
-    # own "User not found" guard fires.
-    if (-not (Get-Command Get-ADUser -ErrorAction SilentlyContinue)) {
-        function Get-ADUser {
-            [CmdletBinding()]
-            param(
-                [Parameter(Mandatory)] $Identity,
-                [Parameter()] $Properties,
-                [Parameter()] $Server
+    Context 'Violations that PSScriptAnalyzer does not report' {
+        It 'Declares PSCustomObject as the output type (FUN-10)' {
+            $outputTypes = @((Get-Command -Name Test-QualityGates).OutputType)
+
+            # [PSCustomObject] is an accelerator for PSObject, which is the name the attribute keeps.
+            $outputTypes | Should-BeCollection -Count 1
+            $outputTypes[0].Name | Should-Be 'System.Management.Automation.PSObject'
+        }
+
+        It 'Adds ValidateNotNullOrEmpty to a mandatory string parameter (FUN-23)' {
+            $parameter = (Get-Command -Name Test-QualityGates).Parameters['UserName']
+            $mandatory = @(
+                $parameter.Attributes |
+                    Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] -and $_.Mandatory }
             )
-        }
-    }
-}
-
-Describe "Test-QualityGates Function" -Tag "Unit", "QualityDemo" {
-
-    Context "Parameter Validation" {
-        BeforeEach {
-            # Without this the stub returns $null and the function throws "User not found"
-            Mock Get-ADUser {
-                [PSCustomObject]@{ Name = 'Test User'; SamAccountName = 'testuser'; Enabled = $true }
-            }
-        }
-
-        It "Should accept valid UserName parameter" {
-            # Pester 6 has no Should-NotThrow. Calling the code is the assertion -
-            # an unhandled exception fails the test.
-            Test-QualityGates -UserName "testuser"
-        }
-
-        It "Should handle empty ServerList gracefully" {
-            $result = Test-QualityGates -UserName "testuser" -ServerList @()
-            $result | Should-NotBeNull
-            $result.ServersProcessed | Should-Be 0
-        }
-
-        It "Should process multiple servers" {
-            $servers = @("server1", "server2", "server3")
-            $result = Test-QualityGates -UserName "testuser" -ServerList $servers
-            $result.ServersProcessed | Should-Be 3
-        }
-    }
-
-    Context "Error Handling" {
-        BeforeEach {
-            # Mock external dependencies to control test behavior
-            Mock Get-ADUser {
-                throw "User not found"
-            }
-        }
-
-        It "Should handle user not found errors" {
-            # -ExceptionMessage matches with wildcards, so the leading/trailing * are
-            # needed for a substring match - unlike classic Should -Throw.
-            { Test-QualityGates -UserName "nonexistentuser" } |
-                Should-Throw -ExceptionMessage '*User not found*'
-        }
-    }
-
-    Context "Output Validation" {
-        BeforeEach {
-            # Mock successful AD lookup
-            Mock Get-ADUser {
-                return [PSCustomObject]@{
-                    Name = "Test User"
-                    SamAccountName = "testuser"
-                    Enabled = $true
-                }
-            }
-        }
-
-        It "Should return PSCustomObject with required properties" {
-            $result = Test-QualityGates -UserName "testuser" -ServerList @("server1")
-
-            $result | Should-NotBeNull
-            $result.UserName | Should-Be "testuser"
-            $result.ServersProcessed | Should-Be 1
-            $result.ProcessedAt | Should-HaveType ([datetime])
-        }
-
-        It "Should include log size information" {
-            $result = Test-QualityGates -UserName "testuser"
-            $result.LogSize | Should-BeGreaterThan 0
-        }
-
-        It "Should include database query information" {
-            $result = Test-QualityGates -UserName "testuser"
-            $result.DatabaseQuery | Should-MatchString "SELECT.*FROM.*Users"
-        }
-    }
-}
-
-Describe "Get-TestResult Function" -Tag "Unit", "GoodExample" {
-
-    Context "Proper Implementation Validation" {
-        It "Is named with an approved verb and a singular noun" {
-            $verb, $noun = 'Get-TestResult' -split '-', 2
-
-            (Get-Verb).Verb | Should-Any { $_ -eq $verb }
-            # PSUseSingularNouns fires on a trailing 's'. The plural form is what
-            # this function was called before, and it was a real analyzer warning.
-            $noun.EndsWith('s') | Should-BeFalse
-        }
-
-        It "Should accept mandatory TestName parameter" {
-            Get-TestResult -TestName "SecurityTest"
-        }
-
-        It "Should generate correlation ID automatically" {
-            $result = Get-TestResult -TestName "AutoTest"
-            $result.CorrelationId | Should-NotBeEmptyString
-            $result.CorrelationId |
-                Should-MatchString "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        }
-
-        It "Should handle empty test name appropriately" {
-            # A Mandatory [string] rejects '' during binding, before the body runs,
-            # so the message comes from PowerShell - not the function's own guard.
-            { Get-TestResult -TestName "" } | Should-Throw -ExceptionMessage '*empty string*'
-        }
-
-        It "Should handle whitespace-only test name" {
-            # Whitespace binds fine, so the function's own validation produces this one
-            { Get-TestResult -TestName "   " } |
-                Should-Throw -ExceptionMessage '*cannot be empty or whitespace*'
-        }
-
-        It "Should return properly typed result" {
-            $result = Get-TestResult -TestName "TypeTest"
-            # PSTypeName is consumed when constructing the object; it sets the type
-            # name rather than remaining as a readable property.
-            $result.PSObject.TypeNames[0] | Should-Be "TestResult"
-            $result.Status | Should-Be "Passed"
-        }
-
-        It "Should include all required properties" {
-            $result = Get-TestResult -TestName "PropertyTest"
-
-            $result.TestName | Should-Be "PropertyTest"
-            $result.Status | Should-NotBeEmptyString
-            $result.CorrelationId | Should-NotBeEmptyString
-            $result.ExecutedAt | Should-HaveType ([datetime])
-        }
-    }
-
-    Context "Parameter Validation Best Practices" {
-        It "Should trim whitespace from TestName parameter" {
-            $result = Get-TestResult -TestName "  TrimTest  "
-            $result.TestName | Should-Be "TrimTest"
-        }
-
-        It "Should accept custom correlation ID" {
-            $customId = [System.Guid]::NewGuid().ToString()
-            $result = Get-TestResult -TestName "CustomIdTest" -CorrelationId $customId
-            $result.CorrelationId | Should-Be $customId
-        }
-    }
-
-    Context "Analyzer Cleanliness" {
-        It "Produces no analyzer warnings or errors, as the file header claims" {
-            # The function is documented as the compliant contrast. Before this test
-            # existed it carried two warnings - an unused $errorDetails hashtable and
-            # a plural noun - so the claim was false and nothing caught it.
-            $start = ($script:Functions | Where-Object { $_.Name -eq 'Get-TestResult' }).Extent.StartLineNumber
-
-            $findings = Invoke-ScriptAnalyzer -Path $script:SourcePath -Severity Warning, Error |
-                Where-Object { $_.Line -ge $start }
-
-            ($findings | ForEach-Object { "$($_.RuleName) L$($_.Line)" }) -join '; ' | Should-Be ''
-        }
-    }
-}
-
-Describe "Process-TestData Function" -Tag "Unit", "QualityIssue" {
-
-    Context "Verb Validation" {
-        It "Uses a verb PowerShell does not approve, which is the demonstration" {
-            $verb = ('Process-TestData' -split '-', 2)[0]
-            (Get-Verb).Verb | Should-All { $_ -ne $verb }
-        }
-    }
-
-    Context "Basic Functionality" {
-        It "Should process simple data" {
-            $result = Process-TestData -Data "test"
-            $result | Should-Be "Processed: test"
-        }
-    }
-}
-
-Describe "Deliberate Violations Stay Pinned" -Tag "Integration", "QualityCheck" {
-
-    # These lock the file's stated violations to what it actually contains. The
-    # header lists them, Tools/Test-StandardsCompliance.ps1 is expected to catch
-    # them, and both CI workflows exclude the file on that basis. If someone
-    # cleans one up, these fail and force the header and the exclusion to be
-    # revisited rather than silently drifting out of date.
-
-    Context "PowerShell Best Practices" {
-        It "Keeps exactly the two Write-Host calls the header describes" {
-            $calls = Get-CallsTo -Name 'Write-Host'
-
-            $calls.Count | Should-Be 2
-            # Both belong to the non-compliant function, not the compliant one
-            $goodStart = ($script:Functions | Where-Object { $_.Name -eq 'Get-TestResult' }).Extent.StartLineNumber
-            foreach ($call in $calls) {
-                $call.Extent.StartLineNumber | Should-BeLessThan $goodStart
-            }
-        }
-
-        It "Keeps Process-TestData as the only non-approved verb in the file" {
-            $approvedVerbs = (Get-Verb).Verb
-            $nonApproved = $script:Functions.Name |
-                Where-Object { ($_ -split '-', 2)[0] -notin $approvedVerbs }
-
-            ($nonApproved -join ', ') | Should-Be 'Process-TestData'
-        }
-
-        It 'Keeps the $Error[0] catch block that UseDollarUnderscoreInCatch reports' {
-            $indexed = $script:Ast.FindAll({
-                    param($node)
-                    $node -is [System.Management.Automation.Language.IndexExpressionAst] -and
-                    $node.Target.VariablePath.UserPath -eq 'Error'
-                }, $true)
-
-            $indexed.Count | Should-Be 1
-        }
-    }
-
-    Context "The Compliance Checker" {
-        It "Reports the three rules the file header says it reports" {
-            # This is the file's reason for existing, and the basis on which both
-            # CI workflows exclude it from production analysis. The Tools suite
-            # proves each rule fires against a synthetic fixture; nothing proved
-            # it fires against the file the header points at.
-            $checker = Join-Path $PSScriptRoot '..' '..' 'Tools' 'Test-StandardsCompliance.ps1' | Resolve-Path
-
-            $result = & $checker -Path $script:SourcePath -PassThru 6>$null
-
-            foreach ($rule in 'UseApprovedVerbs', 'AvoidPSCustomObjectOutputType', 'UseDollarUnderscoreInCatch') {
-                $result.ComplianceIssues.RuleName | Should-ContainCollection $rule
-            }
-        }
-    }
-
-    Context "Security Best Practices" {
-        It "Contains no hardcoded passwords" {
-            # Unlike the checks above this is not a pinned violation - security
-            # issues were removed from this file deliberately, and must stay out.
-            $content = Get-Content -Path $script:SourcePath -Raw
-
-            $passwordPatterns = @(
-                'password\s*[:=]\s*["\x27]\w{3,}["\x27]',
-                '\$\w*[Pp]assword\w*\s*=\s*["\x27]\w+["\x27]'
+            $validators = @(
+                $parameter.Attributes |
+                    Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] }
             )
 
-            $found = $passwordPatterns | Where-Object { $content -match $_ }
-
-            ($found -join '; ') | Should-Be ''
+            $parameter.ParameterType | Should-Be ([string])
+            $mandatory | Should-BeCollection -Count 1
+            $validators | Should-BeCollection -Count 1
         }
 
-        It "Contains no interpolated SQL" {
-            $content = Get-Content -Path $script:SourcePath -Raw
-            $content | Should-NotMatchString 'SELECT .*\$\w+'
+        It 'Extends an array and then a string with += (STY-40, STY-22)' {
+            $isAddition = {
+                param($node)
+                $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                $node.Operator -eq [System.Management.Automation.Language.TokenKind]::PlusEquals
+            }
+            $additions = @($ast.FindAll($isAddition, $true))
+            $loopType = [System.Management.Automation.Language.ForEachStatementAst]
+
+            $additions | Should-BeCollection -Count 2
+            $additions[0].Left.Extent.Text | Should-Be '$results'
+            $additions[0].Parent.Parent | Should-HaveType $loopType
+            $additions[1].Left.Extent.Text | Should-Be '$logOutput'
+            $additions[1].Parent.Parent | Should-HaveType $loopType
         }
-    }
 
-    Context "File Encoding" {
-        It "Is pure ASCII, so PSUseBOMForUnicodeEncodedFile stays quiet" {
-            # The file previously used checkmark emoji in its comments, which made
-            # it non-ASCII without a BOM and tripped the rule.
-            $content = [System.IO.File]::ReadAllText($script:SourcePath)
-            $nonAscii = [regex]::Matches($content, '[^\x00-\x7F]')
+        It 'Throws strings in an advanced function (ERR-11, ERR-14)' {
+            $isThrow = {
+                param($node)
+                $node -is [System.Management.Automation.Language.ThrowStatementAst]
+            }
+            $throwStatements = @($ast.FindAll($isThrow, $true))
 
-            $nonAscii.Count | Should-Be 0
+            $throwStatements | Should-BeCollection -Count 2
+            $throwStatements[0].Pipeline.Extent.Text | Should-BeLikeString '*UserName cannot be blank.*'
+            $throwStatements[1].Pipeline.Extent.Text | Should-BeLikeString '"Processing failed: *"'
+        }
+
+        It 'Reads $Error[0] in the catch block (ERR-21)' {
+            $isErrorIndex = {
+                param($node)
+                $node -is [System.Management.Automation.Language.IndexExpressionAst] -and
+                $node.Target.Extent.Text -eq '$Error'
+            }
+            $errorIndexes = @($ast.FindAll($isErrorIndex, $true))
+
+            $errorIndexes | Should-BeCollection -Count 1
+            $errorIndexes[0].Parent.Parent.Parent.Parent |
+                Should-HaveType ([System.Management.Automation.Language.CatchClauseAst])
         }
     }
 }

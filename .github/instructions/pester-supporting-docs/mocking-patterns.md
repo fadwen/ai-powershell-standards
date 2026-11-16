@@ -1,939 +1,406 @@
 # Mocking Patterns Guide
 
-Targets **Pester 6.2+**.
+Patterns for `Mock`, `Should-Invoke`, and `InModuleScope`. The rules are TST-20 to TST-22 in the
+[Pester rules](../powershell-pester.instructions.md); this guide holds the detail behind them. Every
+statement about behaviour was checked by running it on Pester 6.2.0.
 
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
+The examples use the module from the Pester rules: `ModuleName`, whose public function `Get-Thing`
+calls `Invoke-RestMethod`.
 
-## What Changed in Pester 6
+## What Changed In Pester 6
 
-### `Assert-MockCalled` and `Assert-VerifiableMock` were removed
+### Assert-MockCalled And Assert-VerifiableMock Were Removed
 
-Both commands are **gone**. Calling them fails with a command-not-found error.
-
-| Removed | Replacement (classic) | Replacement (v6 syntax) |
+| Removed | Classic replacement | Pester 6 replacement |
 | --- | --- | --- |
 | `Assert-MockCalled Cmd -Times 1 -Exactly` | `Should -Invoke Cmd -Times 1 -Exactly` | `Should-Invoke Cmd -Times 1 -Exactly` |
 | `Assert-MockCalled Cmd -Times 0` | `Should -Not -Invoke Cmd` | `Should-NotInvoke Cmd` |
 | `Assert-VerifiableMock` | `Should -InvokeVerifiable` | `Should-Invoke -Verifiable` |
 
-The parameters carry over unchanged: `-Times`, `-Exactly`, `-ParameterFilter`, `-ExclusiveFilter`,
+The parameters are the same: `-Times`, `-Exactly`, `-ParameterFilter`, `-ExclusiveFilter`,
 `-ModuleName`, `-Scope`.
 
-### Fall-through to the real command was removed
+### A Call That Matches No Mock Is An Error
 
-A mock whose `-ParameterFilter` does not match **no longer quietly calls the real command**. This
-made mocks unpredictable and hid missing cases. Define every case you need explicitly:
-
-```powershell
-# Pester 5: unmatched calls silently hit the real Get-Content. Pester 6: they hit this mock.
-Mock Get-Content { 'default content' } -ModuleName ModuleName
-Mock Get-Content { 'special content' } -ParameterFilter { $Path -like '*special*' } -ModuleName ModuleName
-```
-
-If a test relied on fall-through, add an explicit default mock, or scope the mock more narrowly so
-the real command is genuinely not intercepted.
-
-### Failed mock assertions print the invocation history
-
-When a `Should -Invoke` / `Should-Invoke` assertion fails, Pester prints every recorded call and
-marks whether it matched your `-ParameterFilter` - `[*]` for matched, `[ ]` for not:
+In Pester 5, a call that matched none of a command's parameter filters ran the real command. In
+Pester 6 it fails the test:
 
 ```text
-[-] emails alice exactly twice
- Expected Send-Email to be called 2 times exactly, but was called 1 times
- Performed invocations:
-   [*] Send-Email -To 'alice@example.com' -Subject 'Welcome' from Order.Tests.ps1:7
-   [ ] Send-Email -To 'bob@example.com'   -Subject 'Receipt' from Order.Tests.ps1:7
-```
-
-You no longer need `Write-Host` debugging to work out why a parameter filter did not match.
-
-### Dynamic parameters are handled more robustly
-
-Aliases are matched in `-ParameterFilter`, and mocking falls back gracefully when a command cannot
-produce dynamic parameters.
-
-### Mocking inside a module
-
-A mock declared in a test file replaces the command for callers in that file. To replace a function
-that a _module's_ code calls - typically a private helper - declare the mock inside
-`InModuleScope`, where the module's internal scope is visible:
-
-```powershell
-InModuleScope MyModule {
-    Mock Get-ServiceStatus { throw 'service unreachable' }
-
-    # Get-Data is public; Get-ServiceStatus is private and never exported
-    'Billing', 'Identity' | Get-Data -ErrorAction SilentlyContinue
-}
-```
-
-Worked instance:
-[Module-Structure-Example/Tests](../../../powershell-standards/Examples/Module-Structure-Example/Tests/)
-mocks a private function this way to exercise a per-item failure path.
-
-## Global Mocks (Experimental)
-
-New in Pester 6.1, off by default.
-
-Scoping is the part of mocking that most often goes wrong, and it fails quietly. A mock applies to
-calls from the scope that declared it, or from the one module named by `-ModuleName`. A call that
-originates anywhere else reaches the **real command**. When the code under test calls a helper module
-that calls `Invoke-WebRequest`, mocking `Invoke-WebRequest` in the test file does nothing, the test
-still hits the network, and nothing announces it.
-
-`Mock.Global` makes a mock reach the command wherever it is called, from any module or script in the
-runspace:
-
-```powershell
-$config = New-PesterConfiguration
-$config.Mock.Global = $true
-```
-
-The mock itself is written exactly as before - one declaration now covers every caller:
-
-```powershell
-Mock Invoke-WebRequest { '<html />' }
-
-Get-Data                 # a function in another module that calls Invoke-WebRequest
-Should-Invoke Invoke-WebRequest -Times 1
-```
-
-### What Changes
-
-| | Default | `Mock.Global = $true` |
-| --- | --- | --- |
-| Reach | The declaring scope, or the module named by `-ModuleName` | Every module and script in the runspace |
-| `-ModuleName` | Selects the scope the mock applies to | A hint used only to resolve the command |
-| Lifetime | Removed when the declaring block ends | Unchanged |
-| Nested Pester runs | Not visible | Not visible - the mock is tied to the run that created it |
-
-Because `-ModuleName` stops being a scope, existing mocks keep working unchanged. The one behavior
-that can move is a mocked command called from a module you did **not** name: that call used to reach
-the real command and now gets the mock. That is the change to look for when turning the option on -
-in most suites it is also the bug the option exists to prevent.
-
-### Guarding Against A Command Running For Real
-
-The clearest use is proving a destructive or outbound command is never genuinely invoked, without
-enumerating every module that might reach it:
-
-```powershell
-# Fail loudly on any real network call, from anywhere in the suite
-Mock Invoke-RestMethod { throw 'blocked: unmocked network call' }
-```
-
-A guard narrowed with `-ParameterFilter` needs one more piece. **`Mock.Global` does not reinstate
-fall-through** - the Pester 6 removal described above still applies, so a call that matches no filter
-does not reach the real command, it fails:
-
-```text
-No mock for command 'Remove-Item' matched the call: none of the parameter filters matched, and there
-is no default mock to fall back to. Add a default mock (e.g. `Mock Remove-Item { ... }`) or adjust an
+No mock for command 'Get-Content' matched the call: none of the parameter filters matched, and there
+is no default mock to fall back to. Add a default mock (e.g. `Mock Get-Content { ... }`) or adjust an
 existing -ParameterFilter.
 ```
 
-Declare the allowed case explicitly alongside the guard:
+The message goes on to list each filter and the parameters of the call. Declare a mock without a
+filter for the calls that the filtered mocks do not cover. The order of the declarations does not
+matter:
 
 ```powershell
-# Any delete outside TestDrive fails the test, wherever it was called from
-Mock Remove-Item { throw "blocked: Remove-Item outside TestDrive ($Path)" } `
-    -ParameterFilter { $Path -notlike "$TestDrive*" }
-
-# Required: the calls the guard permits still need a mock to land on
-Mock Remove-Item { }
+Mock -CommandName Get-Content -ModuleName ModuleName -MockWith { 'default content' }
+Mock -CommandName Get-Content -ModuleName ModuleName -ParameterFilter {
+    $LiteralPath -like '*special*'
+} -MockWith { 'special content' }
 ```
 
-This is the same rule as everywhere else in Pester 6 - every case a mock is expected to handle must
-be declared - and it is easy to miss when writing a guard, because the guard reads as though it only
-concerns the calls it names.
+### A Failed Assertion Prints The Calls
 
-### Why The Guard Needs Both Pieces
+When `Should-Invoke` or `Should-NotInvoke` fails, the message lists every recorded call. `[*]` marks
+a call that matched the `-ParameterFilter`:
 
-Run the same guard against a call made from inside another module, with and without the option, and
-the two failure modes are opposite:
+```text
+Expected Get-ServiceStatus in module ModuleName to be called 2 times exactly, but was called 1 time
+Performed invocations:
+  [*] Get-ServiceStatus -Name 'alice' from C:\Repo\Tests\Get-Data.Tests.ps1:65
+  [ ] Get-ServiceStatus -Name 'bob' from C:\Repo\Tests\Get-Data.Tests.ps1:65
+```
 
-| | Filter matches (blocked path) | Filter does not match (allowed path) |
-| --- | --- | --- |
-| `Mock.Global = $false` | **Guard never fires.** The mock does not cover the module, so the real command runs | Real command runs |
-| `Mock.Global = $true` | Guard throws, as intended | **Unmatched-mock error.** Not fall-through |
+### A Parameter Filter Can Use An Alias
 
-The left column is the reason to turn `Mock.Global` on: without it a guard aimed at "any code under
-test" silently does not apply to the module callers it was written for, and a destructive command
-runs for real while the test still passes.
+A filter may name a parameter by one of its aliases. A call to `Get-Content -LiteralPath` matches
+`-ParameterFilter { $PSPath -like '*settings*' }`.
 
-The right column is the reason the guard still needs a default mock. Turning the option on converts
-the permitted calls from "reach the real command" into "error", so a guard that looked complete
-before now fails on traffic it was never meant to block.
+## Where A Mock Applies
 
-The apparent fall-through with the option off is not fall-through at all - it is the mock failing to
-reach that caller. Nothing restores Pester 5's fall-through behavior; `Mock.Global` is the only
-setting in the `Mock` configuration section.
+A mock replaces a command for one caller (TST-21):
 
-### Calling the Real Command From Inside a Mock
+| Declaration | Calls that reach the mock |
+| --- | --- |
+| `Mock -CommandName Get-Content` | Calls made from the test file. A call inside a module runs the real command. |
+| `Mock -CommandName Get-Content -ModuleName ModuleName` | Calls made inside `ModuleName`, by public and private functions. |
 
-When the permitted calls must genuinely run, the default mock has to invoke the original command.
-Capture it with `Get-Command` in a `BeforeAll` - **before** the mock is defined, or `Get-Command`
-resolves to the mock - and call it with `&`, forwarding the automatic `$PesterBoundParameters`
-hashtable that Pester exposes inside a `-MockWith` body:
+- `-ModuleName` also works when the command is a private function of that module. Without it, Pester
+  reports `Could not find Command`.
+- A second module that calls the same command needs its own mock with its own `-ModuleName`.
+- Give `Should-Invoke` and `Should-NotInvoke` the same `-ModuleName` as the mock.
+
+Use `InModuleScope` to call a private function directly. The script block runs inside the module,
+where the test's variables do not exist, so pass values in with `-Parameters`:
+
+```powershell
+It 'Appends the path of the thing to the service address' {
+    $expected = 'https://things.example.test/api/things/alpha'
+
+    InModuleScope -ModuleName ModuleName -Parameters @{ expected = $expected } -ScriptBlock {
+        $result = Get-ThingUri -ServiceUri 'https://things.example.test/' -Name 'alpha'
+
+        $result.AbsoluteUri | Should-Be $expected
+    }
+}
+```
+
+### How Long A Mock Lasts
+
+A mock lasts until the block that declared it ends, and Pester then restores the command. No cleanup
+code is needed.
+
+| Declared in | Applies to |
+| --- | --- |
+| An `It` block | That test. It takes precedence over a mock of the same command from an outer block. |
+| `BeforeEach` | Each test of the block, declared again before every test. |
+| `BeforeAll` of a `Describe` or `Context` | Every test in that block. |
+| `BeforeAll` at the top of the file | Every test in the file. |
+
+`Should-Invoke` counts the calls made in the current `It` block, wherever the mock was declared, so
+one test does not see the calls of another. `-Scope Describe` widens the count to the enclosing
+`Describe` block.
+
+A mock never reaches another test file. Pester 6 discovers and runs one file, then the next, and
+removes a file's mocks when the file ends.
+
+### Mocks And Setup Blocks
+
+A `BeforeAll` in a `Context` runs before any `BeforeEach`. A mock defined in the parent's
+`BeforeEach` is therefore not active while that `BeforeAll` runs, and the command it calls runs for
+real. Define a mock that setup code depends on in an enclosing `BeforeAll` (TST-23).
+
+`Should-Invoke` counts the calls made inside the current `It`. A call made in `BeforeAll` is outside
+every `It`, so assert it with `-Scope Context`. Both were measured on Pester 6.2.0; the Pester rules
+show a complete example.
+
+## Patterns
+
+### An Answer That Depends On The Arguments
+
+Declare one filtered mock for each case. A default mock that throws turns an unexpected call into a
+clear failure:
 
 ```powershell
 BeforeAll {
-    $originalRemoveItem = Get-Command Remove-Item -CommandType Cmdlet
-}
-
-It 'deletes inside TestDrive and blocks everything else' {
-    Mock Remove-Item { throw "blocked: Remove-Item outside TestDrive ($Path)" } `
-        -ParameterFilter { $Path -notlike "$TestDrive*" }
-
-    # The permitted calls really delete
-    Mock Remove-Item { & $originalRemoveItem @PesterBoundParameters }
-
-    # ...
+    Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith {
+        throw "Unexpected request: $Uri"
+    }
+    Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -ParameterFilter {
+        $Uri.AbsolutePath -eq '/api/things/alpha'
+    } -MockWith {
+        [PSCustomObject]@{ name = 'alpha'; state = 'ready' }
+    }
+    Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -ParameterFilter {
+        $Uri.AbsolutePath -eq '/api/things/beta'
+    } -MockWith {
+        [PSCustomObject]@{ name = 'beta'; state = 'stopped' }
+    }
 }
 ```
 
-`$PesterBoundParameters` is the hashtable of parameters the caller bound, so splatting it forwards
-the call unchanged. This is the supported way to wrap rather than replace a command - decorating its
-output, counting calls while keeping real behavior, or letting a filtered subset through.
+The parameters of the mocked command are variables inside `-MockWith` and `-ParameterFilter`. A
+`param()` block is not needed. Return objects with the shape and types of the real command's output,
+so that the code under test reads them the way it reads the real thing.
 
-`$PSBoundParameters` is **not** the equivalent inside a mock body and does not carry the caller's
-arguments; use `$PesterBoundParameters`.
+### A Dependency That Fails
 
-### Status
+Throw the exception type that the real dependency throws, and assert what the function does with it:
 
-`Mock.Global` is experimental and may change. The Pester team has said it wants this to become the
-default in v7 and is collecting reports either way - including "turned it on, nothing changed" -
-through the [Pester issue tracker](https://github.com/pester/Pester/issues).
+```powershell
+It 'Reports a service timeout as a read error' {
+    Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith {
+        throw [System.TimeoutException]::new('The service did not answer.')
+    }
 
-Configure it per run rather than per file: there is no file-level directive to opt in or out, so a
-suite either runs with global mocks or it does not.
+    { Get-Thing -Name 'alpha' -ErrorAction Stop } |
+        Should-Throw -FullyQualifiedErrorId 'ThingReadFailed,Get-Thing'
+}
+```
 
-## Advanced Mocking Strategies
+### The Clock
 
-### Context-Aware Mocking
+Code that calls `Get-Date` gives a different result on every run. Fix the time (TST-31):
 
-Create sophisticated mocks that respond differently based on parameters:
+```powershell
+It 'Reports the age of the report in days' {
+    Mock -CommandName Get-Date -ModuleName ModuleName -MockWith { [datetime]::new(2024, 1, 31) }
+
+    Get-ReportAge -Created ([datetime]::new(2024, 1, 1)) | Should-Be 30
+}
+```
+
+### The File System
+
+Prefer real files in `$TestDrive` to mocks of `Get-Content`, `Test-Path`, and `Set-Content` (TST-03).
+The test then exercises the real provider, and Pester removes the files. Mock a file command only
+for a condition that cannot be staged, such as a read that is denied:
+
+```powershell
+It 'Reports a settings file that cannot be read' {
+    Mock -CommandName Get-Content -ModuleName ModuleName -MockWith {
+        throw [System.UnauthorizedAccessException]::new('Access to the path is denied.')
+    }
+
+    { Read-Setting -LiteralPath (Join-Path -Path $TestDrive -ChildPath 'settings.json') } |
+        Should-Throw -ExceptionType ([System.UnauthorizedAccessException])
+}
+```
+
+### A Native Executable
+
+An executable is mocked by its name, and it must be installed where the tests run, because Pester
+cannot mock a command that it cannot find. The function under test reads `$LASTEXITCODE` (ERR-23),
+so the mock sets it. It must write to PowerShell's own variable in the global scope; a plain
+assignment stays inside the mock:
+
+```powershell
+It 'Throws when git reports an error' {
+    Mock -CommandName git -ModuleName ModuleName -MockWith {
+        $global:LASTEXITCODE = 128
+    }
+
+    { Get-RepositoryStatus } |
+        Should-Throw -FullyQualifiedErrorId 'GitStatusFailed,Get-RepositoryStatus'
+}
+
+It 'Returns the changed files' {
+    Mock -CommandName git -ModuleName ModuleName -MockWith {
+        $global:LASTEXITCODE = 0
+        ' M README.md'
+    }
+
+    Get-RepositoryStatus | Should-Be ' M README.md'
+}
+```
+
+Set the exit code in every mock of an executable, the successful ones too. The variable keeps the
+value that the previous test left in it.
+
+### Running The Real Command From A Mock
+
+To count the calls to a command that should still do its work, or to run the real command for some
+calls only, capture the command before the test and call it with the parameters of the mocked call.
+Pester provides those as `$PesterBoundParameters`:
 
 ```powershell
 BeforeAll {
-    # API endpoint mocking with different responses
-    Mock Invoke-RestMethod {
-        param($Uri, $Method, $Body, $Headers)
-
-        switch -Regex ($Uri) {
-            '/api/users/\d+$' {
-                if ($Method -eq 'GET') {
-                    return @{
-                        Id = 123
-                        Name = 'Test User'
-                        Email = 'test@example.com'
-                        Status = 'Active'
-                    }
-                }
-                elseif ($Method -eq 'PUT') {
-                    $userData = $Body | ConvertFrom-Json
-                    return @{
-                        Id = 123
-                        Name = $userData.Name
-                        Email = $userData.Email
-                        Status = 'Updated'
-                        LastModified = Get-Date
-                    }
-                }
-                elseif ($Method -eq 'DELETE') {
-                    return @{ Success = $true; Message = 'User deleted' }
-                }
-            }
-            '/api/users$' {
-                if ($Method -eq 'GET') {
-                    return @{
-                        Users = @(
-                            @{ Id = 1; Name = 'User 1'; Status = 'Active' }
-                            @{ Id = 2; Name = 'User 2'; Status = 'Inactive' }
-                        )
-                        TotalCount = 2
-                        Page = 1
-                    }
-                }
-                elseif ($Method -eq 'POST') {
-                    $newUser = $Body | ConvertFrom-Json
-                    return @{
-                        Id = 999
-                        Name = $newUser.Name
-                        Email = $newUser.Email
-                        Status = 'Created'
-                        CreatedDate = Get-Date
-                    }
-                }
-            }
-            '/api/health' {
-                return @{ Status = 'Healthy'; Timestamp = Get-Date; Version = '1.0.0' }
-            }
-            default {
-                throw [System.Net.WebException]::new("Not Found: $Uri", [System.Net.WebExceptionStatus]::ProtocolError)
-            }
-        }
-    } -ModuleName ModuleName
+    $realGetContent = Get-Command -Name Get-Content -CommandType Cmdlet
+    $settingPath = Join-Path -Path $TestDrive -ChildPath 'settings.txt'
+    Set-Content -LiteralPath $settingPath -Value 'region=westeurope' -Encoding ascii
 }
-```
 
-### Database Connection Mocking
-
-Mock database operations with realistic behavior:
-
-```powershell
-BeforeAll {
-    # Mock database connection with state management
-    $script:MockDatabase = @{
-        Connected = $false
-        TransactionActive = $false
-        Data = @{
-            Users = @()
-            Products = @()
-        }
+It 'Reads the settings file once' {
+    Mock -CommandName Get-Content -ModuleName ModuleName -MockWith {
+        & $realGetContent @PesterBoundParameters
     }
 
-    Mock Connect-Database {
-        param($ConnectionString, $Credential)
+    Read-Setting -LiteralPath $settingPath | Should-BeString 'region=westeurope' -TrimWhitespace
 
-        if ($ConnectionString -match 'invalid') {
-            throw [System.Data.SqlClient.SqlException]::new('Invalid connection string')
-        }
-
-        if ($Credential -and $Credential.UserName -eq 'invaliduser') {
-            throw [System.Data.SqlClient.SqlException]::new('Login failed for user')
-        }
-
-        $script:MockDatabase.Connected = $true
-        return @{
-            ConnectionId = [System.Guid]::NewGuid()
-            ServerVersion = '14.0.3048'
-            Database = 'TestDB'
-            State = 'Open'
-        }
-    } -ModuleName ModuleName
-
-    Mock Invoke-DatabaseQuery {
-        param($Query, $Parameters = @{})
-
-        if (-not $script:MockDatabase.Connected) {
-            throw [System.InvalidOperationException]::new('Database connection not established')
-        }
-
-        # Parse simple SQL queries
-        switch -Regex ($Query) {
-            'SELECT.*FROM Users' {
-                if ($Query -match 'WHERE Id = @Id') {
-                    $userId = $Parameters.Id
-                    return $script:MockDatabase.Data.Users | Where-Object { $_.Id -eq $userId }
-                }
-                return $script:MockDatabase.Data.Users
-            }
-            'INSERT INTO Users' {
-                $newUser = @{
-                    Id = ($script:MockDatabase.Data.Users.Count + 1)
-                    Name = $Parameters.Name
-                    Email = $Parameters.Email
-                    CreatedDate = Get-Date
-                }
-                $script:MockDatabase.Data.Users += $newUser
-                return @{ RowsAffected = 1; Identity = $newUser.Id }
-            }
-            'UPDATE Users' {
-                $user = $script:MockDatabase.Data.Users | Where-Object { $_.Id -eq $Parameters.Id }
-                if ($user) {
-                    $user.Name = $Parameters.Name ?? $user.Name
-                    $user.Email = $Parameters.Email ?? $user.Email
-                    $user.ModifiedDate = Get-Date
-                    return @{ RowsAffected = 1 }
-                }
-                return @{ RowsAffected = 0 }
-            }
-            'DELETE FROM Users' {
-                $originalCount = $script:MockDatabase.Data.Users.Count
-                $script:MockDatabase.Data.Users = $script:MockDatabase.Data.Users | Where-Object { $_.Id -ne $Parameters.Id }
-                return @{ RowsAffected = $originalCount - $script:MockDatabase.Data.Users.Count }
-            }
-            default {
-                throw [System.Data.SqlClient.SqlException]::new("Invalid SQL syntax: $Query")
-            }
-        }
-    } -ModuleName ModuleName
-
-    Mock Start-DatabaseTransaction {
-        if (-not $script:MockDatabase.Connected) {
-            throw [System.InvalidOperationException]::new('Database connection not established')
-        }
-        $script:MockDatabase.TransactionActive = $true
-        return @{ TransactionId = [System.Guid]::NewGuid() }
-    } -ModuleName ModuleName
-
-    Mock Commit-DatabaseTransaction {
-        $script:MockDatabase.TransactionActive = $false
-    } -ModuleName ModuleName
-
-    Mock Rollback-DatabaseTransaction {
-        $script:MockDatabase.TransactionActive = $false
-        # In a real mock, you might restore previous state here
-    } -ModuleName ModuleName
+    Should-Invoke -CommandName Get-Content -ModuleName ModuleName -Times 1 -Exactly
 }
 ```
 
-### File System Mocking
+- `$PSBoundParameters` is empty inside `-MockWith`. Use `$PesterBoundParameters`.
+- Pass `-CommandType` to `Get-Command`. Once a mock exists, `Get-Command -Name Get-Content` returns
+  the alias that Pester created for the mock.
 
-Mock file system operations with realistic behavior:
+## Asserting Calls
+
+### Parameters Of A Call
 
 ```powershell
-BeforeAll {
-    # Mock file system with in-memory storage
-    $script:MockFileSystem = @{
-        Files = @{}
-        Directories = @('C:\', 'C:\Temp\', 'C:\Windows\')
+It 'Sends one GET request for each name' {
+    $null = Get-Thing -Name 'alpha', 'beta'
+
+    $alphaRequest = @{
+        CommandName = 'Invoke-RestMethod'
+        ModuleName = 'ModuleName'
+        ParameterFilter = { $Method -eq 'Get' -and $Uri.AbsolutePath -eq '/api/things/alpha' }
     }
-
-    Mock Test-Path {
-        param($Path)
-
-        $normalizedPath = $Path.Replace('/', '\').TrimEnd('\')
-
-        # Check if it's a file
-        if ($script:MockFileSystem.Files.ContainsKey($normalizedPath)) {
-            return $true
-        }
-
-        # Check if it's a directory
-        return $script:MockFileSystem.Directories -contains "$normalizedPath\"
-    } -ModuleName ModuleName
-
-    Mock Get-Content {
-        param($Path, $Raw, $Encoding = 'UTF8')
-
-        $normalizedPath = $Path.Replace('/', '\')
-
-        if (-not $script:MockFileSystem.Files.ContainsKey($normalizedPath)) {
-            throw [System.IO.FileNotFoundException]::new("File not found: $Path")
-        }
-
-        $content = $script:MockFileSystem.Files[$normalizedPath]
-
-        if ($Raw) {
-            return $content
-        } else {
-            return $content -split "`r?`n"
-        }
-    } -ModuleName ModuleName
-
-    Mock Set-Content {
-        param($Path, $Value, $Encoding = 'UTF8')
-
-        $normalizedPath = $Path.Replace('/', '\')
-        $directory = Split-Path $normalizedPath -Parent
-
-        # Ensure directory exists
-        if ($directory -and -not ($script:MockFileSystem.Directories -contains "$directory\")) {
-            throw [System.IO.DirectoryNotFoundException]::new("Directory not found: $directory")
-        }
-
-        $script:MockFileSystem.Files[$normalizedPath] = $Value -join "`r`n"
-        return @{ Length = $script:MockFileSystem.Files[$normalizedPath].Length }
-    } -ModuleName ModuleName
-
-    Mock New-Item {
-        param($Path, $ItemType, $Force)
-
-        $normalizedPath = $Path.Replace('/', '\')
-
-        if ($ItemType -eq 'Directory') {
-            if (-not ($script:MockFileSystem.Directories -contains "$normalizedPath\")) {
-                $script:MockFileSystem.Directories += "$normalizedPath\"
-            }
-            return @{ FullName = $normalizedPath; PSIsContainer = $true }
-        } else {
-            $script:MockFileSystem.Files[$normalizedPath] = ''
-            return @{ FullName = $normalizedPath; PSIsContainer = $false }
-        }
-    } -ModuleName ModuleName
-
-    Mock Remove-Item {
-        param($Path, $Recurse, $Force)
-
-        $normalizedPath = $Path.Replace('/', '\')
-
-        # Remove file
-        if ($script:MockFileSystem.Files.ContainsKey($normalizedPath)) {
-            $script:MockFileSystem.Files.Remove($normalizedPath)
-            return
-        }
-
-        # Remove directory
-        $directoryPath = "$normalizedPath\"
-        if ($script:MockFileSystem.Directories -contains $directoryPath) {
-            if ($Recurse) {
-                # Remove all files and subdirectories
-                $filesToRemove = $script:MockFileSystem.Files.Keys | Where-Object { $_.StartsWith($normalizedPath) }
-                foreach ($file in $filesToRemove) {
-                    $script:MockFileSystem.Files.Remove($file)
-                }
-
-                $dirsToRemove = $script:MockFileSystem.Directories | Where-Object { $_.StartsWith($directoryPath) }
-                foreach ($dir in $dirsToRemove) {
-                    $script:MockFileSystem.Directories = $script:MockFileSystem.Directories | Where-Object { $_ -ne $dir }
-                }
-            }
-            $script:MockFileSystem.Directories = $script:MockFileSystem.Directories | Where-Object { $_ -ne $directoryPath }
-        }
-    } -ModuleName ModuleName
+    Should-Invoke -CommandName Invoke-RestMethod -ModuleName ModuleName -Times 2 -Exactly
+    Should-Invoke @alphaRequest -Times 1 -Exactly
 }
 ```
 
-### Network Service Mocking
-
-Mock network operations with failure simulation:
+- `-Times 1` alone means at least once. Add `-Exactly` (TST-22). Without `-Times`, `Should-Invoke`
+  passes for one call or more.
+- `-ExclusiveFilter` passes only when every recorded call matches the filter. Use it to prove that
+  nothing else was requested:
 
 ```powershell
-BeforeAll {
-    # Mock network services with failure simulation
-    Mock Test-NetConnection {
-        param($ComputerName, $Port = 80, $InformationLevel = 'Detailed')
-
-        # Simulate different network conditions
-        switch ($ComputerName) {
-            'unreachable.test' {
-                return @{
-                    ComputerName = $ComputerName
-                    RemoteAddress = $null
-                    PingSucceeded = $false
-                    TcpTestSucceeded = $false
-                }
-            }
-            'slow.test' {
-                Start-Sleep -Milliseconds 2000  # Simulate slow connection
-                return @{
-                    ComputerName = $ComputerName
-                    RemoteAddress = '192.168.1.100'
-                    PingSucceeded = $true
-                    TcpTestSucceeded = $true
-                    PingReplyDetails = @{ RoundtripTime = 2000 }
-                }
-            }
-            { $_ -match '\.local$' } {
-                return @{
-                    ComputerName = $ComputerName
-                    RemoteAddress = '192.168.1.50'
-                    PingSucceeded = $true
-                    TcpTestSucceeded = $true
-                    PingReplyDetails = @{ RoundtripTime = 15 }
-                }
-            }
-            default {
-                return @{
-                    ComputerName = $ComputerName
-                    RemoteAddress = '8.8.8.8'
-                    PingSucceeded = $true
-                    TcpTestSucceeded = $true
-                    PingReplyDetails = @{ RoundtripTime = 45 }
-                }
-            }
-        }
-    } -ModuleName ModuleName
-
-    Mock Invoke-WebRequest {
-        param($Uri, $Method = 'GET', $Body, $Headers = @{}, $TimeoutSec = 30)
-
-        # Simulate different response scenarios
-        switch -Regex ($Uri) {
-            'timeout\.test' {
-                Start-Sleep -Seconds ($TimeoutSec + 1)
-                throw [System.Net.WebException]::new('The operation has timed out', [System.Net.WebExceptionStatus]::Timeout)
-            }
-            'server-error\.test' {
-                throw [System.Net.WebException]::new('The remote server returned an error: (500) Internal Server Error', [System.Net.WebExceptionStatus]::ProtocolError)
-            }
-            'not-found\.test' {
-                throw [System.Net.WebException]::new('The remote server returned an error: (404) Not Found', [System.Net.WebExceptionStatus]::ProtocolError)
-            }
-            'auth\.test' {
-                if (-not $Headers.ContainsKey('Authorization')) {
-                    throw [System.Net.WebException]::new('The remote server returned an error: (401) Unauthorized', [System.Net.WebExceptionStatus]::ProtocolError)
-                }
-                # Return success response
-                return @{
-                    StatusCode = 200
-                    StatusDescription = 'OK'
-                    Content = '{"authenticated": true, "user": "testuser"}'
-                    Headers = @{ 'Content-Type' = 'application/json' }
-                }
-            }
-            default {
-                # Return successful response
-                $responseContent = switch ($Method) {
-                    'GET' { '{"data": "sample response"}' }
-                    'POST' { '{"id": 12345, "status": "created"}' }
-                    'PUT' { '{"id": 12345, "status": "updated"}' }
-                    'DELETE' { '{"status": "deleted"}' }
-                    default { '{"status": "ok"}' }
-                }
-
-                return @{
-                    StatusCode = 200
-                    StatusDescription = 'OK'
-                    Content = $responseContent
-                    Headers = @{ 'Content-Type' = 'application/json' }
-                }
-            }
-        }
-    } -ModuleName ModuleName
+Should-Invoke -CommandName Invoke-RestMethod -ModuleName ModuleName -ExclusiveFilter {
+    $Uri.Host -eq 'things.example.test'
 }
 ```
 
-### External Command Mocking
+### A Command That Must Not Run
 
-Mock external executable commands:
+`Should-NotInvoke` shows that a failure path stopped before the call that changes something. That is
+often worth more than showing that the function threw:
 
 ```powershell
-BeforeAll {
-    # Mock external commands with different exit codes
-    Mock Start-Process {
-        param($FilePath, $ArgumentList, $Wait, $PassThru, $RedirectStandardOutput, $RedirectStandardError)
+It 'Does not call the service when the name is not valid' {
+    Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith { }
 
-        $command = $FilePath
-        $args = $ArgumentList -join ' '
+    { Remove-Thing -Name '../alpha' -Confirm:$false } |
+        Should-Throw -FullyQualifiedErrorId 'ParameterArgumentValidationError,Remove-Thing'
 
-        # Simulate different command behaviors
-        switch -Regex ("$command $args") {
-            'git status' {
-                $output = @"
-On branch main
-Your branch is up to date with 'origin/main'.
+    Should-NotInvoke -CommandName Invoke-RestMethod -ModuleName ModuleName
+}
 
-Changes not staged for commit:
-  (use "git add <file>..." to update what will be committed)
-  (use "git checkout -- <file>..." to discard changes in working directory)
+It 'Does not call the service when -WhatIf is passed' {
+    Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith { }
 
-        modified:   src/module.ps1
+    Remove-Thing -Name 'alpha' -WhatIf
 
-no changes added to commit (use "git add" or "git commit -a")
-"@
-                if ($RedirectStandardOutput) {
-                    $output | Out-File $RedirectStandardOutput
-                }
-                return @{ ExitCode = 0; ProcessName = 'git' }
-            }
-            'git clone.*invalid-repo' {
-                $error = "fatal: repository 'invalid-repo' does not exist"
-                if ($RedirectStandardError) {
-                    $error | Out-File $RedirectStandardError
-                }
-                return @{ ExitCode = 128; ProcessName = 'git' }
-            }
-            'docker ps' {
-                $output = @"
-CONTAINER ID   IMAGE     COMMAND                  CREATED       STATUS       PORTS     NAMES
-abc123def456   nginx     "/docker-entrypoint.…"   2 hours ago   Up 2 hours   80/tcp    web-server
-def456ghi789   redis     "docker-entrypoint.s…"   2 hours ago   Up 2 hours   6379/tcp  redis-cache
-"@
-                if ($RedirectStandardOutput) {
-                    $output | Out-File $RedirectStandardOutput
-                }
-                return @{ ExitCode = 0; ProcessName = 'docker' }
-            }
-            'powershell.*-File.*test-script' {
-                # Simulate script execution
-                if ($args -match 'fail') {
-                    return @{ ExitCode = 1; ProcessName = 'powershell' }
-                }
-                return @{ ExitCode = 0; ProcessName = 'powershell' }
-            }
-            default {
-                # Unknown command
-                return @{ ExitCode = 127; ProcessName = $command }
-            }
-        }
-    } -ModuleName ModuleName
-
-    # Mock Windows services
-    Mock Get-Service {
-        param($Name, $ComputerName = $env:COMPUTERNAME)
-
-        $mockServices = @{
-            'Spooler' = @{ Name = 'Spooler'; Status = 'Running'; StartType = 'Automatic' }
-            'BITS' = @{ Name = 'BITS'; Status = 'Running'; StartType = 'Manual' }
-            'Fax' = @{ Name = 'Fax'; Status = 'Stopped'; StartType = 'Manual' }
-            'InvalidService' = $null
-        }
-
-        if ($Name) {
-            $service = $mockServices[$Name]
-            if ($service) {
-                return [PSCustomObject]$service
-            } else {
-                throw [Microsoft.PowerShell.Commands.ServiceCommandException]::new("Cannot find any service with service name '$Name'.")
-            }
-        } else {
-            return $mockServices.Values | Where-Object { $_ -ne $null } | ForEach-Object { [PSCustomObject]$_ }
-        }
-    } -ModuleName ModuleName
+    Should-NotInvoke -CommandName Invoke-RestMethod -ModuleName ModuleName
 }
 ```
 
-## Mock Validation Patterns
+### The Order Of Calls
 
-### Parameter Filter Testing
-
-Validate that mocks are called with correct parameters:
+Record the calls in a list that the mocks add to, then assert the count and each position.
+`Should-BeCollection @('Connect', 'Query')` cannot do this: it passes for the same items in any
+order (TST-14).
 
 ```powershell
-Context "Mock Parameter Validation" {
-    It "Should call API with correct parameters" {
-        $testData = @{ Name = 'Test'; Value = 'Data' }
+It 'Connects before it queries and disconnects last' {
+    $calls = [System.Collections.Generic.List[string]]::new()
+    Mock -CommandName Connect-Database -ModuleName ModuleName -MockWith { $calls.Add('Connect') }
+    Mock -CommandName Invoke-DatabaseQuery -ModuleName ModuleName -MockWith { $calls.Add('Query') }
+    Mock -CommandName Disconnect-Database -ModuleName ModuleName -MockWith { $calls.Add('Disconnect') }
 
-        Function-Name -Data $testData -Endpoint 'https://api.test.com'
+    Update-Record -Id 42
 
-        Should-Invoke Invoke-RestMethod -Times 1 -Exactly -ModuleName ModuleName -ParameterFilter {
-            $Uri -eq 'https://api.test.com' -and
-            $Method -eq 'POST' -and
-            ($Body | ConvertFrom-Json).Name -eq 'Test'
-        }
-    }
-
-    It "Should handle multiple calls with different parameters" {
-        $endpoints = @('https://api1.test.com', 'https://api2.test.com')
-
-        foreach ($endpoint in $endpoints) {
-            Function-Name -Endpoint $endpoint
-        }
-
-        Should-Invoke Invoke-RestMethod -Times 2 -Exactly -ModuleName ModuleName
-        Should-Invoke Invoke-RestMethod -Times 1 -Exactly -ModuleName ModuleName -ParameterFilter {
-            $Uri -eq 'https://api1.test.com'
-        }
-        Should-Invoke Invoke-RestMethod -Times 1 -Exactly -ModuleName ModuleName -ParameterFilter {
-            $Uri -eq 'https://api2.test.com'
-        }
-    }
-
-    It "Should not call the destructive command in WhatIf mode" {
-        Function-Name -Path 'C:\Temp\file.txt' -WhatIf
-
-        Should-NotInvoke Remove-Item -ModuleName ModuleName
-    }
-
-    It "Should call the API only for allowed endpoints" {
-        Function-Name -Endpoint 'https://api1.test.com'
-
-        # -ExclusiveFilter fails if ANY recorded call does not match the filter
-        Should-Invoke Invoke-RestMethod -ModuleName ModuleName -ExclusiveFilter {
-            $Uri -like 'https://api1.*'
-        }
-    }
+    $calls | Should-BeCollection -Count 3
+    $calls[0] | Should-Be 'Connect'
+    $calls[1] | Should-Be 'Query'
+    $calls[2] | Should-Be 'Disconnect'
 }
 ```
 
-Note the parameter shape: `-Times 1 -Exactly`, not `-Exactly 1`. `-Exactly` is a switch that changes
-`-Times` from "at least" to "exactly". `Should-Invoke Cmd -Exactly 1` binds `1` positionally to
-`-Times` and happens to work, but writing it out is clearer and matches the classic syntax.
+`$calls -join ', ' | Should-Be 'Connect, Query, Disconnect'` asserts the same thing in one line, and
+its failure message shows the whole sequence.
 
-### Asserting a Mock Was Not Called
+## Shared Mocks
 
-`Should-NotInvoke` replaces `Should -Not -Invoke` and `Assert-MockCalled -Times 0`. This is the
-assertion most often missing from error-handling tests - proving the failure path stopped before the
-destructive call is usually more valuable than proving it threw:
-
-```powershell
-It "Should not write results when validation fails" {
-    Mock Write-Result { } -ModuleName ModuleName
-
-    { Function-Name -ParameterName '' } | Should-Throw
-
-    Should-NotInvoke Write-Result -ModuleName ModuleName
-}
-```
-
-### Mock Call Sequence Validation
-
-Ensure mocks are called in the correct order:
+Each test file declares the mocks it needs (TST-02). When many files need the same set, put it in a
+function and load that function from `Pester.BeforeContainer.ps1`, the setup file that Pester runs
+for every test file below its folder:
 
 ```powershell
-Context "Mock Call Sequence" {
-    BeforeEach {
-        $script:CallSequence = @()
-
-        Mock Connect-Database {
-            $script:CallSequence += 'Connect'
-            return @{ Connected = $true }
-        } -ModuleName ModuleName
-
-        Mock Start-DatabaseTransaction {
-            $script:CallSequence += 'StartTransaction'
-            return @{ TransactionId = '12345' }
-        } -ModuleName ModuleName
-
-        Mock Invoke-DatabaseQuery {
-            $script:CallSequence += 'Query'
-            return @{ Success = $true }
-        } -ModuleName ModuleName
-
-        Mock Commit-DatabaseTransaction {
-            $script:CallSequence += 'Commit'
-        } -ModuleName ModuleName
-
-        Mock Disconnect-Database {
-            $script:CallSequence += 'Disconnect'
-        } -ModuleName ModuleName
-    }
-
-    It "Should call database operations in correct sequence" {
-        Function-Name -DatabaseOperation 'UpdateUser'
-
-        # Should-BeCollection compares item by item and reports the first differing index
-        $script:CallSequence |
-            Should-BeCollection @('Connect', 'StartTransaction', 'Query', 'Commit', 'Disconnect')
-    }
-}
-```
-
-`Should-BeCollection` is the right assertion here rather than `Should-Be`: it compares element by
-element and names the index that diverged, instead of dumping two flattened strings at you.
-
-## Mock Best Practices
-
-### Isolated Mock Scope
-
-Keep mocks isolated between tests:
-
-```powershell
-Describe "Function Tests" {
-    Context "Success Scenarios" {
-        BeforeEach {
-            Mock External-Service { return @{ Success = $true } } -ModuleName ModuleName
-        }
-
-        # Tests using success mock
-    }
-
-    Context "Failure Scenarios" {
-        BeforeEach {
-            Mock External-Service { throw 'Service unavailable' } -ModuleName ModuleName
-        }
-
-        # Tests using failure mock
-    }
-}
-```
-
-Each `Context` gets its own `BeforeEach`. From 6.2 a block may also hold several `BeforeEach`
-blocks, run in declaration order, so a second group of mocks can be its own block rather than
-merged into the first. Separate `Context` blocks remain the better split when the two groups serve
-different tests; 6.0 and 6.1 throw on a second `BeforeEach` in the _same_ block.
-
-### Mocks and Setup Blocks Run at Different Times
-
-A `BeforeEach` runs before each `It`. A `BeforeAll` in a child `Context` runs once, before the first
-`It` in that `Context`, which is before any `BeforeEach` has run. A mock defined in the parent's
-`BeforeEach` is therefore not active while the child's `BeforeAll` executes, and a command the setup
-calls runs for real, or fails as unmocked, with nothing pointing at the mock one block up. Define a
-mock that setup code depends on in an enclosing `BeforeAll`; keep `BeforeEach` for mocks that only
-the tests themselves call.
-
-`Should-Invoke` counts calls made in the current `It` by default. A call made in `BeforeAll` is
-outside every `It`, so the assertion reports zero invocations even though the command ran. Assert
-it with `-Scope Context` (or `-Scope Describe`), which counts every call made inside that block,
-its setup included:
-
-```powershell
-Describe 'Get-ServerHealth' -Tag 'Unit' {
-    BeforeAll {
-        # Defined here so the Context's BeforeAll below can rely on it
-        Mock Get-CimInstance { [PSCustomObject]@{ FreePhysicalMemory = 4GB } } -ModuleName ModuleName
-    }
-
-    Context 'A server queried once for the whole Context' {
-        BeforeAll {
-            # Runs before any BeforeEach; only mocks from enclosing BeforeAll blocks are active here
-            $script:Health = Get-ServerHealth -ComputerName 'SERVER01'
-        }
-
-        It 'Queried the server once' {
-            # The default scope is this It, where nothing was called; the call lives in BeforeAll
-            Should-Invoke Get-CimInstance -ModuleName ModuleName -Times 1 -Exactly -Scope Context
-        }
-    }
-}
-```
-
-### Mocks Do Not Cross Files
-
-Pester 6 discovers and runs one file at a time, and under `Run.Parallel` each file gets its own
-runspace. A mock defined in one test file is never visible to another. Define every mock a file
-needs inside that file. For mock setup shared across many files, dot-source a shared mock factory
-from a `Pester.BeforeContainer.ps1` - inside its `BeforeAll`, because from 6.2 top-level code in
-that file runs at discovery only and a function it defined would be gone by the time a test calls
-it. `Mock` itself must still be called inside a `Describe`/`Context`/`BeforeAll` scope:
-
-```powershell
-# TestHelpers/MockFactory.ps1 - dot-sourced from Pester.BeforeContainer.ps1
-function Set-StandardExternalMock {
-    param([string]$ModuleName)
-    Mock Invoke-RestMethod { @{ Status = 'Healthy' } } -ModuleName $ModuleName
-    Mock Write-Verbose { } -ModuleName $ModuleName
-}
-```
-
-```powershell
-# Pester.BeforeContainer.ps1, at the repository root
-BeforeAll {
-    . "$PSScriptRoot/Tests/TestHelpers/MockFactory.ps1"
-}
-```
-
-```powershell
-# In each test file
-BeforeAll {
-    Set-StandardExternalMock -ModuleName ModuleName
-}
-```
-
-### Realistic Mock Data
-
-Use realistic data structures in mocks:
-
-```powershell
-BeforeAll {
-    # Load realistic test data
-    $script:TestUsers = @(
-        @{ Id = 1; Name = 'John Doe'; Email = 'john.doe@example.com'; Department = 'IT'; Active = $true }
-        @{ Id = 2; Name = 'Jane Smith'; Email = 'jane.smith@example.com'; Department = 'HR'; Active = $true }
-        @{ Id = 3; Name = 'Bob Johnson'; Email = 'bob.johnson@example.com'; Department = 'Finance'; Active = $false }
+# Tests/TestHelpers/MockFactory.ps1
+function Set-ServiceMock {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ModuleName
     )
 
-    Mock Get-ADUser {
-        param($Identity, $Properties)
-
-        $user = $script:TestUsers | Where-Object { $_.Name -eq $Identity -or $_.Id -eq $Identity }
-        if ($user) {
-            return [PSCustomObject]$user
-        } else {
-            throw [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]::new("User '$Identity' not found")
-        }
-    } -ModuleName ModuleName
+    Mock -CommandName Invoke-RestMethod -ModuleName $ModuleName -MockWith {
+        [PSCustomObject]@{ status = 'healthy' }
+    }
 }
 ```
-
-### Mock Cleanup
-
-Ensure proper mock cleanup:
 
 ```powershell
-AfterEach {
-    # Reset mock state if needed
-    $script:MockDatabase = @{
-        Connected = $false
-        Data = @{}
-    }
-
-    # Clear any temporary files created by mocks
-    Get-ChildItem -Path $env:TEMP -Filter "MockTest*" | Remove-Item -Force -ErrorAction SilentlyContinue
+# Pester.BeforeContainer.ps1, in the repository root
+BeforeAll {
+    $helperFolder = Join-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath 'Tests') -ChildPath 'TestHelpers'
+    . (Join-Path -Path $helperFolder -ChildPath 'MockFactory.ps1')
 }
 ```
+
+```powershell
+# In a test file
+BeforeAll {
+    Set-ServiceMock -ModuleName ModuleName
+}
+```
+
+- The dot-sourcing must be inside `BeforeAll`. Top-level code in `Pester.BeforeContainer.ps1` runs
+  during discovery only, so a function defined there no longer exists when the tests run.
+- The mock belongs to the block that calls the function, as if the block had declared it.
+- Pester's source marks `Pester.BeforeContainer.ps1` as experimental.
+
+## Global Mocks (Experimental)
+
+`Mock.Global` is off by default, and the Pester rules say not to enable an experimental option
+unless the user asks. When it is on, a mock reaches the command from every module and script, not
+from one caller:
+
+```powershell
+$configuration = New-PesterConfiguration
+$configuration.Mock.Global = $true
+```
+
+| | Default | `Mock.Global = $true` |
+| --- | --- | --- |
+| Reach of a mock | The test file, or the module named by `-ModuleName` | Every module and script |
+| `-ModuleName` | Selects the caller that the mock applies to | Still accepted; it no longer limits the mock |
+| A call that matches no filter | Error, as described above | Error, as described above |
+
+Its use is a guard: a mock that fails the test when any code, in any module, runs a command for
+real. A guard that has a filter needs a default mock beside it, because the calls that the guard
+permits must still match something:
+
+```powershell
+BeforeAll {
+    Mock -CommandName Remove-Item -ParameterFilter {
+        $target = if ($LiteralPath) { $LiteralPath } else { $Path }
+        $target -notlike "$TestDrive*"
+    } -MockWith {
+        throw 'Remove-Item was called outside the test drive.'
+    }
+    Mock -CommandName Remove-Item -MockWith { }
+}
+```
+
+The filter reads both path parameters, because the code under test may use either. With the option
+off, the same two mocks apply to calls from the test file only. A module that calls `Remove-Item`
+runs the real command, and the guard never fires. To let the permitted calls delete for real, make
+the default mock call the real command as shown under "Running The Real Command From A Mock".

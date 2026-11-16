@@ -1,37 +1,33 @@
 function Get-ExampleServiceStatus {
     <#
     .SYNOPSIS
-        Returns the status of a single service.
+    Gets the status of one service.
 
     .DESCRIPTION
-        Private helper representing the one call in Get-ExampleData that can fail.
+    Looks the service name up in a fixed table that stands in for a real service, and returns
+    the status found there. A name that is not in the table is a terminating error with the
+    error ID ServiceNotFound.
 
-        It exists so the caller's per-item catch block is reachable. Without a
-        fallible call inside the loop, error handling in an example is decorative:
-        it looks like resilience but nothing can exercise it, and no test can prove
-        it works.
-
-        There is no real service. Status is derived from the environment so a batch
-        returns a non-uniform result set.
+    Get-ExampleData calls this function once for each service name. It reports a failure as a
+    non-terminating error, so that the remaining names are still processed.
 
     .PARAMETER ServiceName
-        Service to query.
+    Name of the service to query. The names in the table are Billing, Identity, and Reporting.
 
     .PARAMETER Session
-        Session descriptor from Connect-ExampleService.
+    Session that Connect-ExampleService returned.
 
     .EXAMPLE
-        PS> Get-ExampleServiceStatus -ServiceName 'Billing' -Session $session
+    Get-ExampleServiceStatus -ServiceName 'Billing' -Session (Connect-ExampleService -Environment 'Test')
 
-        DESCRIPTION: Queries one service over an open session.
-        OUTPUT: One of Healthy, Degraded, Unavailable.
-        USE CASE: Called per item by Get-ExampleData.
+    Gets the status of the Billing service in the Test environment.
 
-    .NOTES
-        Author: Jeffrey Stuhr
-        Blog: https://www.techbyjeff.net
+    .INPUTS
+    None. You cannot pipe objects to this function.
+
+    .OUTPUTS
+    System.String. One of Healthy, Degraded, or Unavailable.
     #>
-
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -42,9 +38,24 @@ function Get-ExampleServiceStatus {
         [hashtable]$Session
     )
 
-    process {
-        Write-Verbose "Querying $ServiceName via $($Session.Endpoint)"
-
-        if ($Session.Environment -eq 'Production') { 'Degraded' } else { 'Healthy' }
+    # There is no real service. This table stands in for one, so that a batch returns different
+    # statuses and an unknown name gives the caller a real failure to handle.
+    $statusByService = @{
+        Billing = 'Healthy'
+        Identity = 'Degraded'
+        Reporting = 'Unavailable'
     }
+
+    Write-Verbose "Querying '$ServiceName' at $($Session['Endpoint'])."
+
+    if (-not $statusByService.ContainsKey($ServiceName)) {
+        $message = "Service '$ServiceName' was not found in the $($Session['Environment']) environment."
+        $exception = [System.Management.Automation.ItemNotFoundException]::new($message)
+        $category = [System.Management.Automation.ErrorCategory]::ObjectNotFound
+        $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+            $exception, 'ServiceNotFound', $category, $ServiceName)
+        $PSCmdlet.ThrowTerminatingError($errorRecord)
+    }
+
+    $statusByService[$ServiceName]
 }

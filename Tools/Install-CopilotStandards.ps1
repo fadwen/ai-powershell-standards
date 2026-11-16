@@ -1,330 +1,365 @@
-# Tools/Install-CopilotStandards.ps1
+#requires -Version 5.1
+
 <#
 .SYNOPSIS
-    Installs PowerShell Copilot Standards in a project
+Installs the PowerShell standards into a project for GitHub Copilot, Claude Code, and Codex.
 
 .DESCRIPTION
-    Copies or links Copilot instruction files to enable enterprise
-    PowerShell development standards in new or existing projects
+Copies the generated instruction files from this repository into the project at ProjectPath.
+Run it again to update a project: files that the standards own are replaced, and files that the
+standards no longer produce are removed.
+
+Files the standards own are always replaced. They are the topic rules
+(.github/instructions/powershell-*.instructions.md), the Pester guides beside them, the Claude Code
+rules (.claude/rules/powershell-standards), and the skills whose names start with 'powershell-'.
+
+Files a project may already have are never replaced unless they were installed by this script or
+-Force is given. They are .github/copilot-instructions.md, AGENTS.md, PSScriptAnalyzerSettings.psd1,
+and the sync workflow. When one is left alone, a warning says how to connect it to the standards.
+The project's CLAUDE.md is never touched: Claude Code loads the standards from its rules folder.
+
+The core rules are installed once, so that no agent loads them twice. They go into
+.github/copilot-instructions.md, which GitHub Copilot reads and which a Claude Code rule imports.
+GitHub Copilot also reads AGENTS.md, so AGENTS.md is then a short pointer to that file. When the
+project uses only Codex, or has its own .github/copilot-instructions.md, AGENTS.md holds the core.
 
 .PARAMETER ProjectPath
-    Path to the target project directory
+Root folder of the project to install into. It must exist.
 
-.PARAMETER StandardsType
-    Type of standards to install: Basic, Module, Enterprise
+.PARAMETER Agent
+The coding agents the project uses. The default is all three. The topic rules under
+.github/instructions are installed for every choice, because the core file points to them. Files
+that an earlier installation wrote for an agent that is no longer listed are removed.
 
-.PARAMETER LinkType
-    How to install: Copy, Symlink, Submodule
+.PARAMETER IncludeAnalyzerSettings
+Also installs PSScriptAnalyzerSettings.psd1, the settings that check the layout rules.
 
 .PARAMETER IncludeSyncWorkflow
-    Also installs .github/workflows/sync-copilot-standards.yml, a weekly job that
-    mirrors the instruction files from the standards repository and opens a pull
-    request when they drift. Without it the files are copied once and then rot.
+Also installs .github/workflows/sync-copilot-standards.yml, a scheduled workflow that reruns this
+installation from the standards repository and opens a pull request when files change.
 
-    The target repository needs "Allow GitHub Actions to create and approve pull
-    requests" enabled under Settings > Actions > General. An existing workflow file
-    is never overwritten.
+.PARAMETER RemoveLegacyFiles
+Removes the files that versions before 2.0 installed or mirrored: the earlier instruction files, the
+prompt files and their Claude Code commands, and the mirrored powershell-standards folder. Without
+this switch they are reported in a warning and left in place.
 
-.EXAMPLE
-    .\Install-CopilotStandards.ps1 -ProjectPath "C:\Projects\MyModule" -StandardsType "Module"
-
-    Installs module-specific standards in the target project
+.PARAMETER Force
+Replaces a file the project already has even when this script did not install it.
 
 .EXAMPLE
-    .\Install-CopilotStandards.ps1 -ProjectPath "." -StandardsType "Basic" -LinkType "Symlink"
+./Tools/Install-CopilotStandards.ps1 -ProjectPath 'C:\Projects\MyModule'
 
-    Creates symbolic links to standards in current directory
+Installs the standards for all three agents.
 
 .EXAMPLE
-    .\Install-CopilotStandards.ps1 -ProjectPath "." -IncludeSyncWorkflow
+./Tools/Install-CopilotStandards.ps1 -ProjectPath . -Agent Copilot -IncludeSyncWorkflow -WhatIf
 
-    Installs the standards and the weekly drift-check workflow that keeps them current
+Shows what an installation for GitHub Copilot with the sync workflow would change.
 
-.NOTES
-    Author: Jeffrey Stuhr
-    Version: 1.0.0
+.INPUTS
+None.
 
-    REQUIREMENTS:
-    - PowerShell 7.6 (LTS) or Windows PowerShell 5.1
-    - Write permissions to target directory
-    - For Symlink: Administrator privileges (Windows)
+.OUTPUTS
+PowerShellStandards.InstalledFile. One object for each file considered, with Path and Status
+properties. Status is Installed, Updated, Unchanged, Skipped, or Removed.
 #>
-
-[CmdletBinding(SupportsShouldProcess = $true)]
+[CmdletBinding(SupportsShouldProcess)]
+[OutputType('PowerShellStandards.InstalledFile')]
 param(
-    [Parameter(Mandatory = $true, HelpMessage = "Path to the target project directory")]
-    [ValidateScript({
-        if (-not (Test-Path $_ -PathType Container)) {
-            throw "Directory '$_' does not exist"
-        }
-        $true
-    })]
+    [Parameter(Mandatory)]
     [string]$ProjectPath,
 
-    [Parameter(HelpMessage = "Type of standards to install")]
-    [ValidateSet('Basic', 'Module', 'Enterprise')]
-    [string]$StandardsType = 'Basic',
+    [Parameter()]
+    [ValidateSet('Copilot', 'ClaudeCode', 'Codex')]
+    [string[]]$Agent = @('Copilot', 'ClaudeCode', 'Codex'),
 
-    [Parameter(HelpMessage = "How to install the standards")]
-    [ValidateSet('Copy', 'Symlink', 'Submodule')]
-    [string]$LinkType = 'Copy',
+    [Parameter()]
+    [switch]$IncludeAnalyzerSettings,
 
-    [Parameter(HelpMessage = "Also install the weekly standards drift-check workflow")]
-    [switch]$IncludeSyncWorkflow
+    [Parameter()]
+    [switch]$IncludeSyncWorkflow,
+
+    [Parameter()]
+    [switch]$RemoveLegacyFiles,
+
+    [Parameter()]
+    [switch]$Force
 )
 
-begin {
-    $ErrorActionPreference = 'Stop'
-    $correlationId = [System.Guid]::NewGuid()
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-    # Get the standards repository path (assuming this script is in Tools/ folder)
-    $StandardsPath = Split-Path $PSScriptRoot -Parent
-
-    Write-Information "Installing PowerShell Copilot Standards..." -InformationAction Continue
-    Write-Verbose "CorrelationId: $correlationId"
-    Write-Verbose "Standards Path: $StandardsPath"
-    Write-Verbose "Project Path: $ProjectPath"
-    Write-Verbose "Standards Type: $StandardsType"
-    Write-Verbose "Link Type: $LinkType"
+$standardsRoot = Split-Path -Path $PSScriptRoot -Parent
+$projectRoot = Convert-Path -LiteralPath $ProjectPath
+if (-not (Test-Path -LiteralPath $projectRoot -PathType Container)) {
+    throw "ProjectPath '$ProjectPath' is not a folder."
 }
 
-process {
-    try {
-        # Resolve full paths
-        $ProjectPath = Resolve-Path $ProjectPath
-        $githubPath = Join-Path $ProjectPath ".github"
+if ($projectRoot.TrimEnd('\', '/') -eq $standardsRoot.TrimEnd('\', '/')) {
+    throw 'ProjectPath is the standards repository itself. Its files are built by Build-AgentInstructions.ps1.'
+}
 
-        Write-Information "Setting up project structure..." -InformationAction Continue
+$manifestPath = Join-Path -Path (Join-Path -Path $standardsRoot -ChildPath 'standards') -ChildPath 'manifest.psd1'
+$manifest = Import-PowerShellDataFile -LiteralPath $manifestPath
+$generatedMarker = "Generated from $($manifest.Name)"
 
-        # Create .github structure if it doesn't exist
-        if (-not (Test-Path $githubPath)) {
-            if ($PSCmdlet.ShouldProcess($githubPath, "Create .github directory")) {
-                New-Item -Path $githubPath -ItemType Directory -Force | Out-Null
-                Write-Information "Created .github directory" -InformationAction Continue
-            }
-        }
+# Each entry is a file to install: where it comes from, where it goes, and who owns the destination.
+# 'Standards' files are always replaced. 'Project' files are replaced only if this script wrote them.
+$plan = [System.Collections.Generic.List[hashtable]]::new()
 
-        # Install standards based on link type
-        Write-Information "Installing standards files..." -InformationAction Continue
+foreach ($rule in $manifest.Rules) {
+    $relativePath = ".github/instructions/$($rule.Id).instructions.md"
+    $plan.Add(@{ Source = $relativePath; Destination = $relativePath; Owner = 'Standards' })
+}
 
-        switch ($LinkType) {
-            'Copy' {
-                if ($PSCmdlet.ShouldProcess("Standards files", "Copy to project")) {
-                    # Copy main instructions
-                    $sourceInstructions = Join-Path $StandardsPath ".github\copilot-instructions.md"
-                    $destInstructions = Join-Path $githubPath "copilot-instructions.md"
-
-                    if (Test-Path $sourceInstructions) {
-                        Copy-Item -Path $sourceInstructions -Destination $destInstructions -Force
-                        Write-Information "Copied main instructions" -InformationAction Continue
-                    }
-
-                    # Copy instructions directory
-                    $sourceInstructionsDir = Join-Path $StandardsPath ".github\instructions"
-                    $destInstructionsDir = Join-Path $githubPath "instructions"
-
-                    if (Test-Path $sourceInstructionsDir) {
-                        Copy-Item -Path $sourceInstructionsDir -Destination $destInstructionsDir -Recurse -Force
-                        Write-Information "Copied instruction files" -InformationAction Continue
-                    }
-
-                    # Copy prompts directory
-                    $sourcePromptsDir = Join-Path $StandardsPath ".github\prompts"
-                    $destPromptsDir = Join-Path $githubPath "prompts"
-
-                    if (Test-Path $sourcePromptsDir) {
-                        Copy-Item -Path $sourcePromptsDir -Destination $destPromptsDir -Recurse -Force
-                        Write-Information "Copied prompt files" -InformationAction Continue
-                    }
-
-                    # Worked examples. The instruction files link to them by a relative path
-                    # two levels up, so the folder must sit at the project root under the same name.
-                    $sourceExamplesDir = Join-Path $StandardsPath "powershell-standards"
-                    $destExamplesDir = Join-Path $ProjectPath "powershell-standards"
-
-                    if (Test-Path $sourceExamplesDir) {
-                        Copy-Item -Path $sourceExamplesDir -Destination $destExamplesDir -Recurse -Force
-                        Write-Information "Copied worked examples" -InformationAction Continue
-                    }
-
-                    # Claude Code rules. They import the instruction files by relative path, so
-                    # they must sit at this exact depth. An existing CLAUDE.md or any other rule
-                    # in the project is left alone.
-                    $sourceRulesDir = Join-Path $StandardsPath ".claude\rules\powershell-standards"
-                    $destRulesDir = Join-Path $ProjectPath ".claude\rules\powershell-standards"
-
-                    if (Test-Path $sourceRulesDir) {
-                        if (-not (Test-Path $destRulesDir)) {
-                            New-Item -ItemType Directory -Path $destRulesDir -Force | Out-Null
-                        }
-                        Copy-Item -Path (Join-Path $sourceRulesDir '*') -Destination $destRulesDir -Recurse -Force
-                        Write-Information "Copied Claude Code rules" -InformationAction Continue
-                    }
-
-                    # Claude Code slash commands, one per prompt file. Each attaches its prompt
-                    # from .github/prompts/ rather than copying it, so the two must travel together.
-                    $sourceCommandsDir = Join-Path $StandardsPath ".claude\commands\powershell-standards"
-                    $destCommandsDir = Join-Path $ProjectPath ".claude\commands\powershell-standards"
-
-                    if (Test-Path $sourceCommandsDir) {
-                        if (-not (Test-Path $destCommandsDir)) {
-                            New-Item -ItemType Directory -Path $destCommandsDir -Force | Out-Null
-                        }
-                        Copy-Item -Path (Join-Path $sourceCommandsDir '*') -Destination $destCommandsDir -Recurse -Force
-                        Write-Information "Copied Claude Code slash commands" -InformationAction Continue
-                    }
-                }
-            }
-
-            'Symlink' {
-                if ($PSCmdlet.ShouldProcess("Standards files", "Create symbolic links")) {
-                    $sourceInstructions = Join-Path $StandardsPath ".github\copilot-instructions.md"
-                    $destInstructions = Join-Path $githubPath "copilot-instructions.md"
-
-                    if (Test-Path $sourceInstructions) {
-                        if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
-                            # Windows - check for admin privileges
-                            $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-                            if (-not $isAdmin) {
-                                Write-Warning "Symbolic links on Windows require Administrator privileges. Falling back to Copy method."
-                                $LinkType = 'Copy'
-                                # Recursively call with Copy method. IncludeSyncWorkflow has to
-                                # ride along, or the fallback silently drops it.
-                                & $MyInvocation.MyCommand.Path -ProjectPath $ProjectPath -StandardsType $StandardsType -LinkType 'Copy' -IncludeSyncWorkflow:$IncludeSyncWorkflow
-                                return
-                            }
-                            cmd /c mklink "$destInstructions" "$sourceInstructions" 2>$null
-                        } else {
-                            # Linux/macOS
-                            New-Item -ItemType SymbolicLink -Path $destInstructions -Target $sourceInstructions -Force
-                        }
-                        Write-Information "Created symbolic links" -InformationAction Continue
-                    }
-                }
-            }
-
-            'Submodule' {
-                if ($PSCmdlet.ShouldProcess($ProjectPath, "Add git submodule")) {
-                    Push-Location $ProjectPath
-                    try {
-                        # Check if this is a git repository
-                        if (-not (Test-Path ".git")) {
-                            throw "Target directory is not a git repository. Initialize with 'git init' first."
-                        }
-
-                        git submodule add https://github.com/fadwen/ai-powershell-standards.git .copilot-standards 2>&1
-
-                        # Create symbolic link to main instructions
-                        $submoduleInstructions = ".copilot-standards\.github\copilot-instructions.md"
-                        $destInstructions = Join-Path $githubPath "copilot-instructions.md"
-
-                        if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
-                            cmd /c mklink "$destInstructions" "$submoduleInstructions" 2>$null
-                        } else {
-                            New-Item -ItemType SymbolicLink -Path $destInstructions -Target $submoduleInstructions -Force
-                        }
-
-                        Write-Information "Added as git submodule" -InformationAction Continue
-                    }
-                    finally {
-                        Pop-Location
-                    }
-                }
-            }
-        }
-
-        # Install the drift-check workflow
-        if ($IncludeSyncWorkflow) {
-            $workflowSource = Join-Path $StandardsPath "Templates\Workflows\sync-copilot-standards.yml"
-            $workflowDir = Join-Path $githubPath "workflows"
-            $workflowDest = Join-Path $workflowDir "sync-copilot-standards.yml"
-
-            if (-not (Test-Path $workflowSource)) {
-                throw "Sync workflow template not found at '$workflowSource'"
-            }
-
-            if (Test-Path $workflowDest) {
-                # Never clobber a workflow the project has already tuned - schedule,
-                # branch name and STANDARDS_REPO are all meant to be edited locally.
-                Write-Warning "Sync workflow already exists at '$workflowDest' - leaving it unchanged"
-            }
-            elseif ($PSCmdlet.ShouldProcess($workflowDest, "Install sync workflow")) {
-                if (-not (Test-Path $workflowDir)) {
-                    New-Item -Path $workflowDir -ItemType Directory -Force | Out-Null
-                }
-                Copy-Item -Path $workflowSource -Destination $workflowDest
-                Write-Information "Installed the standards sync workflow" -InformationAction Continue
-                Write-Warning "Enable 'Allow GitHub Actions to create and approve pull requests' under Settings > Actions > General, or the workflow will fail at the pull request step"
-            }
-        }
-
-        # Create project structure based on standards type
-        Write-Information "Creating project structure..." -InformationAction Continue
-
-        $foldersToCreate = switch ($StandardsType) {
-            'Basic' {
-                @('Tests', 'Troubleshooting')
-            }
-            'Module' {
-                @('Public', 'Private', 'Classes', 'Tests\Unit', 'Tests\Integration', 'Troubleshooting\Common', 'Troubleshooting\Security', 'Troubleshooting\Performance', 'Documentation')
-            }
-            'Enterprise' {
-                @('Public', 'Private', 'Classes', 'Configuration', 'Tests\Unit', 'Tests\Integration', 'Tests\Security', 'Troubleshooting\Common', 'Troubleshooting\Security', 'Troubleshooting\Performance', 'Troubleshooting\Integration', 'Documentation', 'Scripts', 'Tools')
-            }
-        }
-
-        foreach ($folder in $foldersToCreate) {
-            $folderPath = Join-Path $ProjectPath $folder
-            if (-not (Test-Path $folderPath)) {
-                if ($PSCmdlet.ShouldProcess($folderPath, "Create directory")) {
-                    New-Item -Path $folderPath -ItemType Directory -Force | Out-Null
-                }
-            }
-        }
-
-        Write-Information "Created $StandardsType project structure" -InformationAction Continue
-
-        # Create basic .gitignore if it doesn't exist
-        $gitignorePath = Join-Path $ProjectPath ".gitignore"
-        if (-not (Test-Path $gitignorePath)) {
-            if ($PSCmdlet.ShouldProcess($gitignorePath, "Create .gitignore")) {
-                $gitignoreContent = @"
-# PowerShell
-*.ps1.bak
-*.psm1.bak
-*.psd1.bak
-.vscode/
-*.log
-Temp/
-*.tmp
-
-# Test Results
-TestResults/
-coverage.xml
-"@
-                $gitignoreContent | Out-File -FilePath $gitignorePath -Encoding UTF8
-                Write-Information "Created .gitignore file" -InformationAction Continue
-            }
-        }
-
-        Write-Information "PowerShell Copilot Standards installed successfully!" -InformationAction Continue
-        Write-Information "Next steps:" -InformationAction Continue
-        Write-Information "  1. No VS Code settings needed - .github/copilot-instructions.md," -InformationAction Continue
-        Write-Information "     .github/instructions/ and .github/prompts/ are picked up by default" -InformationAction Continue
-        Write-Information "     powershell-standards/ holds the worked examples they link to" -InformationAction Continue
-        Write-Information "     Claude Code loads .claude/rules/powershell-standards/ with no setup" -InformationAction Continue
-        Write-Information "     and offers the prompts as /powershell-standards:<name> commands" -InformationAction Continue
-        Write-Information "  2. Test with /new-function in Copilot Chat" -InformationAction Continue
-        Write-Information "  3. Run .\Tools\Test-StandardsCompliance.ps1 to validate" -InformationAction Continue
-        Write-Information "  4. Create your first function using enterprise standards" -InformationAction Continue
-
+foreach ($reference in $manifest.Reference) {
+    $referencePath = Join-Path -Path $standardsRoot -ChildPath $reference
+    if (-not (Test-Path -LiteralPath $referencePath -PathType Container)) {
+        continue
     }
-    catch {
-        Write-Error "Failed to install standards: $($_.Exception.Message) (CorrelationId: $correlationId)"
-        throw
+    foreach ($file in Get-ChildItem -LiteralPath $referencePath -File -Recurse) {
+        $relativePath = $file.FullName.Substring($standardsRoot.Length).TrimStart('\', '/').Replace('\', '/')
+        $plan.Add(@{ Source = $relativePath; Destination = $relativePath; Owner = 'Standards' })
     }
 }
 
-end {
-    Write-Verbose "Installation completed - CorrelationId: $correlationId"
+# True when the text of an always-loaded file shows that this script wrote it.
+$coreFile = '.github/copilot-instructions.md'
+$claudeRuleFolder = '.claude/rules/powershell-standards'
+$testInstalledText = {
+    param([string]$Text)
+
+    $Text.Contains($generatedMarker)
+}
+
+# The core is installed once. GitHub Copilot reads its own file and AGENTS.md, and the Claude Code
+# rules import the Copilot file, so that file holds the core whenever either agent is selected and
+# AGENTS.md then only points to it. The Copilot file cannot hold the core when the project wrote
+# that file itself, or uses neither agent; AGENTS.md holds it then.
+$copilotHoldsCore = $false
+$skillFolders = [System.Collections.Generic.List[string]]::new()
+if ($Agent -contains 'Copilot' -or $Agent -contains 'ClaudeCode') {
+    $coreDestination = Join-Path -Path $projectRoot -ChildPath $coreFile
+    $copilotHoldsCore = $true
+    if (-not $Force -and (Test-Path -LiteralPath $coreDestination)) {
+        $copilotHoldsCore = & $testInstalledText -Text ([System.IO.File]::ReadAllText($coreDestination))
+    }
+    $plan.Add(@{ Source = $coreFile; Destination = $coreFile; Owner = 'Project' })
+}
+if ($Agent -contains 'Copilot') {
+    $skillFolders.Add('.github/skills')
+}
+if ($Agent -contains 'ClaudeCode') {
+    foreach ($rule in $manifest.Rules) {
+        $relativePath = "$claudeRuleFolder/$($rule.Id).md"
+        $plan.Add(@{ Source = $relativePath; Destination = $relativePath; Owner = 'Standards' })
+    }
+
+    # The rule that loads the core at launch imports whichever file holds it.
+    $coreRule = "$claudeRuleFolder/copilot-instructions.md"
+    if ($copilotHoldsCore) {
+        $plan.Add(@{ Source = $coreRule; Destination = $coreRule; Owner = 'Standards' })
+    } else {
+        $importLines = @(
+            '@../../../AGENTS.md'
+            ''
+            'Source of this rule: `AGENTS.md`, which holds the core rules in this project.'
+            ''
+        )
+        $plan.Add(@{ Text = ($importLines -join "`n"); Destination = $coreRule; Owner = 'Standards' })
+    }
+    $skillFolders.Add('.claude/skills')
+}
+if ($Agent -contains 'Codex') {
+    $skillFolders.Add('.agents/skills')
+}
+if ($Agent -contains 'Codex' -or ($Agent -contains 'ClaudeCode' -and -not $copilotHoldsCore)) {
+    # In the standards repository AGENTS.md is the pointer and the Copilot file is the core.
+    $agentsSource = if ($copilotHoldsCore) { 'AGENTS.md' } else { $coreFile }
+    $plan.Add(@{ Source = $agentsSource; Destination = 'AGENTS.md'; Owner = 'Project' })
+}
+
+foreach ($skillFolder in $skillFolders) {
+    foreach ($skill in $manifest.Skills) {
+        $relativePath = "$skillFolder/$skill/SKILL.md"
+        $plan.Add(@{ Source = $relativePath; Destination = $relativePath; Owner = 'Standards' })
+    }
+}
+
+if ($IncludeAnalyzerSettings) {
+    $plan.Add(@{
+            Source = 'PSScriptAnalyzerSettings.psd1'
+            Destination = 'PSScriptAnalyzerSettings.psd1'
+            Owner = 'Project'
+        })
+}
+if ($IncludeSyncWorkflow) {
+    $plan.Add(@{
+            Source = 'Templates/Workflows/sync-copilot-standards.yml'
+            Destination = '.github/workflows/sync-copilot-standards.yml'
+            Owner = 'Project'
+        })
+}
+
+$plannedDestinations = @($plan | ForEach-Object { $_.Destination })
+
+foreach ($entry in $plan) {
+    $destinationPath = Join-Path -Path $projectRoot -ChildPath $entry.Destination
+    $hasText = $entry.ContainsKey('Text')
+    if ($hasText) {
+        $sourceText = $entry.Text
+    } else {
+        $sourcePath = Join-Path -Path $standardsRoot -ChildPath $entry.Source
+        $sourceText = [System.IO.File]::ReadAllText($sourcePath).Replace("`r`n", "`n")
+    }
+
+    $status = 'Installed'
+    if (Test-Path -LiteralPath $destinationPath) {
+        $destinationText = [System.IO.File]::ReadAllText($destinationPath).Replace("`r`n", "`n")
+        $installedByThisScript = & $testInstalledText -Text $destinationText
+
+        if ($destinationText -ceq $sourceText) {
+            $status = 'Unchanged'
+        } elseif ($entry.Owner -eq 'Standards' -or $installedByThisScript -or $Force) {
+            $status = 'Updated'
+        } else {
+            $status = 'Skipped'
+        }
+    }
+
+    if ($status -eq 'Skipped') {
+        $advice = switch ($entry.Destination) {
+            'AGENTS.md' {
+                if ($copilotHoldsCore) {
+                    "Add a line to it that tells agents to read $coreFile before they work on PowerShell files."
+                } else {
+                    'Add a line to it that tells agents to read the files under .github/instructions first.'
+                }
+            }
+            '.github/copilot-instructions.md' {
+                'The topic rules under .github/instructions still load for matching files.'
+            }
+            default {
+                'Compare it with the version in the standards repository.'
+            }
+        }
+        $reason = "'$($entry.Destination)' already exists and was not installed by this script."
+        Write-Warning "$reason It was left unchanged. $advice Use -Force to replace it."
+    }
+
+    if ($status -in 'Installed', 'Updated') {
+        if ($PSCmdlet.ShouldProcess($destinationPath, "Write file from $($manifest.Name) $($manifest.Version)")) {
+            $destinationFolder = Split-Path -Path $destinationPath -Parent
+            if (-not (Test-Path -LiteralPath $destinationFolder)) {
+                $null = New-Item -Path $destinationFolder -ItemType Directory -Force
+            }
+            if ($hasText) {
+                $utf8 = [System.Text.UTF8Encoding]::new($false)
+                [System.IO.File]::WriteAllText($destinationPath, $sourceText, $utf8)
+            } else {
+                Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+            }
+        }
+    }
+
+    [PSCustomObject]@{
+        PSTypeName = 'PowerShellStandards.InstalledFile'
+        Path = $entry.Destination
+        Status = $status
+    }
+}
+
+# Files in the locations the standards own that this installation no longer includes.
+$ownedPatterns = [System.Collections.Generic.List[string]]::new()
+$ownedPatterns.Add('.github/instructions/powershell-*.instructions.md')
+$ownedPatterns.Add("$claudeRuleFolder/*.md")
+foreach ($skillFolder in '.github/skills', '.claude/skills', '.agents/skills') {
+    $ownedPatterns.Add("$skillFolder/powershell-*/SKILL.md")
+}
+foreach ($reference in $manifest.Reference) {
+    if (Test-Path -LiteralPath (Join-Path -Path $standardsRoot -ChildPath $reference) -PathType Container) {
+        $ownedPatterns.Add("$reference/*")
+    }
+}
+
+$legacyInstructionNames = @(
+    'analyze', 'architecturedesign', 'cicd', 'comments', 'community-standards', 'errorsandlogs'
+    'module', 'pester', 'platyps', 'readme', 'securitycompliance', 'style-enforcement'
+)
+$legacyPromptNames = @(
+    'code-analysis', 'create-module', 'create-test', 'create-workflow', 'new-function'
+    'optimize-performance', 'performance-analysis', 'scaffold-project', 'security-review'
+    'validate-standards'
+)
+$legacyPaths = @(
+    foreach ($name in $legacyInstructionNames) {
+        ".github/instructions/$name.instructions.md"
+    }
+    '.github/instructions/futureTODO.md'
+    '.github/instructions/pull-requests.instructions.md'
+    foreach ($name in $legacyPromptNames) {
+        ".github/prompts/$name.prompt.md"
+        ".claude/commands/powershell-standards/$name.md"
+    }
+    # Earlier versions mirrored the worked examples into this folder and replaced it on every sync.
+    $mirroredExamples = Join-Path -Path $projectRoot -ChildPath 'powershell-standards'
+    if (Test-Path -LiteralPath $mirroredExamples -PathType Container) {
+        foreach ($file in Get-ChildItem -LiteralPath $mirroredExamples -File -Recurse) {
+            $file.FullName.Substring($projectRoot.Length).TrimStart('\', '/').Replace('\', '/')
+        }
+    }
+)
+
+$obsoletePaths = [System.Collections.Generic.List[string]]::new()
+foreach ($pattern in $ownedPatterns) {
+    $patternPath = Join-Path -Path $projectRoot -ChildPath $pattern
+    foreach ($file in Get-ChildItem -Path $patternPath -File -ErrorAction SilentlyContinue) {
+        $relativePath = $file.FullName.Substring($projectRoot.Length).TrimStart('\', '/').Replace('\', '/')
+        if ($plannedDestinations -notcontains $relativePath) {
+            $obsoletePaths.Add($relativePath)
+        }
+    }
+}
+
+# An always-loaded file that an earlier installation wrote and this one does not include. Leaving
+# it in place would make an agent load the core twice, or load rules for an agent no longer used.
+foreach ($relativePath in $coreFile, 'AGENTS.md') {
+    $fullPath = Join-Path -Path $projectRoot -ChildPath $relativePath
+    if ($plannedDestinations -contains $relativePath -or -not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+        continue
+    }
+    $existingText = [System.IO.File]::ReadAllText($fullPath).Replace("`r`n", "`n")
+    if (& $testInstalledText -Text $existingText) {
+        $obsoletePaths.Add($relativePath)
+    }
+}
+
+$legacyFound = @(
+    foreach ($legacyPath in $legacyPaths) {
+        if (Test-Path -LiteralPath (Join-Path -Path $projectRoot -ChildPath $legacyPath)) {
+            $legacyPath
+        }
+    }
+)
+if ($RemoveLegacyFiles) {
+    foreach ($legacyPath in $legacyFound) {
+        $obsoletePaths.Add($legacyPath)
+    }
+} elseif ($legacyFound.Count -gt 0) {
+    $legacyList = $legacyFound -join ', '
+    $legacyAdvice = 'They contradict the current rules. Run again with -RemoveLegacyFiles to remove them.'
+    Write-Warning "Files from a version before 2.0 are still present: $legacyList. $legacyAdvice"
+}
+
+foreach ($obsoletePath in $obsoletePaths) {
+    $fullPath = Join-Path -Path $projectRoot -ChildPath $obsoletePath
+    if ($PSCmdlet.ShouldProcess($fullPath, 'Remove file that the standards no longer install')) {
+        Remove-Item -LiteralPath $fullPath
+    }
+
+    [PSCustomObject]@{
+        PSTypeName = 'PowerShellStandards.InstalledFile'
+        Path = $obsoletePath
+        Status = 'Removed'
+    }
 }

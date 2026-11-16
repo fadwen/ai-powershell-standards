@@ -1,308 +1,342 @@
 # Pester Test Structure Guide
 
-Targets **Pester 6.2+**.
+This guide covers where test files live, how each file loads what it needs, shared setup files, and
+tags. It supports rules TST-01 to TST-04 in
+[powershell-pester.instructions.md](../powershell-pester.instructions.md). The behaviour described
+here was checked on Pester 6.2.0.
 
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
+## Test Directory Layout
 
-## Standard Test Directory Organization
-
-Create organized test directory structure for enterprise PowerShell projects:
+Pester does not require a layout; it runs every `*.Tests.ps1` file under the paths it is given. This
+layout suits a module whose tests are split by type:
 
 ```text
-Tests/
-├── Unit/
-│   ├── Public/
-│   │   ├── Get-ServerHealth.Tests.ps1
-│   │   └── Set-Configuration.Tests.ps1
-│   ├── Private/
-│   │   ├── Test-Connection.Tests.ps1
-│   │   └── Format-Output.Tests.ps1
-│   └── Classes/
-│       └── ServerManager.Tests.ps1
-├── Integration/
-│   ├── EndToEnd/
-│   │   └── CompleteWorkflow.Tests.ps1
-│   └── SystemIntegration/
-│       └── ExternalServices.Tests.ps1
-├── Performance/
-│   ├── Benchmarks/
-│   │   └── ExecutionTime.Tests.ps1
-│   └── LoadTests/
-│       └── MemoryUsage.Tests.ps1
-├── Security/
-│   ├── InputValidation/
-│   │   └── ParameterSanitization.Tests.ps1
-│   └── CredentialHandling/
-│       └── SecureCredentials.Tests.ps1
-├── TestData/
-│   ├── sample-data.json
-│   ├── test-config.psd1
-│   └── mock-responses.json
-├── TestHelpers/
-│   ├── TestHelpers.ps1
-│   ├── MockFactory.ps1
-│   └── TestDataGenerator.ps1
-├── Results/
-│   ├── Coverage.xml
-│   └── TestResults.xml
-├── Pester.BeforeContainer.ps1   <- optional, applies to Tests/ and below (6.2+)
-├── PesterConfiguration.psd1
-└── Invoke-Tests.ps1
-
-Pester.BeforeContainer.ps1     <- optional, at REPOSITORY ROOT - applies to every test file
+<repository root>
+|-- ModuleName.psd1
+|-- ModuleName.psm1
+|-- Public/
+|-- Private/
+|-- build/
+|   `-- Invoke-Tests.ps1              CI gate script
+|-- Tests/
+|   |-- Unit/
+|   |   |-- Get-ServerHealth.Tests.ps1
+|   |   `-- Set-Configuration.Tests.ps1
+|   |-- Integration/
+|   |   `-- ModuleName.Tests.ps1
+|   |-- TestData/
+|   |   `-- server-cases.psd1
+|   |-- TestHelpers/
+|   |   `-- TestHelpers.ps1
+|   `-- Pester.BeforeContainer.ps1    optional: setup for Tests/ and below
+`-- Pester.BeforeContainer.ps1        optional: setup for every test file
 ```
 
-`Pester.BeforeContainer.ps1` is looked for at the repository root - the directory containing `.git`,
-which Pester exposes as `Run.RepoRoot` - and, from 6.2, in every folder between there and the test
-file. When present, Pester dot-sources each one before **every** test file below it is discovered
-and run, outermost first, in both serial and parallel runs. As of 6.1 this is the only
-shared-bootstrap mechanism; the `Run.BeforeContainer` option was removed.
+- Write one test file for each source file. Test a private function inside `InModuleScope`
+  (TST-21).
+- Add a `Performance` or `Security` folder only when a function has such a requirement (TST-43).
+- Reports that a run writes (test results, coverage) go to a folder that is not committed.
+- The gate script is described in [CI/CD Integration Guide](./cicd-integration.md#the-gate-script).
 
-## Test File Isolation (Pester 6)
+## File Naming
 
-Pester 6 discovers and runs **one file at a time**, interleaving discovery and execution, rather
-than discovering every file up front. Under `Run.Parallel` each file is discovered in its own
-runspace.
+A test file is named after the file it tests, `<FileName>.Tests.ps1` (TST-01):
+`Get-ServerHealth.Tests.ps1` tests `Get-ServerHealth.ps1`, and `ModuleName.Tests.ps1` tests the
+module as a whole. The suffix is the `Run.TestExtension` option; leave it at its default.
 
-**Every test file must be self-contained.** It must import the modules it needs and perform its own
-discovery-time setup. It cannot rely on a file that happened to be discovered earlier.
+## Self-Contained Test Files
+
+Pester 6 discovers one file and runs it before it discovers the next. Pester 5 discovered every file
+first. In a parallel run each file is discovered and run in its own runspace.
+
+Each file therefore sets up everything it needs, in two places (TST-02):
+
+- `BeforeDiscovery` builds what shapes the test tree: the data for `-ForEach`.
+- The top-level `BeforeAll` loads what the tests need when they run: the code under test and helpers.
 
 ```powershell
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
 
 BeforeDiscovery {
-    # Only what is needed to BUILD the test tree: -ForEach data, helper commands
-    if (-not (Get-Module -Name ModuleName)) {
-        Import-Module "$PSScriptRoot/../../../ModuleName.psd1"
-    }
-    $script:PublicCommands = (Get-Module ModuleName).ExportedFunctions.Keys
+    $testsRoot = Split-Path -Path $PSScriptRoot -Parent
+    $dataPath = Join-Path -Path $testsRoot -ChildPath 'TestData'
+    $data = Import-PowerShellDataFile -LiteralPath (Join-Path -Path $dataPath -ChildPath 'server-cases.psd1')
+    $serverCases = $data.Cases
 }
 
 BeforeAll {
-    # What is needed to RUN the tests. Import once per run: -Force in every file
-    # re-imports the module as many times as there are files.
+    $testsRoot = Split-Path -Path $PSScriptRoot -Parent
+    $repositoryRoot = Split-Path -Path $testsRoot -Parent
     if (-not (Get-Module -Name ModuleName)) {
-        Import-Module "$PSScriptRoot/../../../ModuleName.psd1"
+        Import-Module -Name (Join-Path -Path $repositoryRoot -ChildPath 'ModuleName.psd1')
     }
-    . "$PSScriptRoot/../../TestHelpers/TestHelpers.ps1"
+
+    $helperPath = Join-Path -Path $testsRoot -ChildPath 'TestHelpers'
+    . (Join-Path -Path $helperPath -ChildPath 'TestHelpers.ps1')
+}
+
+Describe 'Get-ServerHealth' -Tag 'Unit' {
+    It 'Reports <Expected> for <ComputerName>' -ForEach $serverCases {
+        Mock -CommandName Test-Connection -ModuleName ModuleName -MockWith { $Reachable }
+
+        $result = Get-ServerHealth -ComputerName $ComputerName
+
+        $result.Status | Should-Be $Expected
+    }
 }
 ```
 
-This was always the recommended style. In Pester 6 it is the model, so suites that were already
-isolated need no changes.
+A variable assigned in `BeforeDiscovery` does not exist when the tests run, which is why
+`$testsRoot` is assigned in both blocks. The cases reach the tests only through `-ForEach`.
 
-### Shared Bootstrap
+In a sequential run a module that an earlier file imported is still loaded, so a file with a missing
+import can pass by accident. It fails when it runs alone or in a parallel run. To confirm that a file
+is self-contained, run it alone:
 
-When many files need identical setup, put it in one place rather than duplicating it. The setup file
-follows the same rule as a test file: top-level code runs during **discovery** only, and what the
-tests need at **run** time goes in a `BeforeAll`:
+```powershell
+Invoke-Pester -Path ./Tests/Unit/Get-ServerHealth.Tests.ps1
+```
+
+## Shared Setup Files
+
+Each test file loads what it needs in its own `BeforeAll` (TST-02). When a project chooses to share
+setup between files, the mechanism in Pester 6.2.0 is a file named `Pester.BeforeContainer.ps1`.
+Pester's source marks it as experimental, so add one only when the user asks for it or the project
+already has one.
+
+Before each test file is discovered and run, Pester dot-sources every `Pester.BeforeContainer.ps1`
+that lies between the repository root (`Run.RepoRoot`) and the test file's own folder, outermost
+first. It does this in sequential runs, in parallel runs, and in a discovery-only run
+(`Run.SkipRun`).
+
+### Discovery Time and Run Time
+
+A setup file follows the same rule as a test file. Its top-level code runs during discovery only.
+What the tests need when they run goes in a `BeforeAll` in the setup file.
 
 ```powershell
 # Pester.BeforeContainer.ps1 at the repository root
 
-# Discovery only - keep this only where a -ForEach or BeforeDiscovery needs it
-if (-not (Get-Module -Name ModuleName)) {
-    Import-Module "$PSScriptRoot/Source/ModuleName.psd1"
-}
+# Discovery: keep only what a -ForEach or a BeforeDiscovery block needs.
+$supportedRegions = @(
+    @{ Region = 'westeurope' }
+    @{ Region = 'northeurope' }
+)
 
-# Run time - what the tests themselves need. This file runs before every container,
-# so a forced import here costs the same as one in every test file.
+# Run time: what the tests themselves use.
 BeforeAll {
-    if (-not (Get-Module -Name ModuleName)) {
-        Import-Module "$PSScriptRoot/Source/ModuleName.psd1"
-    }
-    . "$PSScriptRoot/Tests/TestHelpers/TestHelpers.ps1"
+    $helperRoot = Join-Path -Path $PSScriptRoot -ChildPath 'Tests'
+    $helperRoot = Join-Path -Path $helperRoot -ChildPath 'TestHelpers'
+    . (Join-Path -Path $helperRoot -ChildPath 'TestHelpers.ps1')
 }
 ```
 
-Before 6.2 everything sat at top level and reached the tests. On 6.2 that shape fails silently: a
-function or variable dot-sourced at top level is gone by the time a test runs (the helper call fails
-with `CommandNotFoundException`, the variable reads as `$null`), and only `Import-Module` happens to
-survive because module state is session-wide. Wrap run-time setup in `BeforeAll`, and keep the
-top-level part only where discovery genuinely needs it.
+What a statement in a setup file can reach, measured on Pester 6.2.0 in sequential and parallel
+runs:
 
-Anchor every path in it to `$PSScriptRoot`. The file runs before each container in both serial and
-parallel runs, and a relative path would resolve against whatever the working directory happens to
-be - which is precisely why the `Run.BeforeContainer` scriptblock option was removed in 6.1. It runs
-once per container, so what it does must be safe to repeat.
+| Statement in the setup file | Visible during discovery | Visible to the tests |
+| --- | --- | --- |
+| Top-level variable assignment | Yes | No, it reads as `$null` |
+| Top-level function definition or dot-sourced file | Yes | No, `CommandNotFoundException` |
+| Top-level `Import-Module` | Yes | Yes, because a loaded module stays in the session |
+| Variable or function defined inside `BeforeAll` | No | Yes |
 
-#### Per-folder setup (6.2+)
+Nothing warns when top-level setup fails to reach the tests. A setup file written for Pester 6.1 has
+no `BeforeAll` and needs this change; see
+[Pester 6 Migration Guide](./v6-migration.md#the-setup-file-needs-a-beforeall).
 
-A `Pester.BeforeContainer.ps1` in a subfolder applies to that folder and below, after the ones
-above it, so each suite carries only what it needs:
+Two more requirements:
+
+- Build every path from `$PSScriptRoot`. The working directory is not reliable.
+- The files run once for each test file, so what they do must be safe to repeat.
+
+A setup file holds shared helpers. It does not replace TST-02: each test file still loads the code
+under test in its own `BeforeAll`.
+
+### Setup for One Folder
+
+A setup file in a subfolder applies to that folder and below, after the files above it:
 
 ```powershell
 # Tests/Unit/Pester.BeforeContainer.ps1
-BeforeAll { $script:Db = 'in-memory' }
+BeforeAll {
+    $script:storageKind = 'memory'
+}
+```
 
+```powershell
 # Tests/Integration/Pester.BeforeContainer.ps1
-BeforeAll { $script:Db = 'real-sql' }
-```
-
-Each file is dot-sourced into the container's own scope, so `Tests/Integration` never inherits what
-`Tests/Unit` set up, whichever runs first. A folder that wants none of the setup above it starts its
-file with `#pester:no-inherit`. The result object records which files applied to each container as
-`BeforeContainerFile`, outermost first - see
-[Pester Configuration Guide](./pester-configuration.md#folder-scoped-setup-62).
-
-If the bootstrap does not appear to run, check `Run.RepoRoot` - the chain starts there. From 6.2 the
-run resolves it from the session's current location when it is unset (6.1 used the .NET process
-working directory), so a run launched from outside the repository, or against a checkout with no
-`.git` folder, still looks in the wrong place and simply finds nothing:
-
-```powershell
-$config.Run.RepoRoot = $PSScriptRoot
-```
-
-This supplements per-file setup; it does not remove the requirement that a file be independently
-discoverable.
-
-## File Naming Conventions
-
-### Test Files
-
-- **Unit Tests**: `FunctionName.Tests.ps1`
-- **Integration Tests**: `ComponentName.Tests.ps1`
-- **Performance Tests**: `PerformanceArea.Tests.ps1`
-- **Security Tests**: `SecurityArea.Tests.ps1`
-
-The `.Tests.ps1` suffix is configurable via `Run.TestExtension` but should not be changed.
-
-### Test Organization
-
-- **Public Functions**: One test file per public function
-- **Private Functions**: Group related private functions in single test file
-- **Classes**: One test file per class
-- **Integration**: Group by business workflow or system integration
-
-### Hidden Folders Are Now Discovered
-
-Pester 6 searches with `Get-ChildItem -Force`, so `*.Tests.ps1` files in hidden or dot-prefixed
-folders (for example `.build` or `.config`) **are** discovered and run. Previously they were
-skipped. Version-control metadata folders (`.git`, `.svn`, `.hg`) are still ignored.
-
-Exclude anything else you do not want picked up:
-
-```powershell
-$config.Run.ExcludePath = @('./.build/**', './Tests/Fixtures/**')
-```
-
-## Test Tags Strategy
-
-Use consistent tagging for test categorization:
-
-```powershell
-Describe "Function-Name" -Tag "Unit", "Public" {
-    # Unit tests for public functions
-}
-
-Describe "Integration-Workflow" -Tag "Integration", "EndToEnd" {
-    # Integration tests
-}
-
-Describe "Performance-Baseline" -Tag "Performance", "Benchmark" {
-    # Performance tests
-}
-
-Describe "Security-Validation" -Tag "Security", "InputValidation" {
-    # Security tests
+BeforeAll {
+    $script:storageKind = 'database'
 }
 ```
 
-### `None` Is a Reserved Tag Value
+Each file is dot-sourced for one test file at a time, so a test under `Tests/Integration` never sees
+the value that `Tests/Unit` set, whichever runs first.
 
-In Pester 6, `None` (case-insensitive) is a reserved **filter** value meaning "tests that have no tag
-on themselves or any parent block". Never use it as a literal tag name.
-
-Use it to audit tagging coverage - a well-tagged suite **runs** zero tests:
+A folder that wants none of the setup above it starts its file with the `#pester:no-inherit`
+directive. That file still applies; the files above it do not:
 
 ```powershell
-Invoke-Pester -Path ./Tests -TagFilter 'None'          # find untagged tests
-Invoke-Pester -Path ./Tests -ExcludeTagFilter 'None'   # run only tagged tests
-Invoke-Pester -Path ./Tests -TagFilter None, Acceptance
+# Tests/Docs/Pester.BeforeContainer.ps1
+#pester:no-inherit
+BeforeAll {
+    $script:storageKind = 'none'
+}
 ```
 
-Reading that interactively, look at the **Passed** count in the summary rather than the discovered
-count, which stays at the full suite size.
-
-Add the audit to CI so untagged tests cannot slip in. Count `ShouldRun`, the flag the filter
-actually sets:
+The result object records which setup files applied to each test file, outermost first:
 
 ```powershell
-$config = New-PesterConfiguration
-$config.Run.Path = './Tests'
-$config.Filter.Tag = 'None'
-$config.Run.SkipRun = $true
-$config.Run.PassThru = $true
-$config.Output.Verbosity = 'None'
+$result = Invoke-Pester -Path ./Tests -PassThru
+foreach ($container in $result.Containers) {
+    $container.Item.Name
+    foreach ($setupFile in $container.BeforeContainerFile) {
+        "    $setupFile"
+    }
+}
+```
 
-$result = Invoke-Pester -Configuration $config
+### When a Setup File Does Not Run
 
-$untagged = @($result.Tests | Where-Object ShouldRun)
+The search starts at `Run.RepoRoot` and nothing above it is considered. When the option is not set,
+Pester finds the root from the current location, so a run started outside the repository, or in a
+checkout that has no `.git` folder, can miss the setup files without any message. Set the option in
+scripts and CI jobs; see [Pester Configuration Guide](./pester-configuration.md#runreporoot).
+
+## Hidden Folders and Excluded Paths
+
+Pester 6 finds test files in folders that have the hidden attribute, and in dot-prefixed folders
+such as `.build`. Pester 5 skipped hidden folders. Folders named `.git`, `.svn`, and `.hg` are never
+searched.
+
+To keep a folder out of a run, set `Run.ExcludePath`. Pester compares each entry with the full path
+of every test file, so an entry is either a full folder or file path, or a wildcard pattern that
+matches the full path. A relative entry such as `./.build` matches nothing. In this example
+`$testRoot` holds the full path of the `Tests` folder:
+
+```powershell
+$fixturePath = Join-Path -Path $testRoot -ChildPath 'Fixtures'
+
+$configuration.Run.ExcludePath = @(
+    $fixturePath
+    '*/.build/*'
+)
+```
+
+## Tags
+
+Tag every `Describe` block (TST-04). A tag on a block applies to every test inside it. Use one tag
+for the test type and add others where they help to select tests:
+
+```powershell
+Describe 'Get-ServerHealth' -Tag 'Unit' {
+}
+
+Describe 'ModuleName' -Tag 'Integration', 'Slow' {
+}
+```
+
+A tag filter with several tags selects a test that has any one of them. `Filter.Tag = 'Unit', 'Slow'`
+runs every test tagged `Unit` and every test tagged `Slow`. To narrow a selection, combine
+`Filter.Tag` with `Filter.ExcludeTag`.
+
+### The Reserved Tag None
+
+Pester 6 reserves `None` (in any letter case) as a filter value. It selects tests that have no tag
+on themselves or on any parent block. Do not use it as a tag name (TST-04): a `Describe` block
+tagged `None` is selected together with every untagged test.
+
+```powershell
+Invoke-Pester -Path ./Tests -TagFilter 'None'                 # only untagged tests
+Invoke-Pester -Path ./Tests -ExcludeTagFilter 'None'          # only tagged tests
+Invoke-Pester -Path ./Tests -TagFilter 'None', 'Integration'  # untagged tests and Integration tests
+```
+
+### Finding Untagged Tests
+
+A discovery-only run with the `None` filter lists the tests that have no tag. Count the tests whose
+`ShouldRun` property is set; that is the property the filter sets.
+
+```powershell
+# In a script in the build folder
+$repositoryRoot = Split-Path -Path $PSScriptRoot -Parent
+$testRoot = Join-Path -Path $repositoryRoot -ChildPath 'Tests'
+
+$configuration = New-PesterConfiguration
+$configuration.Run.Path = $testRoot
+$configuration.Run.RepoRoot = $repositoryRoot
+$configuration.Run.SkipRun = $true
+$configuration.Run.PassThru = $true
+$configuration.Filter.Tag = 'None'
+$configuration.Output.Verbosity = 'None'
+
+$result = Invoke-Pester -Configuration $configuration
+
+$untagged = @($result.Tests | Where-Object -Property ShouldRun)
 if ($untagged.Count -gt 0) {
-    $untagged | ForEach-Object { Write-Host "::error::Untagged test: $($_.ExpandedPath)" }
-    throw "$($untagged.Count) test(s) have no tag. Tag every Describe block."
+    $names = $untagged.ExpandedPath -join [Environment]::NewLine
+    throw "$($untagged.Count) test(s) have no tag:$([Environment]::NewLine)$names"
 }
 ```
 
-**Do not gate on `TotalCount` or `PassedCount`.** Both are wrong here, in opposite directions:
+Do not use `TotalCount` or `PassedCount` for this check:
 
-| Signal | Behaviour under `Filter.Tag = 'None'` |
+| Property | Behaviour with `Filter.Tag = 'None'` |
 | --- | --- |
-| `TotalCount` | Ignores the filter and counts everything **discovered**, so it is non-zero for any non-empty suite. A gate on it can never pass |
-| `PassedCount` | Counts only untagged tests that ran **and passed**, so an untagged test that fails is missed. With `Run.SkipRun` nothing runs, so it is always `0` |
-| `ShouldRun` | Set by the filter on exactly the matching tests. Correct with or without `SkipRun`, and it names them |
+| `TotalCount` | Counts every discovered test and ignores the filter, so it is never zero for a suite that has tests. |
+| `PassedCount` | Counts untagged tests that ran and passed. It misses an untagged test that fails, and it is 0 with `Run.SkipRun`. |
+| `ShouldRun` | Set on exactly the tests that the filter selected, with or without `Run.SkipRun`. |
 
-Verified against Pester 6.1.0: on one tagged plus one untagged test, `TotalCount` is `2` and
-`ShouldRun` is `1`; on a fully tagged suite, `TotalCount` is `2` and `ShouldRun` is `0`.
+Measured on Pester 6.2.0 with three tagged and two untagged tests, one of which fails: `TotalCount`
+is 5, `PassedCount` is 1, and two tests have `ShouldRun` set.
 
-### Opting Files Out of Parallel Execution
+## Directives in a Test File
 
-Tests that must not share the machine - performance benchmarks, tests binding a fixed port, tests
-mutating global state - opt out with a comment directive parsed like `#requires`:
+A directive is a comment that Pester reads from the file before it runs it. Pester matches it only
+in a comment, never in a string.
+
+| Directive | Where | Effect |
+| --- | --- | --- |
+| `#pester:no-parallel` | Test file | The file runs in the calling session after the parallel batch. See [Test Execution Guide](./test-execution.md#which-files-to-opt-out). |
+| `#pester:no-shuffle` | Test file | The file keeps its declared order when `Run.Shuffle` is on. See [Test Execution Guide](./test-execution.md#shuffled-test-order). |
+| `#pester:no-inherit` | Setup file | Setup files in the folders above do not apply. See [Setup for One Folder](#setup-for-one-folder). |
+
+## Checking the Structure
+
+A discovery-only run checks every file without running a test. It fails for a `-ForEach` value that
+is empty or `$null`, for a file that throws during discovery, and for a file that uses a removed
+parameter such as `-Focus`. The script uses `$repositoryRoot` and `$testRoot` as set in the previous
+script.
 
 ```powershell
-#pester:no-parallel
-Describe "Performance-Baseline" -Tag "Performance", "Benchmark" {
+$configuration = New-PesterConfiguration
+$configuration.Run.Path = $testRoot
+$configuration.Run.RepoRoot = $repositoryRoot
+$configuration.Run.SkipRun = $true
+$configuration.Run.PassThru = $true
+
+$result = Invoke-Pester -Configuration $configuration
+
+if ($null -eq $result) {
+    throw 'Pester found no test files.'
+}
+
+if ($result.Result -ne 'Passed') {
+    $failedFiles = foreach ($container in $result.FailedContainers) {
+        "$($container.Item)"
+    }
+    throw "Discovery failed in $($result.FailedContainersCount) file(s): $($failedFiles -join ', ')"
 }
 ```
 
-These files run in the parent session on the normal serial path while other files run in parallel.
-Put the directive at the top of the file; it is matched only inside real comment tokens, never
-inside strings.
+## Checklist
 
-## Quality Organization Standards
-
-### Test File Requirements
-
-- Each test file must import its own modules in `BeforeAll` (and `BeforeDiscovery` when discovery
-  needs them)
-- All external dependencies must be mocked appropriately
-- Test isolation must be maintained between tests **and between files**
-- Clean test data and resources in `AfterAll` or `AfterEach`
-- Every `Describe` block carries at least one tag
-- No `-ForEach` / `-TestCases` expression can evaluate to `$null` or `@()`
-
-### Verifying Structure
-
-A discovery-only pass validates the whole suite's structure without paying for a full run. It
-surfaces empty `-ForEach` sets, files that cannot be discovered independently, and - from 6.2 - a
-configuration value of the wrong type:
-
-```powershell
-$config = New-PesterConfiguration
-$config.Run.Path = './Tests'
-$config.Run.SkipRun = $true
-$config.Run.PassThru = $true
-Invoke-Pester -Configuration $config
-```
-
-Run this in CI before the real test job. It is fast and catches structural breakage early.
-
-### Documentation Integration
-
-- Reference troubleshooting guides in `./Troubleshooting/` folder
-- Include performance baselines and expectations
-- Document test data requirements and setup
-- Maintain test execution guidelines in main test runner
+- The file is named `<FileName>.Tests.ps1` after the file it tests, and starts with the `#Requires`
+  line for Pester 6.2.0.
+- The file loads the code under test in its own top-level `BeforeAll`.
+- Data for `-ForEach` is built in `BeforeDiscovery`, and the list cannot be empty or `$null`.
+- Paths are built from `$PSScriptRoot` with `Split-Path` and `Join-Path`.
+- Every `Describe` block has a tag, and no tag is named `None`.
+- Files that a test creates are in `$TestDrive`.
+- The file passes when it is run alone.

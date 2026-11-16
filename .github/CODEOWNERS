@@ -4,45 +4,22 @@
 # Global owners - require approval for all changes
 * @fadwen
 
-# GitHub configuration and workflows (critical infrastructure)
+# Rule sources. Everything agents read is generated from here.
+/standards/ @fadwen
+
+# Generated agent files, workflows, and the Pester guides
 /.github/ @fadwen
+/.claude/ @fadwen
+/.agents/ @fadwen
+/AGENTS.md @fadwen
 
-# Documentation and guides
-/Documentation/ @fadwen
-/powershell-standards/ @fadwen
-*.md @fadwen
+# Working notes for Claude Code sessions in this repository
+/CLAUDE.md @fadwen
 
-# Templates and examples (high impact on adoption)
-/Templates/ @fadwen
-
-# Troubleshooting guides
-/Troubleshooting/ @fadwen
-
-# Security-related files (critical for enterprise)
-/Security/ @fadwen
-*security* @fadwen
-*Security* @fadwen
-
-# Tools and automation scripts
+# Tools that build, install, and check the standards
 /Tools/ @fadwen
 
-# Prompt files (affect AI-generated code quality)
-/.github/prompts/ @fadwen
-*.prompt.md @fadwen
-
-# Instruction files (core standards enforcement)
-/.github/instructions/ @fadwen
-*instructions.md @fadwen
-
-# Claude Code memory and path-scoped rules (mirror the instruction files)
-/CLAUDE.md @fadwen
-/.claude/ @fadwen
-
-# Configuration files
-*.json @fadwen
-*.yml @fadwen
-*.yaml @fadwen
-
-# Module manifests and core module files
-*.psd1 @fadwen
-*.psm1 @fadwen
+# Examples and templates that agents copy
+/powershell-standards/ @fadwen
+/Documentation/ @fadwen
+/Templates/ @fadwen

@@ -4,7 +4,7 @@ external help file: ModuleExample-Help.xml
 HelpUri: ''
 Locale: en-US
 Module Name: ModuleExample
-ms.date: 08 29 2026
+ms.date: 11 15 2026
 PlatyPS schema version: 2024-05-01
 title: Get-ExampleData
 ---
@@ -13,74 +13,53 @@ title: Get-ExampleData
 
 ## SYNOPSIS
 
-Retrieves service status for one or more services.
+Gets the status of one or more services.
 
 ## SYNTAX
 
 ### __AllParameterSets
 
 ```
-Get-ExampleData [-ServiceName] <string[]> [[-Environment] <string>] [[-CorrelationId] <guid>]
+Get-ExampleData [-ServiceName] <string[]> [[-Environment] <string>]
 ```
 
 ## DESCRIPTION
 
-The exported surface of this example module.
-Demonstrates the patterns the
-standards require:
+Emits one ExampleServiceResult object for each service name, in the order the names are received. A service that cannot be queried is reported as a non-terminating error, and the remaining names are still processed.
 
-- An approved verb, with a descriptive [OutputType] rather than PSCustomObject
-- Pipeline input, so the function composes
-- A correlation ID generated once and carried through every call
-- $_ in the catch block, and per-item failure that does not abort the batch
+There is no real service behind this module. The statuses come from a fixed table that knows the services Billing, Identity, and Reporting. Every other name fails with the error ID ServiceNotFound.
 
 ## EXAMPLES
 
-### EXAMPLE 1
+### Example 1: Get the status of one service
 
+```powershell
 Get-ExampleData -ServiceName 'Billing'
+```
 
-DESCRIPTION: Queries a single service in the default environment.
-OUTPUT: One ExampleServiceResult.
-USE CASE: Ad-hoc check of a single service.
+Gets the status of the Billing service in the Development environment.
 
-### EXAMPLE 2
+### Example 2: Take the service names from the pipeline
 
-'Billing', 'Identity' | Get-ExampleData -Environment Test
+```powershell
+'Billing', 'Identity', 'Reporting' | Get-ExampleData -Environment 'Test'
+```
 
-DESCRIPTION: Queries two services via the pipeline.
-OUTPUT: One ExampleServiceResult per service.
-USE CASE: Batch check where one failure must not stop the rest.
+Gets the status of three services in the Test environment, taking the names from the pipeline.
+
+### Example 3: Continue after a service that cannot be queried
+
+```powershell
+Get-ExampleData -ServiceName 'Billing', 'Missing', 'Reporting'
+```
+
+Gets the status of Billing and Reporting, and writes a non-terminating error for Missing.
 
 ## PARAMETERS
 
-### -CorrelationId
-
-Optional correlation identifier.
-One is generated when not supplied, which is
-why the parameter carries no ValidateNotNullOrEmpty - it is never empty.
-
-```yaml
-Type: System.Guid
-DefaultValue: '[guid]::NewGuid()'
-SupportsWildcards: false
-Aliases: []
-ParameterSets:
-- Name: (All)
-  Position: 2
-  IsRequired: false
-  ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
-  ValueFromRemainingArguments: false
-DontShow: false
-AcceptedValues: []
-HelpMessage: ''
-```
-
 ### -Environment
 
-Environment to query.
-Defaults to Development so the example is safe to run.
+Environment to query, which is recorded on each result.
 
 ```yaml
 Type: System.String
@@ -101,8 +80,7 @@ HelpMessage: ''
 
 ### -ServiceName
 
-One or more service names to query.
-Accepts pipeline input.
+One or more names of services to query.
 
 ```yaml
 Type: System.String[]
@@ -132,31 +110,19 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.String[]
 
-One or more service names, bound from the pipeline by value or by property name. Piping a
-collection queries each service in turn; a failure on one does not stop the rest.
+You can pipe service names to this function, or objects that have a ServiceName property.
 
 ## OUTPUTS
 
 ### ExampleServiceResult
 
-One object per service queried, carrying the service name, the environment, the resolved status,
-and the correlation ID shared by every result in the batch.
+One object for each service that was queried, with ServiceName, Environment, Status, and CheckedAt properties.
 
 ## NOTES
 
-Author: Jeffrey Stuhr
-Blog: https://www.techbyjeff.net
-LinkedIn: https://www.linkedin.com/in/jeffrey-stuhr-034214aa/
-
-TROUBLESHOOTING:
-
-- Connection issues: .\Troubleshooting\Common\Function-Issues.md
-
+The error for a service that cannot be queried is non-terminating. To end the command at the first such service, pass -ErrorAction Stop.
 
 ## RELATED LINKS
 
 - [about_ModuleExample]()
-- [Module structure standards](https://github.com/fadwen/ai-powershell-standards/blob/main/.github/instructions/module.instructions.md)
-- [Help documentation standards](https://github.com/fadwen/ai-powershell-standards/blob/main/.github/instructions/platyps.instructions.md)
-- [Function troubleshooting](https://github.com/fadwen/ai-powershell-standards/blob/main/Troubleshooting/Common/Function-Issues.md)
-
+- [PowerShell-Copilot-Standards](https://github.com/fadwen/Powershell-Copilot-Standards)

@@ -1,402 +1,61 @@
-# This workflow runs on Pull Requests to ensure quality before merge
-
-name: 'Quality Gates - Pull Request'
+name: Quality gates
 
 on:
   pull_request:
-    branches: [ main, develop ]
-    paths:
-      - '**.ps1'
-      - '**.psm1'
-      - '**.psd1'
-      # Markdown must be listed, otherwise a docs-only PR triggers no workflow at
-      # all - including the markdown-lint job below, whose whole purpose is to
-      # gate documentation. This covers README, Documentation/, Troubleshooting/,
-      # and the instruction and prompt files under .github/.
-      - '**.md'
-      - '.markdownlint.json'
-      - '.github/workflows/**'
-      - 'Documentation/**'
-      - 'powershell-standards/**'
-      - 'Templates/**'
-
-  # Allow manual trigger for testing
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: write  # For PR comments
-  checks: write         # For check runs
 
 jobs:
-  powershell-quality-gates:
-    name: 'PowerShell Quality Gates'
+  powershell:
+    name: PowerShell quality gate
+    # Windows, so that the tests that start Windows PowerShell 5.1 run as well.
     runs-on: windows-latest
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0  # Full history for better analysis
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Setup PowerShell
-      shell: pwsh
-      run: |
-        # Install required modules (PSResourceGet is in-box on PowerShell 7.4+)
-        Install-PSResource -Name PSScriptAnalyzer -Scope CurrentUser -TrustRepository
-        Install-PSResource -Name Pester -Scope CurrentUser -TrustRepository
+      - name: Confirm the PowerShell version
+        shell: pwsh
+        run: |
+          $PSVersionTable.PSVersion
+          if ($PSVersionTable.PSVersion -lt [version]'7.6') {
+              throw "The tools in this repository need PowerShell 7.6. This runner has $($PSVersionTable.PSVersion)."
+          }
 
-        # Display PowerShell version for debugging
-        $PSVersionTable | ConvertTo-Json
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          Install-PSResource -Name PSScriptAnalyzer -Version 1.25.0 -TrustRepository
+          Install-PSResource -Name Pester -Version 6.2.0 -TrustRepository
 
-    - name: Run PowerShell Quality Analysis
-      id: quality-check
-      shell: pwsh
-      run: |
-        # Quality gate script with detailed reporting
-        $ErrorActionPreference = 'Stop'
+      # The tests cover three things besides the tools' own behaviour: generated instruction
+      # files match their sources, every code sample in them parses, and the repository's own
+      # PowerShell passes Test-StandardsCompliance.ps1.
+      - name: Run tests and the coverage gate
+        shell: pwsh
+        run: ./Tools/Invoke-QualityGate.ps1
 
-        try {
-            Write-Host "🔍 Starting PowerShell Quality Gate Analysis" -ForegroundColor Cyan
-
-            # Get PowerShell files, separating production code from tests
-            $allPsFiles = Get-ChildItem -Path . -Include "*.ps1", "*.psm1", "*.psd1" -Recurse | Where-Object {
-                $_.FullName -notlike "*\.git\*" -and
-                $_.FullName -notlike "*\node_modules\*"
-            }
-
-            # Files that intentionally demonstrate violations. Excluded from
-            # production analysis on purpose, and listed explicitly so the reason is
-            # visible - the previous "*test*" name filter excluded them by accident,
-            # and excluded Test-StandardsCompliance.ps1 with them. Test- is an
-            # approved PowerShell verb, so a name filter cannot tell a test file from
-            # a tool named with it.
-            $demonstrationFiles = @(
-                'Test-QualityGates.ps1'
-            )
-
-            $isTestFile = {
-                param($f)
-                $f.Name -like "*.Tests.ps1" -or $f.FullName -like "*\Tests\*"
-            }
-
-            $testFiles = $allPsFiles | Where-Object { & $isTestFile $_ }
-
-            $productionFiles = $allPsFiles | Where-Object {
-                -not (& $isTestFile $_) -and $demonstrationFiles -notcontains $_.Name
-            }
-
-            # Coverage covers the tooling this repository ships, and the examples,
-            # which are held to the same bar - an untested example is a poor advert
-            # for a standard that mandates 80% coverage.
-            #
-            # Templates stay out: they are scaffolding meant to be copied and filled
-            # in, so covering a placeholder measures nothing. Including them was why
-            # coverage once read 22.77% while the one tested file sat at 98%.
-            $sep = [IO.Path]::DirectorySeparatorChar
-            $coverageFiles = $productionFiles | Where-Object {
-                $_.Extension -in '.ps1', '.psm1' -and (
-                    $_.FullName -like "*${sep}Tools${sep}*" -or
-                    $_.FullName -like "*${sep}powershell-standards${sep}Examples${sep}*"
-                )
-            }
-
-            Write-Host "📊 Found $($allPsFiles.Count) total PowerShell files" -ForegroundColor Yellow
-            Write-Host "📦 Production files: $($productionFiles.Count)" -ForegroundColor Green
-            Write-Host "🧪 Test files: $($testFiles.Count)" -ForegroundColor Blue
-            Write-Host "📈 Coverage scope: $($coverageFiles.Count) file(s) under Tools/ and powershell-standards/Examples/" -ForegroundColor Blue
-
-            $totalIssues = 0
-            $criticalIssues = 0
-
-            # Run PSScriptAnalyzer on production files with strict rules
-            if ($productionFiles.Count -gt 0) {
-                Write-Host "`n🔬 Running PSScriptAnalyzer on production files..." -ForegroundColor Cyan
-
-                $productionResults = $productionFiles | ForEach-Object {
-                    Invoke-ScriptAnalyzer -Path $_.FullName -Severity @('Error', 'Warning') -IncludeDefaultRules
-                }
-
-                if ($productionResults) {
-                    Write-Host "❌ Production Code Issues:" -ForegroundColor Red
-                    $productionResults | Format-Table RuleName, Severity, ScriptName, Message -AutoSize
-
-                    $errorCount = ($productionResults | Where-Object Severity -eq 'Error').Count
-                    $warningCount = ($productionResults | Where-Object Severity -eq 'Warning').Count
-
-                    $totalIssues += $productionResults.Count
-                    $criticalIssues += $errorCount
-
-                    Write-Host "📊 Production Issues: $errorCount errors, $warningCount warnings" -ForegroundColor Yellow
-                } else {
-                    Write-Host "✅ No PSScriptAnalyzer issues in production code" -ForegroundColor Green
-                }
-            }
-
-            # Everything under powershell-standards/ is mirrored into consuming projects, whose
-            # gates may analyse it with full rules and no relaxation for test files. Hold the
-            # shipped examples, tests included, to that bar so a sync never breaks a consumer.
-            $mirroredFiles = $allPsFiles | Where-Object { $_.FullName -like "*${sep}powershell-standards${sep}*" }
-            if ($mirroredFiles.Count -gt 0) {
-                Write-Host "`n📦 Running PSScriptAnalyzer on mirrored examples (full rules, tests included)..." -ForegroundColor Cyan
-
-                $mirroredResults = $mirroredFiles | ForEach-Object {
-                    Invoke-ScriptAnalyzer -Path $_.FullName -Severity @('Error', 'Warning') -IncludeDefaultRules
-                }
-
-                if ($mirroredResults) {
-                    Write-Host "❌ Mirrored example issues (these would break a consumer's gate):" -ForegroundColor Red
-                    $mirroredResults | Format-Table RuleName, Severity, ScriptName, Message -AutoSize
-                    $criticalIssues += $mirroredResults.Count
-                } else {
-                    Write-Host "✅ Mirrored examples pass full-rule analysis" -ForegroundColor Green
-                }
-            }
-
-            # Run PSScriptAnalyzer on test files with relaxed rules
-            if ($testFiles.Count -gt 0) {
-                Write-Host "`n🧪 Running PSScriptAnalyzer on test files (relaxed rules)..." -ForegroundColor Cyan
-
-                $testResults = $testFiles | ForEach-Object {
-                    Invoke-ScriptAnalyzer -Path $_.FullName -Severity @('Error') -ExcludeRule @(
-                        'PSAvoidUsingComputerNameHardcoded',
-                        'PSReviewUnusedParameter',
-                        'PSUseDeclaredVarsMoreThanAssignments'
-                    )
-                }
-
-                if ($testResults) {
-                    Write-Host "⚠️ Test Code Issues (Critical Only):" -ForegroundColor Yellow
-                    $testResults | Format-Table RuleName, Severity, ScriptName, Message -AutoSize
-                    $criticalIssues += $testResults.Count
-                } else {
-                    Write-Host "✅ No critical PSScriptAnalyzer issues in test code" -ForegroundColor Green
-                }
-            }
-
-            # Check for approved PowerShell verbs
-            Write-Host "`n📝 Checking for approved PowerShell verbs in production code..." -ForegroundColor Cyan
-
-            $verbIssues = @()
-            $approvedVerbs = Get-Verb | Select-Object -ExpandProperty Verb
-
-            foreach ($file in $productionFiles) {
-                $content = Get-Content -Path $file.FullName -Raw -ErrorAction SilentlyContinue
-                if ($content) {
-                    # Find function definitions
-                    $functionMatches = [regex]::Matches($content, 'function\s+([A-Za-z]+)-([A-Za-z0-9]+)', 'IgnoreCase')
-
-                    foreach ($match in $functionMatches) {
-                        $verb = $match.Groups[1].Value
-                        if ($verb -notin $approvedVerbs) {
-                            $verbIssues += [PSCustomObject]@{
-                                File = $file.Name
-                                Function = $match.Groups[0].Value
-                                Verb = $verb
-                                Message = "Non-approved verb '$verb' used"
-                            }
-                        }
-                    }
-                }
-            }
-
-            if ($verbIssues) {
-                Write-Host "❌ Verb Issues Found:" -ForegroundColor Red
-                $verbIssues | Format-Table File, Function, Verb, Message -AutoSize
-                $totalIssues += $verbIssues.Count
-            } else {
-                Write-Host "✅ All functions use approved PowerShell verbs" -ForegroundColor Green
-            }
-
-            # Run Pester tests if they exist
-            $pesterTestFiles = Get-ChildItem -Path . -Filter "*.Tests.ps1" -Recurse
-            if ($pesterTestFiles.Count -gt 0) {
-                Write-Host "`n🧪 Running Pester tests..." -ForegroundColor Cyan
-
-                $pesterConfig = New-PesterConfiguration
-                $pesterConfig.Run.Exit = $false
-                # Required - without PassThru, Invoke-Pester returns nothing and every
-                # check below silently evaluates against $null.
-                $pesterConfig.Run.PassThru = $true
-                $pesterConfig.Output.Verbosity = 'Detailed'
-                $pesterConfig.CodeCoverage.Enabled = $true
-                $pesterConfig.CodeCoverage.Path = $coverageFiles.FullName
-
-                $pesterResults = Invoke-Pester -Configuration $pesterConfig
-
-                # Pester sets $LASTEXITCODE to the failure count. GitHub's pwsh wrapper
-                # exits with it, which would fail the step regardless of the logic below.
-                # Failures are accounted for through $criticalIssues instead.
-                $global:LASTEXITCODE = 0
-
-                if ($null -eq $pesterResults) {
-                    Write-Host "❌ Pester returned no result object - treating as failure" -ForegroundColor Red
-                    $criticalIssues += 1
-                }
-                else {
-                    # Use the *Count properties. $pesterResults.Failed is a collection of
-                    # test objects, so "-gt 0" compares objects to an int, errors as
-                    # non-IComparable, yields empty, and reads as false - which is why
-                    # this gate reported success against 24 failing tests.
-                    if ($pesterResults.FailedCount -gt 0) {
-                        Write-Host "❌ Pester Tests Failed: $($pesterResults.FailedCount) of $($pesterResults.TotalCount)" -ForegroundColor Red
-                        $criticalIssues += $pesterResults.FailedCount
-                    }
-                    else {
-                        Write-Host "✅ All Pester tests passed: $($pesterResults.PassedCount) of $($pesterResults.TotalCount)" -ForegroundColor Green
-                    }
-
-                    # A file that fails discovery contributes zero failed tests, so
-                    # FailedCount alone can report green on a suite that never ran.
-                    if ($pesterResults.FailedContainersCount -gt 0) {
-                        Write-Host "❌ Pester containers failed discovery: $($pesterResults.FailedContainersCount)" -ForegroundColor Red
-                        $criticalIssues += $pesterResults.FailedContainersCount
-                    }
-                }
-
-                if ($pesterResults.CodeCoverage) {
-                    $coverage = [math]::Round($pesterResults.CodeCoverage.CoveragePercent, 2)
-                    Write-Host "📊 Code Coverage: $coverage%" -ForegroundColor $(if ($coverage -ge 80) { 'Green' } else { 'Yellow' })
-
-                    if ($coverage -lt 80) {
-                        Write-Host "⚠️ Code coverage below 80% threshold" -ForegroundColor Yellow
-                    }
-                }
-            }
-
-            # Security scan for common patterns
-            Write-Host "`n🔒 Running security scan on production code..." -ForegroundColor Cyan
-
-            $securityIssues = @()
-
-            # Secrets can be embedded in any file, including .psd1 data files.
-            $secretPatterns = @{
-                'Hardcoded Password' = 'password\s*[:=]\s*["\x27]\w{3,}["\x27]'
-                'Hardcoded API Key' = 'api[_-]?key\s*[:=]\s*["\x27]\w{10,}["\x27]'
-            }
-
-            # These describe executable behaviour. A .psd1 is restricted data - it
-            # cannot invoke a cmdlet or build a query - so applying them there only
-            # produces false positives when a config legitimately *lists* the
-            # patterns it wants prohibited.
-            $codePatterns = @{
-                'SQL Injection Risk' = '\$\w+\s*\+\s*["\x27].*SELECT.*FROM'
-                'Path Traversal Risk' = '\.\.[/\\]'
-                'Credential in Plain Text' = 'ConvertTo-SecureString.*-AsPlainText'
-            }
-
-            foreach ($file in $productionFiles) {
-                $content = Get-Content -Path $file.FullName -Raw -ErrorAction SilentlyContinue
-                if (-not $content) { continue }
-
-                $applicable = if ($file.Extension -eq '.psd1') {
-                    $secretPatterns
-                } else {
-                    $secretPatterns + $codePatterns
-                }
-
-                foreach ($pattern in $applicable.GetEnumerator()) {
-                    if ($content -match $pattern.Value) {
-                        $securityIssues += [PSCustomObject]@{
-                            File = $file.Name
-                            Issue = $pattern.Key
-                            Risk = "High"
-                        }
-                    }
-                }
-            }
-
-            if ($securityIssues) {
-                Write-Host "🚨 Security Issues Found:" -ForegroundColor Red
-                $securityIssues | Format-Table File, Issue, Risk -AutoSize
-                $criticalIssues += $securityIssues.Count
-            } else {
-                Write-Host "✅ No security issues detected" -ForegroundColor Green
-            }
-
-            # Final results
-            Write-Host "`n📊 Quality Gate Results:" -ForegroundColor Cyan
-            Write-Host "❌ Total Issues: $totalIssues" -ForegroundColor $(if ($totalIssues -eq 0) { 'Green' } else { 'Red' })
-            Write-Host "🚨 Critical Issues: $criticalIssues" -ForegroundColor $(if ($criticalIssues -eq 0) { 'Green' } else { 'Red' })
-
-            # Set outputs for other steps
-            echo "total-issues=$totalIssues" >> $env:GITHUB_OUTPUT
-            echo "critical-issues=$criticalIssues" >> $env:GITHUB_OUTPUT
-
-            if ($criticalIssues -gt 0) {
-                Write-Host "`n💡 Recommendations:" -ForegroundColor Yellow
-                Write-Host " - Use your Copilot prompts to fix issues:" -ForegroundColor Yellow
-                Write-Host "   /security-review for security issues" -ForegroundColor Yellow
-                Write-Host "   /code-analysis for comprehensive analysis" -ForegroundColor Yellow
-                Write-Host "   /optimize-performance for performance improvements" -ForegroundColor Yellow
-
-                throw "Quality gate failed: $criticalIssues critical issues found"
-            }
-
-            Write-Host "`n✅ Quality gate passed! Code meets enterprise standards." -ForegroundColor Green
-
-        } catch {
-            Write-Host "❌ Quality gate failed: $($_.Exception.Message)" -ForegroundColor Red
-            throw
-        }
-
-    - name: Comment PR Results
-      if: always() && github.event_name == 'pull_request'
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const totalIssues = '${{ steps.quality-check.outputs.total-issues }}';
-          const criticalIssues = '${{ steps.quality-check.outputs.critical-issues }}';
-          const success = '${{ steps.quality-check.outcome }}' === 'success';
-
-          const body = success
-            ? `✅ **Quality Gate: PASSED**
-
-          All PowerShell standards checks completed successfully!
-
-          - 📊 Total Issues: ${totalIssues}
-          - 🚨 Critical Issues: ${criticalIssues}
-
-          Your code meets enterprise PowerShell standards and is ready for merge.`
-            : `❌ **Quality Gate: FAILED**
-
-          PowerShell standards checks found issues that need to be addressed:
-
-          - 📊 Total Issues: ${totalIssues}
-          - 🚨 Critical Issues: ${criticalIssues}
-
-          💡 **Recommendations:**
-          - Use your Copilot prompts to fix issues:
-            - \`/security-review\` for security issues
-            - \`/code-analysis\` for comprehensive analysis
-            - \`/optimize-performance\` for performance improvements
-
-          Please fix the critical issues before this PR can be merged.`;
-
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: body
-          });
-  markdown-lint:
-    name: 'Documentation Quality'
+  markdown:
+    name: Markdown lint
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v7
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Lint Markdown
-      uses: DavidAnson/markdownlint-cli2-action@v25
-      with:
-        # PlatyPS-generated command help is excluded. The generator emits an
-        # unlabelled code fence in SYNTAX (MD040) and writes the module page
-        # description as one unwrapped line (MD013); both are structural to its
-        # schema and are rewritten on every Update-MarkdownCommandHelp run, so
-        # hand-correcting them is out of bounds. See
-        # .github/instructions/platyps.instructions.md
-        globs: |
-          **/*.md
-          !**/docs/*/*.md
-        config: '.markdownlint.json'
+      - name: Lint Markdown
+        uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
+        with:
+          # Help Markdown that PlatyPS generates is left out. Its syntax fence has no language
+          # label and its module page puts the description on one line; both are rewritten on
+          # every update, so they cannot be corrected by hand.
+          globs: |
+            **/*.md
+            !**/docs/*/*.md
+          config: '.markdownlint.json'

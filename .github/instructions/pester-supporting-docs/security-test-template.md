@@ -1,512 +1,235 @@
 # Security Test Template
 
-Targets **Pester 6.2+**. Uses the `Should-*` assertion syntax - see
-[Assertion Guide](./assertion-guide.md).
+A test file for functions that handle untrusted input, paths, or credentials. Write one only for a
+function that has such a requirement (TST-43). The security rules that these tests check are in the
+[security rules](../powershell-security.instructions.md), and the testing rules are in the
+[Pester rules](../powershell-pester.instructions.md). The file below passes on Pester 6.2.0 under
+PowerShell 7.6 and Windows PowerShell 5.1, and each of its tests fails against a copy of the module
+that has the defect it looks for.
 
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
+## The Code Under Test
 
-## Standard Security Test Structure
+The template tests the module `ModuleName` from the [unit test template](./unit-test-template.md).
 
-Use this template for validating security controls and input sanitization:
+- `Get-Thing -Name <string[]>` puts each name into the address of a web request. It restricts names
+  with an anchored `ValidatePattern` (SEC-11).
+- `Read-ThingFile -Root <string> -ChildPath <string>` reads a file below a root folder. It resolves
+  the path and refuses one that leaves the root, with the error ID `PathOutsideRoot` (SEC-12).
+- `Connect-ThingService -Credential <PSCredential>` signs in to the service. Without a credential it
+  fails with the error ID `CredentialRequired`; it does not prompt (SEC-05). It writes a verbose
+  message, and a failed sign-in has the error ID `SignInFailed`.
+
+## The Test File
 
 ```powershell
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
 
 BeforeDiscovery {
-    # Attack-pattern data drives -ForEach, so it MUST be built at discovery time.
-    # BeforeAll runs at RUN time - too late. A variable defined there is $null
-    # during discovery, and $null piped through ForEach-Object yields exactly one
-    # iteration, so the suite silently collapses to a single bogus test named
-    # "rejects: $null" that asserts nothing about any real attack pattern.
-    # Nothing fails; the run just reports green having tested nothing.
-    # See "Discovery-Time Data" below.
-    $MaliciousInputPatterns = @(
-        "'; DROP TABLE Users; --"
-        "../../../etc/passwd"
-        "<script>alert('xss')</script>"
-        '$(Get-Process)'
-        "Invoke-Expression 'malicious code'"
-        "& cmd.exe /c dir"
-        '$(Get-Content secrets.txt)'
+    $injectionCases = @(
+        @{ Description = 'a command separator'; Text = 'alpha; Remove-Item -Path *' }
+        @{ Description = 'a subexpression'; Text = '$(Get-Process)' }
+        @{ Description = 'a pipe'; Text = 'alpha | Out-File -FilePath x' }
+        @{ Description = 'a relative path'; Text = '../../etc/passwd' }
+        @{ Description = 'a quote'; Text = "alpha' OR '1'='1" }
     )
 
-    $PathTraversalPatterns = @(
-        "..\..\Windows\System32\config"
-        "../../../../etc/shadow"
-        "..\..\..\secrets\passwords.txt"
-        "C:\Windows\System32\SAM"
-    )
-
-    $InvalidEmailPatterns = @(
-        "notanemail"
-        "@domain.com"
-        "user@"
-        "user..name@domain.com"
-        "user@domain"
-    )
-
-    $CommandInjectionPatterns = @(
-        "normalvalue; Remove-Item C:\temp\*"
-        'value$(Get-Process)'
-        "value & dir"
-        "value | Get-Content secrets.txt"
+    $traversalCases = @(
+        @{ ChildPath = '../outside.txt' }
+        @{ ChildPath = 'reports/../../outside.txt' }
+        @{ ChildPath = '../root-other/outside.txt' }
     )
 }
 
 BeforeAll {
-    # Import module under test. Each file is self-contained in Pester 6.
-    $ModulePath = Join-Path $PSScriptRoot '..\..\ModuleName.psd1'
-    Import-Module $ModulePath -Force
-
-    # Runtime-only configuration
-    $SecurityConfig = @{
-        TestCredentials = @{
-            Valid = @{
-                Username = "testuser"
-                Password = "TestPassword123!"
-            }
-            Invalid = @{
-                Username = "invaliduser"
-                Password = "wrongpassword"
-            }
-        }
+    $moduleRoot = Split-Path -Path $PSScriptRoot -Parent
+    if (-not (Get-Module -Name ModuleName)) {
+        Import-Module -Name (Join-Path -Path $moduleRoot -ChildPath 'ModuleName.psd1')
     }
 }
 
-Describe "Security Tests" -Tag "Security", "InputValidation" {
-    Context "Input Validation and Sanitization" {
-        It "Should reject malicious input pattern: <MaliciousInput>" -ForEach $MaliciousInputPatterns.ForEach({
-            @{ MaliciousInput = $_ }
-        }) {
-            { Function-Name -ParameterName $MaliciousInput } |
-                Should-Throw -ExceptionMessage '*invalid characters*'
-        }
-
-        It "Should sanitize file path against traversal: <UnsafePath>" -ForEach $PathTraversalPatterns.ForEach({
-            @{ UnsafePath = $_ }
-        }) {
-            { Function-Name -FilePath $UnsafePath } |
-                Should-Throw -ExceptionMessage '*invalid path*'
-        }
-
-        It "Should reject invalid email format: <InvalidEmail>" -ForEach $InvalidEmailPatterns.ForEach({
-            @{ InvalidEmail = $_ }
-        }) {
-            { Function-Name -EmailAddress $InvalidEmail } |
-                Should-Throw -ExceptionMessage '*invalid email*'
-        }
-
-        It "Should prevent command injection: <Injection>" -ForEach $CommandInjectionPatterns.ForEach({
-            @{ Injection = $_ }
-        }) {
-            { Function-Name -ParameterName $Injection } |
-                Should-Throw -ExceptionMessage '*invalid characters*'
-        }
-
-        It "Should validate parameter length limits" {
-            $oversizedInput = "x" * 10000  # 10KB string
-
-            { Function-Name -ParameterName $oversizedInput } |
-                Should-Throw -ExceptionMessage '*exceeds maximum length*'
-        }
-
-        It "Should reject <Description> input" -ForEach @(
-            @{ Description = 'null';             Value = $null; Expected = '*cannot be null*' }
-            @{ Description = 'empty';            Value = '';    Expected = '*cannot be empty*' }
-            @{ Description = 'whitespace-only';  Value = '   '; Expected = '*cannot be empty*' }
-        ) {
-            { Function-Name -ParameterName $Value } |
-                Should-Throw -ExceptionMessage $Expected
-        }
+Describe 'Get-Thing input validation' -Tag 'Security' {
+    BeforeAll {
+        Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith { }
     }
 
-    Context "Credential Handling Security" {
-        It "Should not expose credentials in logs or output" {
-            $testCredential = New-Object PSCredential(
-                $SecurityConfig.TestCredentials.Valid.Username,
-                (ConvertTo-SecureString $SecurityConfig.TestCredentials.Valid.Password -AsPlainText -Force)
-            )
+    It 'Rejects a name that contains <Description>' -ForEach $injectionCases {
+        { Get-Thing -Name $Text } |
+            Should-Throw -FullyQualifiedErrorId 'ParameterArgumentValidationError,Get-Thing'
 
-            # Capture all output streams
-            $allOutput = Function-Name -Credential $testCredential -Verbose -Debug 4>&1 5>&1 6>&1
+        Should-NotInvoke -CommandName Invoke-RestMethod -ModuleName ModuleName
+    }
+}
 
-            # Convert all output to string for analysis
-            $outputText = $allOutput | Out-String
+Describe 'Read-ThingFile path handling' -Tag 'Security' {
+    BeforeAll {
+        $root = Join-Path -Path $TestDrive -ChildPath 'root'
+        $sibling = Join-Path -Path $TestDrive -ChildPath 'root-other'
+        $null = New-Item -Path $root -ItemType Directory
+        $null = New-Item -Path $sibling -ItemType Directory
 
-            # Ensure credentials are not exposed anywhere.
-            # Escape the values - they are data, not patterns.
-            $outputText | Should-NotMatchString ([regex]::Escape($SecurityConfig.TestCredentials.Valid.Username))
-            $outputText | Should-NotMatchString ([regex]::Escape($SecurityConfig.TestCredentials.Valid.Password))
-        }
-
-        It "Should handle SecureString parameters securely" {
-            $secureString = ConvertTo-SecureString "SecretValue123" -AsPlainText -Force
-
-            # Function should accept SecureString without exposing value
-            $result = Function-Name -SecureParameter $secureString -Verbose 4>&1
-
-            # Verify SecureString value is not exposed in verbose output
-            ($result | Out-String) | Should-NotMatchString 'SecretValue123'
-        }
-
-        It "Should validate credential authentication" {
-            $validCredential = New-Object PSCredential(
-                $SecurityConfig.TestCredentials.Valid.Username,
-                (ConvertTo-SecureString $SecurityConfig.TestCredentials.Valid.Password -AsPlainText -Force)
-            )
-
-            $invalidCredential = New-Object PSCredential(
-                $SecurityConfig.TestCredentials.Invalid.Username,
-                (ConvertTo-SecureString $SecurityConfig.TestCredentials.Invalid.Password -AsPlainText -Force)
-            )
-
-            # Valid credentials should work. There is no Should-NotThrow -
-            # call it directly; an unhandled exception fails the test.
-            Function-Name -Credential $validCredential
-
-            # Invalid credentials should fail gracefully
-            { Function-Name -Credential $invalidCredential } |
-                Should-Throw -ExceptionMessage '*authentication*'
-        }
-
-        It "Should implement secure credential caching" {
-            $testCredential = New-Object PSCredential(
-                "cachetest",
-                (ConvertTo-SecureString "CachePassword123" -AsPlainText -Force)
-            )
-
-            # First call - should cache credential securely
-            Function-Name -Credential $testCredential -CacheCredentials
-
-            # Verify credential is cached but not exposed
-            $cacheContent = Get-CredentialCache -ErrorAction SilentlyContinue
-            if (-not $cacheContent) {
-                Set-ItResult -Inconclusive -Because 'no credential cache was produced to inspect'
-            }
-
-            ($cacheContent | Out-String) | Should-NotMatchString 'CachePassword123'
-            ($cacheContent | Out-String) | Should-NotMatchString 'cachetest'
-        }
+        # The files outside the root exist, so a function that followed the path would return them.
+        $insidePath = Join-Path -Path $root -ChildPath 'inside.txt'
+        $outsidePath = Join-Path -Path $TestDrive -ChildPath 'outside.txt'
+        $siblingPath = Join-Path -Path $sibling -ChildPath 'outside.txt'
+        Set-Content -LiteralPath $insidePath -Value 'inside' -Encoding ascii
+        Set-Content -LiteralPath $outsidePath -Value 'outside' -Encoding ascii
+        Set-Content -LiteralPath $siblingPath -Value 'outside' -Encoding ascii
     }
 
-    Context "Access Control and Authorization" {
-        It "Should deny access when the role is insufficient" {
-            Mock Get-CurrentUserRole { 'User' }
-
-            { Function-Name -RequiredRole 'Administrator' } |
-                Should-Throw -ExceptionMessage '*insufficient privileges*'
-        }
-
-        It "Should allow access when the role is sufficient" {
-            Mock Get-CurrentUserRole { 'Administrator' }
-
-            Function-Name -RequiredRole 'Administrator'
-        }
-
-        It "Should not perform the privileged action when denied" {
-            Mock Get-CurrentUserRole { 'User' }
-            Mock Invoke-PrivilegedAction { }
-
-            { Function-Name -RequiredRole 'Administrator' } | Should-Throw
-
-            # The assertion that actually matters: the action never ran
-            Should-NotInvoke Invoke-PrivilegedAction
-        }
-
-        It "Should validate file system permissions" {
-            $restrictedPath = "C:\Windows\System32\config"
-
-            # Should check permissions before attempting access
-            { Function-Name -Path $restrictedPath } |
-                Should-Throw -ExceptionMessage '*access denied*'
-        }
-
-        It "Should reject an invalid session" {
-            Mock Get-CurrentSession { $null }
-
-            { Function-Name -RequireValidSession } |
-                Should-Throw -ExceptionMessage '*invalid session*'
-        }
-
-        It "Should accept a valid session" {
-            Mock Get-CurrentSession { @{ Valid = $true; UserId = 'testuser' } }
-
-            Function-Name -RequireValidSession
-        }
+    It 'Reads a file inside the root' {
+        Read-ThingFile -Root $root -ChildPath 'inside.txt' | Should-BeString 'inside' -TrimWhitespace
     }
 
-    Context "Data Protection and Encryption" {
-        It "Should encrypt sensitive data at rest" {
-            $sensitiveData = "Confidential Information 12345"
-
-            $result = Function-Name -SensitiveData $sensitiveData -EncryptData
-
-            # Verify data is encrypted (not plaintext)
-            $result.EncryptedData | Should-NotMatchString 'Confidential Information'
-            $result.EncryptedData | Should-NotBeEmptyString
-
-            # Verify encryption metadata is present
-            $result.EncryptionAlgorithm | Should-NotBeEmptyString
-            $result.IV | Should-NotBeNull
-        }
-
-        It "Should implement secure data transmission" {
-            # Mock secure transmission
-            Mock Invoke-SecureTransmission {
-                param($Data, $Endpoint)
-
-                # Verify data is encrypted before transmission
-                if ($Data -match "plaintext") {
-                    throw "Data not encrypted for transmission"
-                }
-
-                return @{ Success = $true; Encrypted = $true }
-            }
-
-            $testData = "Sensitive transmission data"
-            $result = Function-Name -TransmitData $testData -Endpoint "https://secure-api.test"
-
-            $result.Success   | Should-BeTrue
-            $result.Encrypted | Should-BeTrue
-        }
-
-        It "Should securely hash passwords" {
-            $password = "UserPassword123!"
-
-            $result = Function-Name -HashPassword $password
-
-            # Verify password is hashed, not stored in plaintext
-            $result.HashedPassword | Should-NotMatchString ([regex]::Escape($password))
-            $result.HashedPassword | Should-NotBeEmptyString
-
-            # Verify salt is used
-            $result.Salt | Should-NotBeEmptyString
-
-            # Verify hash algorithm is secure.
-            # Should -BeIn has no direct Should-* equivalent; Should-Any over the
-            # allow-list expresses the same intent.
-            @('SHA256', 'SHA512', 'bcrypt', 'scrypt', 'PBKDF2') |
-                Should-Any { $_ -eq $result.Algorithm }
-        }
+    It 'Refuses <ChildPath>, which resolves outside the root' -ForEach $traversalCases {
+        { Read-ThingFile -Root $root -ChildPath $ChildPath } |
+            Should-Throw -FullyQualifiedErrorId 'PathOutsideRoot,Read-ThingFile'
     }
 
-    Context "Audit and Compliance" {
-        It "Should log security-relevant events" {
-            # Clear any existing security logs
-            Clear-SecurityLog -ErrorAction SilentlyContinue
+    It 'Refuses an absolute path outside the root' {
+        { Read-ThingFile -Root $root -ChildPath $outsidePath } |
+            Should-Throw -FullyQualifiedErrorId 'PathOutsideRoot,Read-ThingFile'
+    }
+}
 
-            # Perform operation that should generate security log
-            Function-Name -SecuritySensitiveOperation -UserId "testuser"
-
-            # Verify security event was logged
-            $securityLogs = Get-SecurityLog -Recent 1
-            $securityLogs | Should-NotBeNull
-            $securityLogs[0].EventType | Should-MatchString 'Security'
-            $securityLogs[0].UserId | Should-Be 'testuser'
-        }
-
-        It "Should implement data retention policies" {
-            $testData = @{
-                Id = [System.Guid]::NewGuid()
-                Data = "Test data for retention"
-                RetentionPeriod = [TimeSpan]::FromDays(30)
-            }
-
-            # Store data with retention policy
-            Function-Name -StoreData $testData
-
-            # Verify retention metadata is set
-            $storedData = Get-StoredData -Id $testData.Id
-            $storedData.ExpirationDate | Should-BeAfter (Get-Date)
-            $storedData.ExpirationDate | Should-BeBefore (Get-Date).AddDays(30)
-        }
-
-        It "Should support compliance data export" {
-            # Generate test compliance data
-            1..5 | ForEach-Object {
-                Function-Name -CreateComplianceRecord -UserId "user$_" -Action "TestAction$_"
-            }
-
-            # Export compliance data
-            $exportResult = Function-Name -ExportComplianceData -StartDate (Get-Date).AddDays(-1) -EndDate (Get-Date)
-
-            # Verify export contains required fields.
-            # There is no Should -HaveProperty operator in Pester - that was never real.
-            # Assert the shape instead.
-            $exportResult | Should-NotBeNull
-            $exportResult.Records | Should-BeCollection -Count 5
-            $exportResult.Records | Should-All {
-                $null -ne $_.UserId -and $null -ne $_.Action -and $null -ne $_.Timestamp
-            }
-        }
+Describe 'Connect-ThingService credential handling' -Tag 'Security' {
+    BeforeAll {
+        # The password is generated for each run, so the test file stores no secret.
+        $secretText = [guid]::NewGuid().ToString('N')
+        $password = ConvertTo-SecureString -String $secretText -AsPlainText -Force
+        $credential = [System.Management.Automation.PSCredential]::new('svc-test', $password)
+        $secretPattern = [regex]::Escape($secretText)
     }
 
-    Context "Error Handling Security" {
-        It "Should not expose sensitive information in error messages" {
-            $sensitiveConnectionString = "Server=secret.db.com;Database=confidential;User=admin;Password=secret123"
+    It 'Declares Credential as a PSCredential' {
+        Get-Command -Name Connect-ThingService |
+            Should-HaveParameter -ParameterName Credential -Type ([System.Management.Automation.PSCredential])
+    }
 
-            # Capture the error explicitly. A bare try/catch with assertions only in
-            # the catch block passes silently when the function does NOT throw -
-            # the test then proves nothing.
-            $thrown = $null
-            try {
-                Function-Name -ConnectionString $sensitiveConnectionString -ForceError
-            }
-            catch {
-                $thrown = $_
-            }
+    It 'Fails without prompting when no credential is passed' {
+        Mock -CommandName Get-Credential -ModuleName ModuleName -MockWith { }
+        Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith { }
 
-            $thrown | Should-NotBeNull -Because 'the function was expected to fail'
-            $thrown.Exception.Message | Should-NotMatchString 'secret\.db\.com'
-            $thrown.Exception.Message | Should-NotMatchString 'secret123'
-            $thrown.Exception.Message | Should-NotMatchString 'confidential'
+        { Connect-ThingService } |
+            Should-Throw -FullyQualifiedErrorId 'CredentialRequired,Connect-ThingService'
+
+        Should-NotInvoke -CommandName Get-Credential -ModuleName ModuleName
+        Should-NotInvoke -CommandName Invoke-RestMethod -ModuleName ModuleName
+    }
+
+    It 'Does not write the password to any stream' {
+        Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith {
+            [PSCustomObject]@{ sessionId = 'session-1' }
         }
 
-        It "Should implement secure error logging" {
-            # Generate an error condition
-            { Function-Name -CauseSecurityError -ErrorAction Stop } | Should-Throw
+        $output = Connect-ThingService -Credential $credential -Verbose -InformationAction Continue *>&1
+        $text = $output | Out-String
 
-            # Error should be logged securely without exposing sensitive details
-            $errorLogs = Get-ErrorLog -Recent 1
-            $errorLogs[0].Message | Should-NotBeEmptyString
-            $errorLogs[0].SanitizedForSecurity | Should-BeTrue
+        # The first assertion proves that the verbose stream was captured.
+        $text | Should-MatchString 'Signing in'
+        $text | Should-NotMatchString $secretPattern
+    }
+
+    It 'Does not put the password in the error when sign-in fails' {
+        Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith {
+            throw [System.UnauthorizedAccessException]::new('The service refused the credential.')
         }
+
+        $failure = { Connect-ThingService -Credential $credential } |
+            Should-Throw -FullyQualifiedErrorId 'SignInFailed,Connect-ThingService'
+
+        $failure.Exception.Message | Should-NotMatchString $secretPattern
+        ($failure | Out-String) | Should-NotMatchString $secretPattern
     }
 }
 ```
 
-## Pester 6 Notes for Security Tests
+## What The Template Shows
 
-### Discovery-Time Data
+### Attack Data Is Built During Discovery
 
-Attack-pattern lists drive `-ForEach`, so they must exist at **discovery** time. Put them in
-`BeforeDiscovery`, never `BeforeAll`.
+The lists that drive `-ForEach` must exist during discovery, so they are built in `BeforeDiscovery`
+(TST-02). A list built in `BeforeAll` is `$null` at that point, and the outcome depends on how the
+cases are derived from it:
 
-This matters more for security suites than anywhere else, because the failure is silent and looks
-like success:
+| Cases derived from a `$null` list with | Result |
+| --- | --- |
+| `$list \| ForEach-Object { @{ Text = $_ } }` | One test with `$null` as its value. It can pass, and the run looks complete. |
+| `foreach ($item in $list) { @{ Text = $item } }` | No cases. Discovery of the file fails. |
+| `$list.ForEach({ @{ Text = $_ } })` | No cases. Discovery of the file fails. |
 
-```powershell
-# WRONG - $SecurityConfig is $null during discovery.
-# $null piped through ForEach-Object yields ONE iteration, so this generates a
-# single test named "rejects: $null" that exercises no attack pattern at all.
-# The run reports green. Nothing was tested.
-BeforeAll {
-    $SecurityConfig = @{ MaliciousInputPatterns = @("'; DROP TABLE Users; --", '$(Get-Process)') }
-}
-It "rejects: <MaliciousInput>" -TestCases @(
-    $SecurityConfig.MaliciousInputPatterns | ForEach-Object { @{ MaliciousInput = $_ } }
-) { ... }
+Do not build cases with `ForEach-Object`. Do not add `-AllowNullOrEmptyForEach` in a security test
+file either: an empty list of attacks must stop the run.
 
-# RIGHT - built at discovery time, generates one test per pattern
-BeforeDiscovery {
-    $MaliciousInputPatterns = @("'; DROP TABLE Users; --", '$(Get-Process)')
-}
-It "rejects: <MaliciousInput>" -ForEach $MaliciousInputPatterns.ForEach({
-    @{ MaliciousInput = $_ }
-}) { ... }
-```
-
-If the source list is genuinely empty (`@()` rather than `$null`), Pester 6 **fails discovery** with
-`Run.FailOnNullOrEmptyForEach` rather than running zero tests. For a security suite that is exactly
-the behavior you want - do not disable it, and do not reach for `-AllowNullOrEmptyForEach` here.
-
-Verify the suite generates the test count you expect:
+To see how many tests a file produces without running them:
 
 ```powershell
-$config = New-PesterConfiguration
-$config.Run.Path = './Tests/Security'
-$config.Run.SkipRun = $true
-$config.Run.PassThru = $true
-$discovered = Invoke-Pester -Configuration $config
-"Discovered $($discovered.TotalCount) security tests"
+$configuration = New-PesterConfiguration
+$configuration.Run.Path = './Tests'
+$configuration.Run.SkipRun = $true
+$configuration.Run.PassThru = $true
+$discovered = Invoke-Pester -Configuration $configuration
+$discovered.TotalCount
 ```
 
-### Quote attack patterns correctly
+### Attack Strings Are Quoted Literally
 
-Use **single quotes** for patterns containing `$`. In the original template
-`"$(Get-Process)"` was a double-quoted string, so PowerShell expanded it at parse time and the test
-fed the _output of `Get-Process`_ to the function instead of the literal injection string.
+Write a pattern that contains `$` in single quotes. In double quotes PowerShell expands it before
+the test runs, and the function receives the output of the command instead of the attack:
 
 ```powershell
-'$(Get-Process)'          # literal - what you want to test
-"$(Get-Process)"          # expanded at parse time - tests nothing useful
+# Compliant: the function receives the text
+@{ Description = 'a subexpression'; Text = '$(Get-Process)' }
+
+# Non-compliant: the function receives a list of processes
+@{ Description = 'a subexpression'; Text = "$(Get-Process)" }
 ```
 
-### Escape values used as regex
+Write path separators as `/`. A backslash is a separator on Windows only, so `..\outside.txt` names
+an ordinary file inside the root on Linux and macOS.
 
-`Should-MatchString` / `Should-NotMatchString` take a regex. Credentials and connection strings
-contain `.`, `$`, `(`, and `\`, which are metacharacters. Escape them:
+### The Unsafe Outcome Must Be Possible
 
-```powershell
-$output | Should-NotMatchString ([regex]::Escape($password))
-```
+A test proves a control only if it fails when the control is missing:
 
-An unescaped `.` matches any character, which usually makes the assertion _more_ likely to match and
-therefore _less_ likely to catch a leak - a false sense of security.
+- The files outside the root exist. Without the check, `Read-ThingFile` would return their content
+  and `Should-Throw` would fail.
+- The mock of `Invoke-RestMethod` lets `Should-NotInvoke` show that a rejected name never reached
+  the service. An error ID alone would not show that.
+- The first assertion on the captured text shows that the verbose stream is in it. An empty capture
+  would pass the second assertion without proving anything.
 
-### Assert the action did not happen
+### No Secret Is Stored In The Test File
 
-For authorization tests, `Should-NotInvoke` is stronger evidence than `Should-Throw`. A function can
-throw _after_ performing the privileged action:
+SEC-01 and SEC-04 apply to test files. The password is a value generated at run time, converted
+with `ConvertTo-SecureString -AsPlainText` only because it is not a literal and is not stored in
+source. A random value is also a better marker than a fixed one: it cannot appear in the output by
+coincidence.
 
-```powershell
-Mock Invoke-PrivilegedAction { }
-{ Function-Name -RequiredRole 'Administrator' } | Should-Throw
-Should-NotInvoke Invoke-PrivilegedAction
-```
+### Every Stream Is Captured
 
-### Do not put the only assertions inside a `catch`
+`*>&1` merges the error, warning, verbose, debug, and information streams into the output. The call
+passes `-Verbose` and `-InformationAction Continue` so that those streams are written at all.
 
-A `try`/`catch` whose assertions live only in the `catch` block passes silently when the code does
-**not** throw. Capture the error and assert it was thrown, or use `Should-Throw`.
+Do not add `-Debug` in a test that must run on Windows PowerShell 5.1. There it makes `Write-Debug`
+ask for confirmation, which fails in a non-interactive session. On PowerShell 7 `-Debug` only turns
+the stream on.
 
-## Security Test Guidelines
+### A Value Used As A Pattern Is Escaped
 
-### Input Validation Testing
+`Should-MatchString` and `Should-NotMatchString` take a regular expression. A password or a
+connection string can contain characters such as `.`, `$`, and `(`, so pass it through
+`[regex]::Escape()`. An invalid pattern stops the test with an error, and a valid but unintended one
+can fail to match the text it was meant to find.
 
-- Test all forms of malicious input
-- Validate parameter length limits
-- Test encoding and special characters
-- Verify path traversal prevention
-- Test command injection attempts
+### The Error Is Asserted, Not Only Caught
 
-### Credential Security Testing
+`Should-Throw` returns the error record, and the test asserts on its message. Do not write the
+assertions in the `catch` block of a `try` statement: when the function does not throw, the block
+does not run and the test passes.
 
-- Verify credentials are never exposed in logs
-- Test SecureString handling
-- Validate authentication mechanisms
-- Test credential caching security
-- Verify secure credential transmission
+### What The Function Must Not Do
 
-### Access Control Testing
-
-- Test role-based access control
-- Validate file system permissions
-- Test session management
-- Verify authorization enforcement
-- Test privilege escalation prevention
-
-### Data Protection Testing
-
-- Test encryption at rest and in transit
-- Validate secure data handling
-- Test password hashing algorithms
-- Verify secure deletion methods
-- Test data anonymization features
-
-### Compliance and Audit Testing
-
-- Verify security event logging
-- Test data retention compliance
-- Validate audit trail integrity
-- Test compliance data export
-- Verify regulatory requirement adherence
-
-### Error Handling Security
-
-- Ensure no sensitive data in error messages
-- Test error information disclosure
-- Validate secure error logging
-- Test error handling under attack conditions
-- Verify graceful failure modes
+For a refusal, `Should-NotInvoke` on the protected action is stronger evidence than `Should-Throw`,
+because a function can throw after it has done the damage. For SEC-05, mock `Get-Credential` and
+`Read-Host` in the module and assert that neither was called; the mock also keeps a defective
+function from waiting for input.

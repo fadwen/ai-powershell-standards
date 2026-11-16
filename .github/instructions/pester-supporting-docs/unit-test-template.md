@@ -1,331 +1,224 @@
 # Unit Test Template
 
-Targets **Pester 6.2+**. Uses the `Should-*` assertion syntax - see
-[Assertion Guide](./assertion-guide.md) for the full reference and the v5 mapping table.
+A unit test file for functions of a module, with the module's dependencies mocked. The rules it
+follows are in the [Pester rules](../powershell-pester.instructions.md), which also contain a
+complete test file for a standalone function. The file below passes on Pester 6.2.0 under
+PowerShell 7.6 and Windows PowerShell 5.1.
 
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
+## The Code Under Test
 
-## Standard Unit Test Structure
+The template tests a module named `ModuleName`. The test file is in the `Tests` folder directly
+under the module root.
 
-> Complete passing implementations of this template:
-> [Module-Structure-Example/Tests](../../../powershell-standards/Examples/Module-Structure-Example/Tests/)
-> and
-> [Testing-Examples](../../../powershell-standards/Examples/Testing-Examples/).
+- `Get-Thing -Name <string[]>` asks a web service for each name with `Invoke-RestMethod` and emits
+  one `ModuleName.Thing` object for each answer. Names are validated with `ValidatePattern`. When the
+  service fails for one name, the function writes a non-terminating error with the ID
+  `ThingReadFailed` and continues.
+- `Remove-Thing -Name <string[]>` sends a DELETE request for each name and supports `-WhatIf` and
+  `-Confirm`.
+- `Get-ThingUri` is a private function that builds the address of a request.
 
-Use this template for all unit tests:
+## The Test File
 
 ```powershell
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
 
-BeforeDiscovery {
-    # Pester 6 discovers and runs one file at a time, so this file must set up
-    # anything it needs at DISCOVERY time - it cannot rely on another file.
-    # Only needed when -ForEach data comes from the module itself.
-    if (-not (Get-Module -Name ModuleName)) {
-        Import-Module (Join-Path $PSScriptRoot '..\..\ModuleName.psd1')
-    }
-}
-
 BeforeAll {
-    # Import the module under test, once per run. -Force belongs in the module
-    # contract test alone; here it would cost every file a re-import.
+    $moduleRoot = Split-Path -Path $PSScriptRoot -Parent
     if (-not (Get-Module -Name ModuleName)) {
-        Import-Module (Join-Path $PSScriptRoot '..\..\ModuleName.psd1')
+        Import-Module -Name (Join-Path -Path $moduleRoot -ChildPath 'ModuleName.psd1')
     }
-
-    # Import test helpers
-    . $PSScriptRoot\..\TestHelpers\TestHelpers.ps1
-
-    # Mock external dependencies at module level
-    Mock Write-Verbose { } -ModuleName ModuleName
-    Mock Write-Information { } -ModuleName ModuleName
 }
 
-Describe "Function-Name" -Tag "Unit", "Public" {
-    Context "Parameter Validation" {
-        It "Should accept valid input: <TestValue>" -ForEach @(
-            @{ TestValue = 'ValidValue1'; Expected = 'ExpectedResult1' }
-            @{ TestValue = 'ValidValue2'; Expected = 'ExpectedResult2' }
-            @{ TestValue = 'ValidValue3'; Expected = 'ExpectedResult3' }
-        ) {
-            Function-Name -ParameterName $TestValue | Should-Be $Expected
-        }
-
-        It "Should reject invalid input: <Description>" -ForEach @(
-            @{ Description = 'null';    InvalidInput = $null; ExpectedError = '*cannot be null*' }
-            @{ Description = 'empty';   InvalidInput = '';    ExpectedError = '*cannot be empty*' }
-            @{ Description = 'symbols'; InvalidInput = 'Invalid@#$'; ExpectedError = '*invalid characters*' }
-        ) {
-            { Function-Name -ParameterName $InvalidInput } |
-                Should-Throw -ExceptionMessage $ExpectedError
-        }
-
-        It "Should support pipeline input" {
-            $results = @('Value1', 'Value2', 'Value3') | Function-Name
-            $results | Should-BeCollection -Count 3
-        }
-
-        It "Should fold a piped collection into the same single result as the by-parameter call" {
-            # PowerShell unrolls a piped array, so process runs once per element. A function that
-            # reduces its input to one result has to collect in process and fold in end, and only
-            # a piped test proves it does; the by-parameter test above passes either way. The @()
-            # makes the count read the same whether one object or several come back.
-            $items = @('Value1', 'Value2', 'Value3')
-            $piped = @($items | ConvertTo-Summary)
-            $piped | Should-BeCollection -Count 1
-            $piped[0].ItemCount | Should-Be (ConvertTo-Summary -InputObject $items).ItemCount
-        }
-
-        It "Should declare ParameterName as a mandatory string" {
-            Get-Command Function-Name |
-                Should-HaveParameter -ParameterName ParameterName -Type ([string]) -Mandatory
+Describe 'Get-Thing' -Tag 'Unit' {
+    BeforeAll {
+        Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith {
+            [PSCustomObject]@{ name = $Uri.Segments[-1]; state = 'ready' }
         }
     }
 
-    Context "Core Functionality" {
-        BeforeEach {
-            # Set up mocks for each test.
-            Mock External-Dependency {
-                @{ Status = 'Success'; Data = 'MockedData' }
-            } -ModuleName ModuleName
-
-            Mock Get-ExternalResource {
-                [PSCustomObject]@{
-                    Name  = 'TestResource'
-                    Value = 'TestValue'
-                }
-            } -ModuleName ModuleName
+    Context 'Parameters' {
+        It 'Declares Name as a mandatory string array' {
+            Get-Command -Name Get-Thing |
+                Should-HaveParameter -ParameterName Name -Type ([string[]]) -Mandatory
         }
 
-        It "Should return expected object structure" {
-            $result = Function-Name -ParameterName 'TestValue'
+        It 'Rejects a name <Description> before calling the service' -ForEach @(
+            @{ Description = 'with a path separator'; BadName = '../alpha' }
+            @{ Description = 'with a query string'; BadName = 'alpha?all=true' }
+            @{ Description = 'with a space'; BadName = 'alpha beta' }
+        ) {
+            { Get-Thing -Name $BadName } |
+                Should-Throw -FullyQualifiedErrorId 'ParameterArgumentValidationError,Get-Thing'
 
-            $result | Should-NotBeNull
-            $result | Should-HaveType ([PSCustomObject])
-            $result.PropertyName | Should-Be 'ExpectedValue'
+            Should-NotInvoke -CommandName Invoke-RestMethod -ModuleName ModuleName
+        }
+    }
+
+    Context 'When the service answers' {
+        It 'Returns a thing with the name and state that the service reported' {
+            $result = Get-Thing -Name 'alpha'
+
+            $result | Should-HaveType 'ModuleName.Thing'
+            $result.Name | Should-Be 'alpha'
+            $result.State | Should-Be 'ready'
         }
 
-        It "Should return the full expected shape" {
-            # Prefer one deep comparison over a run of property assertions.
-            # -ExcludePathsNotOnExpected ignores properties absent from $expected,
-            # so adding a new field to the output will not break this test.
-            $result = Function-Name -ParameterName 'TestValue'
+        It 'Emits one thing for each name from the pipeline, in order' {
+            $result = @('beta', 'alpha' | Get-Thing)
 
-            $result | Should-BeEquivalent ([PSCustomObject]@{
-                Name   = 'TestResource'
-                Status = 'Processed'
-            }) -ExcludePathsNotOnExpected
+            $result | Should-BeCollection -Count 2
+            $result[0].Name | Should-Be 'beta'
+            $result[1].Name | Should-Be 'alpha'
         }
 
-        It "Should call external dependencies with correct parameters" {
-            Function-Name -ParameterName 'TestValue'
+        It 'Sends one GET request for each name' {
+            $null = Get-Thing -Name 'alpha', 'beta'
 
-            Should-Invoke External-Dependency -Times 1 -Exactly -ModuleName ModuleName -ParameterFilter {
-                $Parameter -eq 'TestValue'
+            $alphaRequest = @{
+                CommandName = 'Invoke-RestMethod'
+                ModuleName = 'ModuleName'
+                ParameterFilter = { $Method -eq 'Get' -and $Uri.AbsolutePath -eq '/api/things/alpha' }
+            }
+            Should-Invoke -CommandName Invoke-RestMethod -ModuleName ModuleName -Times 2 -Exactly
+            Should-Invoke @alphaRequest -Times 1 -Exactly
+        }
+    }
+
+    Context 'When the service fails for one name' {
+        BeforeAll {
+            $brokenRequest = @{
+                CommandName = 'Invoke-RestMethod'
+                ModuleName = 'ModuleName'
+                ParameterFilter = { $Uri.AbsolutePath -eq '/api/things/broken' }
+            }
+            Mock @brokenRequest -MockWith {
+                throw [System.TimeoutException]::new('The service did not answer.')
             }
         }
 
-        It "Should handle multiple items correctly" {
-            $results = Function-Name -ParameterName @('Item1', 'Item2', 'Item3')
+        It 'Writes one non-terminating error and still returns the other things' {
+            $output = Get-Thing -Name 'broken', 'alpha' 2>&1
+            $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+            $things = @($output | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
 
-            $results | Should-BeCollection -Count 3
-            $results | Should-All { $_.Status -eq 'Processed' }
+            $errors | Should-BeCollection -Count 1
+            $errors[0].FullyQualifiedErrorId | Should-Be 'ThingReadFailed,Get-Thing'
+            $errors[0].Exception.InnerException | Should-HaveType ([System.TimeoutException])
+            $things | Should-BeCollection -Count 1
+            $things[0].Name | Should-Be 'alpha'
+        }
+
+        It 'Stops at the failure when the caller passes -ErrorAction Stop' {
+            { Get-Thing -Name 'broken', 'alpha' -ErrorAction Stop } |
+                Should-Throw -FullyQualifiedErrorId 'ThingReadFailed,Get-Thing'
         }
     }
+}
 
-    Context "Error Handling" {
-        It "Should handle external dependency failures gracefully" {
-            Mock External-Dependency {
-                throw 'External service unavailable'
-            } -ModuleName ModuleName
-
-            { Function-Name -ParameterName 'TestValue' } |
-                Should-Throw -ExceptionMessage '*External service unavailable*'
-        }
-
-        It "Should surface a typed error for connection failures" {
-            Mock External-Dependency {
-                throw [System.TimeoutException]::new('Connection timeout')
-            } -ModuleName ModuleName
-
-            # Assert on the type, not on message text you control and change often
-            { Function-Name -ParameterName 'TestValue' -ErrorAction Stop } |
-                Should-Throw -ExceptionType ([System.TimeoutException])
-        }
-
-        It "Should continue processing other items when one fails" {
-            Mock External-Dependency {
-                if ($Parameter -eq 'FailingItem') {
-                    throw 'Item processing failed'
-                }
-                @{ Status = 'Success' }
-            } -ModuleName ModuleName
-
-            $results = Function-Name -ParameterName @('GoodItem1', 'FailingItem', 'GoodItem2') -ErrorAction SilentlyContinue
-
-            # Should process the good items despite one failure
-            @($results | Where-Object { $_.Status -eq 'Success' }) | Should-BeCollection -Count 2
-        }
-
-        It "Should not call the downstream writer when validation fails" {
-            Mock Write-Result { } -ModuleName ModuleName
-
-            { Function-Name -ParameterName '' } | Should-Throw
-
-            Should-NotInvoke Write-Result -ModuleName ModuleName
-        }
+Describe 'Remove-Thing' -Tag 'Unit' {
+    BeforeAll {
+        Mock -CommandName Invoke-RestMethod -ModuleName ModuleName -MockWith { }
     }
 
-    Context "Performance Requirements" {
-        It "Should complete within acceptable time limits" {
-            { Function-Name -ParameterName 'TestValue' } | Should-BeFasterThan '5s'
+    It 'Does not call the service when -WhatIf is passed' {
+        Remove-Thing -Name 'alpha' -WhatIf
+
+        Should-NotInvoke -CommandName Invoke-RestMethod -ModuleName ModuleName
+    }
+
+    It 'Sends one DELETE request when the caller confirms' {
+        Remove-Thing -Name 'alpha' -Confirm:$false
+
+        $deleteRequest = @{
+            CommandName = 'Invoke-RestMethod'
+            ModuleName = 'ModuleName'
+            ParameterFilter = { $Method -eq 'Delete' -and $Uri.AbsolutePath -eq '/api/things/alpha' }
         }
+        Should-Invoke @deleteRequest -Times 1 -Exactly
+    }
+}
 
-        It "Should scale linearly with input size" {
-            $smallTime = Measure-Command { Function-Name -ParameterName (1..10) }
-            $largeTime = Measure-Command { Function-Name -ParameterName (1..100) }
+Describe 'Get-ThingUri' -Tag 'Unit' {
+    It 'Appends the path of the thing to the service address' {
+        InModuleScope -ModuleName ModuleName -ScriptBlock {
+            $result = Get-ThingUri -ServiceUri 'https://things.example.test/' -Name 'alpha'
 
-            # Large input should not be more than 15x slower (allows for overhead)
-            $scalingRatio = $largeTime.TotalMilliseconds / $smallTime.TotalMilliseconds
-            $scalingRatio | Should-BeLessThan 15
+            $result.AbsoluteUri | Should-Be 'https://things.example.test/api/things/alpha'
         }
     }
 }
 ```
 
-## Pester 6 Authoring Rules
+## What The Template Shows
 
-### Setup blocks compose
+- **Loading.** The top-level `BeforeAll` imports the module from a path built on `$PSScriptRoot`
+  (TST-02, TST-03). With the test file one folder deeper, add one more `Split-Path`.
+- **Mocks.** Every mock and every `Should-Invoke` names the module (TST-21). The `Describe` block
+  declares the answer for the normal case once, and the failure context adds a filtered mock for one
+  address. `Should-Invoke` counts only the calls of the current `It` block. The
+  [mocking guide](./mocking-patterns.md) explains scopes and filters.
+- **Validation failures.** The error ID `ParameterArgumentValidationError,Get-Thing` identifies a
+  rejected argument without depending on message text, and `Should-NotInvoke` shows that the service
+  was not reached.
+- **Order.** The pipeline test asserts the count and then each index, because `Should-BeCollection`
+  does not compare order (TST-14).
+- **Both pipeline paths.** Test a parameter that accepts pipeline input with a piped call and with a
+  call by parameter (TST-44). A function that reduces its input to one result runs different code
+  on each path, and only the piped test proves that it collects first (FUN-25).
+- **Per-item failures.** The error stream is merged into the output and the records are counted
+  (TST-17). `Should-Throw` would not see this error, because a module function ignores the error
+  preference that `Should-Throw` sets; with `-ErrorAction Stop` in the call it does.
+- **State changes.** `-WhatIf` must not reach the service, and `-Confirm:$false` lets the test run a
+  function whose `ConfirmImpact` is `High` without a prompt.
+- **Private functions.** `InModuleScope` is used only to call `Get-ThingUri` directly (TST-21).
 
-From 6.2 a block may declare several `BeforeAll`, `BeforeEach`, `AfterAll`, or `AfterEach` blocks.
-Setups run in declaration order and teardowns in reverse, so setup can be grouped by what it sets
-up - one `BeforeAll` that imports the module, another that builds the fixture - instead of merged
-into a single block. 6.0 and 6.1 throw on the second one, so a suite that must still run on those
-versions keeps one per block.
+What to cover is set by TST-41: each parameter set, each documented output, each validation
+failure, and each error path. Add timing or security tests only where the function has such a
+requirement (TST-43); the [performance](./performance-test-template.md) and
+[security](./security-test-template.md) templates show how.
 
-### No `param()` block in `It`
+## Authoring Details
 
-Data from `-ForEach` / `-TestCases` is injected as variables automatically. Do not add a `param()`
-block - it is unnecessary and invites the `$Input` bug below.
+The [assertion guide](./assertion-guide.md) describes each assertion used above.
+
+### Test Cases
+
+Each key of a `-ForEach` hashtable is a variable in the `It` block, so the block needs no `param()`
+block. Do not add one, and do not name a key after an automatic variable (TST-30). With a key named
+`Input`, the block reads an empty value in place of the test case:
 
 ```powershell
-# WRONG - $Input is an automatic variable and will not hold your test data
-It 'test <Input>' -ForEach @(@{ Input = 'a' }) {
+# Non-compliant: Input is an automatic variable, and the param() block is not needed
+It 'Converts <Input>' -ForEach @(@{ Input = 'alpha' }) {
     param($Input)
-    ...
+    ConvertTo-UpperText -Text $Input | Should-Be 'ALPHA'
 }
 
-# RIGHT - name the key something else; no param() needed
-It 'test <TestValue>' -ForEach @(@{ TestValue = 'a' }) {
-    $TestValue | Should-Be 'a'
+# Compliant
+It 'Converts <Text>' -ForEach @(@{ Text = 'alpha' }) {
+    ConvertTo-UpperText -Text $Text | Should-Be 'ALPHA'
 }
 ```
 
-Never use `Input`, `Args`, `Error`, `Host`, `Matches`, or `PSItem` as `-ForEach` keys - they collide
-with PowerShell automatic variables.
-
-### `-ForEach` must not be empty
-
-`Run.FailOnNullOrEmptyForEach` is on by default, so a `-ForEach` that evaluates to `$null` or `@()`
-**fails discovery**. When an empty set is legitimate, opt out explicitly:
+A `-ForEach` value that is empty or `$null` stops discovery of the file with
+`Value can not be null or empty array`. That is usually a real defect: the code that builds the
+cases returned nothing. Where an empty list is legitimate, say so on the block:
 
 ```powershell
-It 'handles <Name>' -ForEach $cases -AllowNullOrEmptyForEach {
-    ...
+It 'Reaches <Endpoint>' -ForEach $configuredEndpoints -AllowNullOrEmptyForEach {
+    Test-Endpoint -Uri $Endpoint | Should-BeTrue
 }
 ```
 
-Prefer fixing the generator over adding the switch - an empty test case list usually means the data
-source silently returned nothing.
+### Test Names
 
-### Test names expand only `<...>`
+Only text inside `<` and `>` is expanded in a test name. Everything else is literal, including `$`
+and quotes.
 
-Everything outside `<...>` stays literal, including backticks, `$`, and quotes. Inside `<...>` the
-content is evaluated as a full PowerShell expression and rendered through Pester's formatter:
-
-```powershell
-It 'returns <Expected> for <TestValue>'          # property references
-It 'totals <($a + $b)>'                          # full expressions work in v6
-It 'handles a literal `<placeholder>'            # escape the bracket for literal text
-```
-
-### `-Focus` and `-Pending` are gone
-
-Use `-Skip`, tags, or the `Filter` configuration to select which tests run. Use
-`Set-ItResult -Skipped` or `-Inconclusive` instead of `-Pending`.
-
-## Test Context Guidelines
-
-### Parameter Validation Context
-
-Test all parameter validation scenarios:
-
-- Valid input variations
-- Invalid input rejection
-- Pipeline support: piped and by parameter, since a function that reduces its input to one result runs
-  different code on each path
-- Parameter binding and metadata (`Should-HaveParameter`)
-- Mandatory parameter enforcement
-
-### Core Functionality Context
-
-Test the main business logic:
-
-- Expected return values and types
-- Object structure validation
-- External dependency interaction
-- Multiple item processing
-- Business rule compliance
-
-### Error Handling Context
-
-Validate error scenarios:
-
-- External dependency failures
-- Invalid state handling
-- Meaningful error messages
-- Graceful degradation
-- Recovery mechanisms
-- Downstream calls _not_ made on failure (`Should-NotInvoke`)
-
-### Performance Requirements Context
-
-Establish performance baselines:
-
-- Execution time limits (`Should-BeFasterThan`)
-- Scaling characteristics
-- Memory usage patterns
-- Resource cleanup
-- Bottleneck identification
-
-## Assertion Guidelines
-
-### Comprehensive Assertions
-
-- Test return values and types
-- Verify object properties and structure
-- Validate external dependency calls
-- Check error conditions and messages
-- Measure performance characteristics
-
-### Common Assertions
-
-| Intent | Assertion |
+| Name | Displayed as |
 | --- | --- |
-| Exact value | `Should-Be` |
-| String with options | `Should-BeString -CaseSensitive` / `-TrimWhitespace` |
-| Type validation | `Should-HaveType ([T])` |
-| Pattern matching | `Should-MatchString 'regex'` |
-| Error validation | `Should-Throw -ExceptionType` / `-ExceptionMessage` |
-| Performance limits | `Should-BeFasterThan '5s'` |
-| Collection size | `Should-BeCollection -Count 3` |
-| Every item matches | `Should-All { ... }` |
-| Whole-object shape | `Should-BeEquivalent -ExcludePathsNotOnExpected` |
-| Mock was called | `Should-Invoke -Times 1 -Exactly` |
-| Mock was not called | `Should-NotInvoke` |
-
-There is no `Should-NotThrow`. Call the code directly - an unhandled exception fails the test.
-
-`Should -BeNullOrEmpty` has no single `Should-*` equivalent. Pick the one you mean: `Should-BeNull`,
-`Should-BeEmptyString`, or `Should-BeFalsy`.
+| `'Returns <Expected> for <Text>'` | The values of the keys `Expected` and `Text` |
+| `'Totals <($First + $Second)>'` | The value of the expression |
+| ``'Handles a literal `<placeholder>'`` | `Handles a literal <placeholder>` |
+| `'Uses <Missing>'`, with no such key | `Uses $null` |

@@ -1,47 +1,49 @@
 # Custom Assertion Guide
 
-Requires **Pester 6.2+**. `New-ShouldAssertion` does not exist in 6.0.x.
+How to add an assertion to the `Should-*` family with `New-ShouldAssertion`. That command was added
+in Pester 6.1 and does not exist in 6.0. Every statement about behaviour was checked by running it
+on Pester 6.2.0. The built-in assertions are described in the [assertion guide](./assertion-guide.md).
 
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
-
-In Pester 6.0 the `Should-*` family was a closed set - extending it meant dropping back to the v5
-`Add-ShouldOperator` mechanism, a different shape that caps out at 32 operators. Pester 6.1 opens the
-family up: write an ordinary function, call `New-ShouldAssertion` inside it, and the result behaves
-exactly like a built-in assertion.
+The older mechanism, `Add-ShouldOperator`, extends only the classic `Should -Be` syntax and stops at
+32 operators. Use `New-ShouldAssertion` for new work.
 
 ## When To Write One
 
-Write a custom assertion when the same non-trivial check appears across several test files and the
-built-in failure message cannot explain it. The bar is the failure message: if a custom assertion
-does not produce a better one than `Should-BeTrue` plus `-Because`, it is not worth the indirection.
+Write a custom assertion when the same check appears in several test files and a built-in failure
+message cannot explain what went wrong. If it does not produce a better message than `Should-BeTrue`
+with `-Because`, it is not worth having.
 
 | Situation | Do this |
 | --- | --- |
-| One test needs a bespoke check | Plain PowerShell plus `Should-Be` |
-| A property-by-property object shape check | `Should-BeEquivalent -ExcludePathsNotOnExpected` |
-| A condition across every item | `Should-All { ... }` |
-| A domain rule repeated across files, where naming the violating item is the point | Custom assertion |
+| One test needs a special check | Plain PowerShell and `Should-Be` |
+| The shape of an object | `Should-BeEquivalent -ExcludePathsNotOnExpected` |
+| A condition on every item | `Should-All { ... }` |
+| A project rule checked in many files, where the message must name the item that breaks it | Custom assertion |
 
-A custom assertion inherits all of the shared machinery for free: pipeline input collection, Pester's
-value formatting, the diagnostic hint when a collection is piped into a value assertion, soft
-assertions via `Should.ErrorAction = 'Continue'`, and use inside a mock `-ParameterFilter`.
+A custom assertion gets what the built-in ones have: input from the pipeline or from `-Actual`,
+Pester's value formatting, the hint about piped collections, soft assertions, and use inside a mock
+`-ParameterFilter`.
 
 ## The Shape
+
+The functions in this guide omit comment-based help to stay short. A real one carries it.
 
 ```powershell
 function Assert-BeValidSemVer {
     [CmdletBinding()]
-    param (
-        [Parameter(Position = 0, ValueFromPipeline)] $Actual,
-        [string] $Because
+    param(
+        [Parameter(Position = 0, ValueFromPipeline)]
+        [object]$Actual,
+
+        [string]$Because
     )
 
     $assert = New-ShouldAssertion -Caller $PSCmdlet -Actual $Actual -Buffer $Input
     $Actual = $assert.Actual()
 
-    $parsed = $null
-    if (-not [version]::TryParse($Actual, [ref] $parsed) -or $parsed.Build -lt 0) {
+    $version = $null
+    $isVersion = [version]::TryParse($Actual, [ref]$version)
+    if (-not $isVersion -or $version.Build -lt 0 -or $version.Revision -ge 0) {
         $assert.Fail(
             'Expected a Major.Minor.Patch version,<because> but got <actual>.',
             @{ Because = $Because })
@@ -52,90 +54,93 @@ Set-Alias -Name Should-BeValidSemVer -Value Assert-BeValidSemVer
 ```
 
 ```powershell
-'1.2.3'                    | Should-BeValidSemVer          # passes
-$manifest.ModuleVersion    | Should-BeValidSemVer -Because 'the module is published to a gallery'
-# Expected a Major.Minor.Patch version, because the module is published to a gallery, but got '1.0'.
+'1.2.3' | Should-BeValidSemVer
+$manifest.ModuleVersion | Should-BeValidSemVer -Because 'the module is published to a gallery'
+```
+
+```text
+Expected a Major.Minor.Patch version, because the module is published to a gallery, but got '1.0'.
 ```
 
 Three rules cover most of it:
 
-1. **Call `New-ShouldAssertion` once, at the top**, passing the assertion's own `$PSCmdlet`,
-   its `-Actual` value, and `$Input`. Pass all three even when one is usually empty - `-Actual` is
-   `$null` for a piped call and `$Input` is empty for an `-Actual` call, and the helper resolves
-   which one was used.
-2. **Read the value back through `$assert.Actual()`**, never from `$Actual` directly. That is what
-   applies the pipeline-collection rules and preserves shapes a bare read would flatten.
-3. **A pass is implicit.** Return without calling `Fail()`. There is nothing to signal success with.
+1. Call `New-ShouldAssertion` once, at the top, with the function's own `$PSCmdlet`, its `-Actual`
+   value, and `$Input`. Pass all three every time: `-Actual` is `$null` for a piped call, `$Input` is
+   empty for an `-Actual` call, and the helper works out which was used.
+2. Read the value from `$assert.Actual()`, not from `$Actual`. That applies the same input handling
+   as the built-in assertions.
+3. A pass is implicit. Return without calling `Fail()`.
 
-Do not add a `process` block. The assertion body must run as an `end` block - the default when a
-function declares no named blocks - because `$Input` only holds the whole pipeline there. Pester's
-own examples write `end { ... }` explicitly; both forms are equivalent.
+This is the one place where a function reads the automatic variable `$Input`. It is read, never
+assigned.
 
-A `process` block does not error, which is what makes it worth calling out. It quietly changes the
-assertion's semantics: the body runs **once per piped item** instead of once for the pipeline, so
-the assertion inspects items individually rather than as one value the way every built-in
-`Should-*` does. The diagnostic hint also becomes nonsense, because it describes a collection that
-the assertion never saw:
+### No Process Block
+
+Do not add a `process` block, even though the parameter takes pipeline input. The body must run
+once, in the `end` block, which is where a function body runs when it names no blocks. `$Input`
+holds the whole pipeline only there.
+
+A `process` block causes no error. It changes what the assertion does: the body runs once for each
+piped item, and the hint describes a collection that the assertion never saw.
 
 ```powershell
 'ok', 'bad' | Should-BeOk
 ```
 
 ```text
-# end block (correct)   - invoked once,        "Expected ok but got @('ok', 'bad')."
-# process block (wrong) - invoked twice,       "Expected ok but got 'bad'."
-#                         and the hint claims the collection was "re-collected into a single [string]"
+Body in the end block:      runs once.   Expected ok but got @('ok', 'bad').
+Body in a process block:    runs twice.  Expected ok but got 'bad'.
 ```
 
-If you want per-item semantics, that is what `Should-All` is for.
+For a check on each item, use `Should-All`.
 
 ### Parameter Positions
 
-6.1 aligned `-Actual` across every built-in assertion, and custom assertions should match so they
-read the same at a call site. `-Actual` always takes `ValueFromPipeline`; its position depends on
-whether the assertion has a comparand:
+Match the built-in assertions, so that a custom assertion reads the same way at a call site.
+`-Actual` always accepts pipeline input. Its position depends on whether there is an expected value:
 
-| Assertion shape | `-Expected` | `-Actual` | Built-in example |
+| Shape | `-Expected` | `-Actual` | Built-in examples |
 | --- | --- | --- | --- |
-| Single-subject - nothing to compare against | none | `Position = 0` | `Should-BeNull`, `Should-BeTrue`, `Should-BeHashtable` |
-| Two-subject - a positional comparand | `Position = 0`, mandatory | `Position = 1` | `Should-Be`, `Should-BeString`, `Should-HaveType` |
+| Nothing to compare with | none | `Position = 0` | `Should-BeNull`, `Should-BeTrue`, `Should-BeHashtable` |
+| An expected value | `Position = 0`, mandatory | `Position = 1` | `Should-Be`, `Should-BeString`, `Should-HaveType` |
 
-Verify against the installed version rather than trusting a doc, including this one:
-
-```powershell
-Get-Command -Syntax Should-BeHashtable
-```
+`Get-Command -Syntax Should-BeHashtable` shows the positions of any assertion.
 
 ## Collecting The Input: -As
 
-`-As` selects both how the piped input is collected and how the diagnostic hint is worded when the
-assertion fails.
+`-As` selects how piped input is collected and which hint is added to a failure.
 
-| `-As` | Input handling | Use for |
-| --- | --- | --- |
-| `Scalar` (default) | Unrolls a single piped value | A value assertion, like `Should-Be` |
-| `ExactType` | Unrolls, preserving the concrete type | A value assertion that inspects the type |
-| `Collection` | Keeps the input as a collection | A whole-collection assertion, like `Should-BeCollection` |
-| `CollectionItems` | Keeps the input as a collection, hints about items | An assertion that reports on individual items |
-| `None` | No unrolling, no input hint | A structural comparison, like `Should-BeEquivalent` |
+| `-As` | A single piped item | Hint added when | Use for |
+| --- | --- | --- | --- |
+| `Scalar` (default) | Unrolled | A collection was piped and inspected as one value | A value assertion, like `Should-Be` |
+| `ExactType` | Unrolled | A typed collection was piped and lost its type | A type assertion, like `Should-HaveType` |
+| `Collection` | Kept as a one-item array | A single value, `$null`, or a dictionary was given | A whole-collection assertion, like `Should-BeCollection` |
+| `CollectionItems` | Kept as a one-item array | A dictionary was given | An item-by-item assertion, like `Should-All` |
+| `None` | Unrolled | Never | A structural comparison, like `Should-BeEquivalent` |
+
+Several piped items reach the assertion as an `[Object[]]` in every mode.
 
 ```powershell
 function Assert-HaveTag {
     [CmdletBinding()]
-    param (
-        [Parameter(Position = 1, ValueFromPipeline)] $Actual,
-        [Parameter(Position = 0, Mandatory)] [string] $Expected,
-        [string] $Because
+    param(
+        [Parameter(Position = 1, ValueFromPipeline)]
+        [object]$Actual,
+
+        [Parameter(Position = 0, Mandatory)]
+        [string]$Expected,
+
+        [string]$Because
     )
 
     $assert = New-ShouldAssertion -Caller $PSCmdlet -Actual $Actual -Buffer $Input -As Collection
-    $Actual = $assert.Actual()
+    $blocks = $assert.Actual()
 
-    $missing = @($Actual | Where-Object { $_.Tag -notcontains $Expected })
-    if (0 -lt $missing.Count) {
+    $untagged = @($blocks | Where-Object { $_.Tag -notcontains $Expected })
+    if ($untagged.Count -gt 0) {
         $assert.Fail(
             'Expected every block to be tagged <expected>,<because> but <Untagged> were not.',
-            @{ Expected = $Expected; Because = $Because; Untagged = $missing.Name })
+            @{ Expected = $Expected; Because = $Because; Untagged = $untagged.Name })
     }
 }
 
@@ -143,64 +148,56 @@ Set-Alias -Name Should-HaveTag -Value Assert-HaveTag
 ```
 
 ```powershell
-$result.Blocks | Should-HaveTag 'Unit' -Because 'the tagging audit depends on it'
-# Expected every block to be tagged 'Unit', because the tagging audit depends on it,
-# but @('Connectivity', 'Retry') were not.
+$blocks | Should-HaveTag 'Unit' -Because 'the tagging audit depends on it'
 ```
 
-Naming the violating items is the whole reason to write this instead of
-`$result.Blocks | Should-All { $_.Tag -contains 'Unit' }`.
+```text
+Expected every block to be tagged 'Unit', because the tagging audit depends on it, but
+@('Connectivity', 'Retry') were not.
+```
+
+Naming the items that break the rule is the reason to write this in place of
+`$blocks | Should-All { $_.Tag -contains 'Unit' }`.
 
 ## The Failure Message
 
-`Fail(message)` or `Fail(message, data)`. The message is a template; `data` is a hashtable.
+Call `Fail(message)` or `Fail(message, data)`. The message is a template and `data` is a hashtable.
 
-Four keys in `data` are **reserved** and are not turned into tokens:
+Four keys of `data` have a fixed meaning:
 
 | Key | Effect |
 | --- | --- |
 | `Expected` | Fills `<expected>` and `<expectedType>` |
-| `Actual` | Fills `<actual>` and `<actualType>`; defaults to the collected input when omitted |
-| `Because` | Fills `<because>`, formatted as `, because <text>` (empty when `-Because` was not passed) |
-| `Hint` | Replaces the default input hint, printed as `Hint: <text>` after a blank line |
+| `Actual` | Fills `<actual>` and `<actualType>`. When omitted, the collected input is used. |
+| `Because` | Fills `<because>` with a space, `because <text>`, and a comma. With no text it fills it with nothing. |
+| `Hint` | Replaces the default hint. It is printed after a blank line as `Hint: <text>`. |
 
-Every other key becomes a `<key>` token.
+Every other key fills the token of the same name, such as `<Untagged>`. Values are formatted the way
+Pester formats them: a string in quotes, a collection as `@(...)`, a type name as `[int]`.
 
-| Token | Renders |
-| --- | --- |
-| `<expected>` | `data.Expected`, through Pester's formatter |
-| `<actual>` | `data.Actual`, or the collected input |
-| `<expectedType>` / `<actualType>` | The short type name, e.g. `[string]` |
-| `<because>` | `, because <text>`, or nothing |
-| `<YourKey>` | `data.YourKey`, through Pester's formatter |
-
-**`<because>` is only filled when you pass `Because` in the data.** Declaring a `-Because` parameter
-is not enough - the value has to be threaded through:
-
-```powershell
-$assert.Fail('Expected <expected>,<because> but got <actual>.', @{ Expected = $Expected; Because = $Because })
-```
-
-**Custom tokens are case-sensitive and must match the hashtable key exactly.** A key of `Untagged`
-fills `<Untagged>`; `<untagged>` is left in the message as literal text. Only the built-in tokens are
-lowercase. The failure is silent - the raw token ships in the message - so read the message once when
-you write the assertion.
-
-Write the comma before `<because>` rather than inside it, as the examples do. When `-Because` is
-absent the token renders as nothing and the sentence still reads correctly.
+- `<because>` is filled only when `Because` is in `data`. Declaring a `-Because` parameter is not
+  enough; pass its value on, as both functions above do.
+- Write the comma before `<because>`, as in `Expected <expected>,<because> but got <actual>.` The
+  sentence then reads correctly with and without a reason.
+- A token for a custom key must match the key's case. With the key `Untagged`, `<Untagged>` is
+  filled and `<untagged>` stays in the message as written. A token with no key also stays as
+  written, and nothing reports it, so read the message once when writing the assertion.
 
 ### Hint
 
-Use the `Hint` key when the assertion knows something more specific than the generic input hint:
+Add the `Hint` key when the assertion knows something more useful than the default hint:
 
 ```powershell
 $assert.Fail(
     'Expected at most 5 characters,<because> but <actual> has <Length>.',
-    @{ Because = $Because; Length = $Actual.Length
-       Hint = 'Rename the function rather than abbreviating the noun.' })
+    @{
+        Because = $Because
+        Length = $Actual.Length
+        Hint = 'Rename the function rather than abbreviating the noun.'
+    })
 ```
 
-Left alone, the default hint covers the common shape mistake:
+Without that key, the default hint covers the usual mistake with piped input:
 
 ```text
 Expected a Major.Minor.Patch version, but got @('1.2.3', '2.0.0').
@@ -211,150 +208,144 @@ value. To assert on a collection use Should-BeCollection or Should-BeEquivalent;
 single value pass it as the -Actual argument instead of piping it, e.g. -Actual $value.
 ```
 
-## Other Members On $assert
+## Other Members Of $assert
 
 | Member | Purpose |
 | --- | --- |
 | `Actual()` | The collected value to assert on |
-| `Fail(message [, data [, pretty]])` | Report a failure; `pretty` formats values across multiple lines |
+| `Fail(message)`, `Fail(message, data)`, `Fail(message, data, pretty)` | Report a failure. `pretty` is a Boolean that formats values over several lines. |
 | `EnsureScalar(expected)` | Returns `expected`, or throws when it is a collection |
-| `Format(value)` | Formats a value the way Pester does in messages |
-| `IsCollection(value)` | Whether a value is treated as a collection |
-| `Hint()` | The default input hint, for assertions that inspect it before failing |
+| `Format(value)` | Formats a value as Pester does in messages |
+| `IsCollection(value)` | Whether Pester treats the value as a collection |
+| `Hint()` | The default hint, or `$null` |
 
-`EnsureScalar` guards the **expected** side of an assertion that only makes sense against one value.
-Call it before comparing:
+`EnsureScalar` guards the expected side of an assertion that makes sense for one value only. Call it
+before comparing:
 
 ```powershell
 $Expected = $assert.EnsureScalar($Expected)
 ```
 
 ```text
-5 | Should-BeUnder @(1, 2)
-# You provided a collection to the -Expected parameter. Using a collection on the -Expected side is
-# not allowed by this assertion, because it leads to unexpected behavior. To compare collections use
-# Should-BeCollection, or a more specialized collection assertion such as Should-Any or Should-All.
+You provided a collection to the -Expected parameter. Using a collection on the -Expected side is
+not allowed by Assert-BeUnder, because it leads to unexpected behavior. To compare collections use
+Should-BeCollection, or a more specialized collection assertion such as Should-Any or Should-All.
 ```
 
-Guard the actual side too when the check does arithmetic or calls a type-specific method. Pester's
-hint appears on a `Fail()`, so an assertion that crashes on `@(1, 3) % 2` before reaching `Fail()`
-produces a raw PowerShell error instead. Test the type first and fail properly.
+The message names the function, not the alias it was called through.
 
-## Packaging: Name It Assert-, Export It As Should-
+Guard the actual side as well when the check uses an operator or a method that fails on a
+collection. Such a failure is an ordinary PowerShell error, raised before `Fail()` is reached, and it
+carries no hint. Test the value first and call `Fail()`.
 
-`Should` is not an approved PowerShell verb. A module that exports `Should-*` functions makes
-`Import-Module` print the unapproved-verb warning to every consumer. An explicit `FunctionsToExport`
-in the manifest does not suppress it, and `-DisableNameChecking` only moves the problem onto your
-users.
+## Packaging: Name It Assert-, Export A Should- Alias
 
-Name the function with the approved `Assert` verb and export a `Should-*` alias. Aliases are not
-verb-checked:
+`Should` is not an approved verb. A module that exports a function named `Should-*` makes
+`Import-Module` warn about unapproved verbs, on PowerShell 7 and Windows PowerShell 5.1, and listing
+the function in `FunctionsToExport` does not prevent the warning.
 
-```powershell
-function Assert-BeValidSemVer { ... }
-
-Set-Alias -Name Should-BeValidSemVer -Value Assert-BeValidSemVer
-Export-ModuleMember -Function Assert-BeValidSemVer -Alias Should-BeValidSemVer
-```
+Name the function with the approved verb `Assert` and export a `Should-*` alias. Aliases are not
+checked:
 
 ```powershell
-# TestHelpers/Assertions.psd1
+# Tests/TestHelpers/Assertions.psd1
 @{
-    RootModule        = 'Assertions.psm1'
+    RootModule = 'Assertions.psm1'
+    ModuleVersion = '1.0.0'
     FunctionsToExport = @('Assert-BeValidSemVer', 'Assert-HaveTag')
-    AliasesToExport   = @('Should-BeValidSemVer', 'Should-HaveTag')
+    CmdletsToExport = @()
+    AliasesToExport = @('Should-BeValidSemVer', 'Should-HaveTag')
 }
 ```
 
-Nothing in Pester keys off the assertion's name - it all keys off the `$PSCmdlet` passed as
-`-Caller` - so the assertion behaves identically when called through the alias.
+The root module holds the functions and the `Set-Alias` lines shown above. Pester works from the
+`$PSCmdlet` passed as `-Caller`, not from the name of the command, so the assertion behaves the same
+when it is called through the alias.
 
-This only applies to modules. A test file that defines or dot-sources a `Should-*` function directly
-needs none of it.
+Use the same names when a test file defines the function itself. No warning appears there, but
+STY-10 asks for an approved verb in every function name.
 
 ## Where To Put Them
 
-Custom assertions are shared test infrastructure, so they follow the same rule as every other
-discovery-time dependency: **each test file loads its own.** See
-[Test Structure Guide](./test-structure-guide.md).
+Custom assertions are test helpers, and each test file loads the helpers it uses (TST-02). The
+[test structure guide](./test-structure-guide.md) describes the folder layout.
 
 ```text
 Tests/
   TestHelpers/
     Assertions.psd1
     Assertions.psm1
-    Assertions.Tests.ps1     # the assertions are code; test them
+    Assertions.Tests.ps1
   Unit/
 ```
 
 ```powershell
+# In Tests/Unit/Get-Thing.Tests.ps1
 BeforeAll {
-    Import-Module "$PSScriptRoot/../TestHelpers/Assertions.psd1" -Force
-    Import-Module "$PSScriptRoot/../../MyModule.psd1" -Force
+    $testRoot = Split-Path -Path $PSScriptRoot -Parent
+    $helperFolder = Join-Path -Path $testRoot -ChildPath 'TestHelpers'
+    Import-Module -Name (Join-Path -Path $helperFolder -ChildPath 'Assertions.psd1') -Force
 }
 ```
 
-For a repository-wide set, import them from a `Pester.BeforeContainer.ps1` at the repository root,
-which Pester dot-sources before every container. Put the import in a `BeforeAll`: from 6.2 the
-file's top-level code runs at discovery only, and while a module import happens to survive into the
-run phase (module state is session-wide), a dot-sourced function does not:
-
-```powershell
-# Pester.BeforeContainer.ps1, at the repository root
-BeforeAll {
-    Import-Module "$PSScriptRoot/Tests/TestHelpers/Assertions.psd1" -Force
-}
-```
-
-The chain of setup files starts at `Run.RepoRoot` - see
-[Pester Configuration Guide](./pester-configuration.md).
+To load them for every test file, put the same import in a `BeforeAll` block of
+`Pester.BeforeContainer.ps1` in the repository root. It must be inside `BeforeAll`: top-level code in
+that file runs during discovery only. The [configuration guide](./pester-configuration.md) describes
+`Run.RepoRoot`, where Pester starts looking for that file. Pester marks the setup file as
+experimental; the import in each test file's own `BeforeAll` needs no such file.
 
 ## Test The Assertion Itself
 
-An assertion that cannot fail is worse than no assertion, and this is exactly the failure mode
-custom assertions invite. Cover the pass, the fail, and the message:
+An assertion that cannot fail is worse than none. Cover the pass, the failure, and the message:
 
 ```powershell
-Describe 'Should-BeValidSemVer' -Tag 'Unit', 'TestHelpers' {
-    It 'passes on <_>' -ForEach '1.2.3', '0.0.1', '10.20.30' {
-        $_ | Should-BeValidSemVer
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
+
+BeforeAll {
+    Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath 'Assertions.psd1') -Force
+}
+
+Describe 'Should-BeValidSemVer' -Tag 'Unit' {
+    It 'Passes for <Version>' -ForEach @(
+        @{ Version = '1.2.3' }
+        @{ Version = '0.0.1' }
+        @{ Version = '10.20.30' }
+    ) {
+        $Version | Should-BeValidSemVer
     }
 
-    It 'fails on <_>' -ForEach '1.0', 'v1.2.3', 'not-a-version' {
-        { $_ | Should-BeValidSemVer } | Should-Throw
+    It 'Fails for <Version>' -ForEach @(
+        @{ Version = '1.0' }
+        @{ Version = 'v1.2.3' }
+        @{ Version = '1.2.3.4' }
+    ) {
+        { $Version | Should-BeValidSemVer } |
+            Should-Throw -ExceptionMessage 'Expected a Major.Minor.Patch version*'
     }
 
-    It 'names the offending value and the reason' {
-        try {
-            '1.0' | Should-BeValidSemVer -Because 'the module is published'
-            throw 'the assertion did not fail'
-        }
-        catch [Exception] {
-            $_.Exception.Message |
-                Should-BeString "Expected a Major.Minor.Patch version, because the module is published, but got '1.0'."
-        }
+    It 'Names the value and the reason in the message' {
+        $failure = { '1.0' | Should-BeValidSemVer -Because 'the module is published' } | Should-Throw
+
+        $expected = "Expected a Major.Minor.Patch version, because the module is published, but got '1.0'."
+        $failure.Exception.Message | Should-BeString $expected
     }
 }
 ```
 
-The third test is the one that catches an unexpanded `<key>` token, which no amount of pass/fail
-coverage will.
+The message pattern in the second test matters. A bare `Should-Throw` would also pass if the
+assertion could not be found. The third test is the one that catches a token that was not filled.
 
 ## Soft Assertions And Mock Filters
 
-Both work with no extra code, because `Fail()` goes through the shared failure path:
+Both work without extra code, because `Fail()` uses the same failure path as the built-in
+assertions. With `Should.ErrorAction = 'Continue'`, a failed custom assertion is recorded and the
+test goes on.
+
+Inside a `-ParameterFilter`, a passing assertion emits `$true`, so the filter matches. A failing one
+ends the test with the assertion's own message:
 
 ```powershell
-$config.Should.ErrorAction = 'Continue'    # collects every failure in the It, custom ones included
-```
-
-```powershell
-Should-Invoke Publish-Module -Times 1 -ParameterFilter {
-    $Version | Should-BeValidSemVer
-    $true
+Should-Invoke -CommandName Publish-Module -ModuleName ModuleName -Times 1 -Exactly -ParameterFilter {
+    $RequiredVersion | Should-BeValidSemVer
 }
 ```
-
-Inside a `-ParameterFilter` a passing assertion emits `$true` on its own pipeline, so the filter
-matches; a failing one throws out of the filter. The trailing `$true` keeps the filter's result
-explicit when the assertion is not the last statement.

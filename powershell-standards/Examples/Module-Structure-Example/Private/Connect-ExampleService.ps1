@@ -1,58 +1,39 @@
 function Connect-ExampleService {
     <#
     .SYNOPSIS
-        Opens a session against the example backing service.
+    Creates the session that the module uses to query the example service.
 
     .DESCRIPTION
-        Private helper, not exported by the manifest. Demonstrates the boundary the
-        standards draw between internal and public surface: callers depend on
-        Get-ExampleData, so this can change shape without a breaking release.
+    Returns a hashtable that names the environment and the endpoint of its service. There is no
+    real service behind this module, so no connection is opened.
 
-        Returns a session descriptor the public function passes back in. There is no
-        real service behind it; the sleep stands in for connection latency.
+    The manifest does not export this function, so its parameters and its output can change
+    without breaking a caller of the module.
 
     .PARAMETER Environment
-        Target environment for the connection.
-
-    .PARAMETER CorrelationId
-        Correlation identifier propagated from the caller so a single operation can
-        be traced across functions.
+    Environment whose service the session targets.
 
     .EXAMPLE
-        PS> $session = Connect-ExampleService -Environment 'Test' -CorrelationId $id
+    $session = Connect-ExampleService -Environment 'Test'
 
-        DESCRIPTION: Opens a session against the test environment.
-        OUTPUT: A hashtable describing the session.
-        USE CASE: Called by Get-ExampleData before querying.
+    Creates a session for the Test environment and keeps it in a variable.
 
-    .NOTES
-        Author: Jeffrey Stuhr
-        Blog: https://www.techbyjeff.net
+    .INPUTS
+    None. You cannot pipe objects to this function.
+
+    .OUTPUTS
+    System.Collections.Hashtable. A session with the keys Environment and Endpoint.
     #>
-
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]
         [ValidateSet('Development', 'Test', 'Production')]
-        [string]$Environment,
-
-        [Parameter(Mandatory)]
-        [guid]$CorrelationId
+        [string]$Environment
     )
 
-    process {
-        Write-Verbose "Connecting to $Environment - CorrelationId: $CorrelationId"
-
-        # Stand-in for real connection latency; a genuine implementation would open
-        # a session here and throw on failure so the caller's catch block runs.
-        Start-Sleep -Milliseconds 20
-
-        @{
-            Environment   = $Environment
-            CorrelationId = $CorrelationId
-            ConnectedAt   = Get-Date
-            Endpoint      = "https://example-service.yourorg.com/$($Environment.ToLower())"
-        }
+    @{
+        Environment = $Environment
+        Endpoint = "https://service.example.com/$($Environment.ToLowerInvariant())"
     }
 }

@@ -1,0 +1,101 @@
+# Changelog
+
+This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+These changes make up version 2.0.0, a rewrite of the standards. The rules are now written once
+under `standards/` and generated into the files that GitHub Copilot, Claude Code, and Codex read. A
+project that installed an earlier version runs the installer with `-RemoveLegacyFiles`.
+
+### Added
+
+- Every rule has an ID and states whether it is a requirement (MUST) or a default (SHOULD).
+- `standards/` holds the sources, and `Tools/Build-AgentInstructions.ps1` generates the agent files
+  from them. With `-Check` it fails when they do not match.
+- Codex support: `AGENTS.md` and the skills under `.agents/skills`.
+- Eight skills, installed for all three agents.
+- A function template and a test template that are real files, run by the test suite on
+  PowerShell 7.6 and Windows PowerShell 5.1.
+- `PSScriptAnalyzerSettings.psd1`, which checks the layout rules.
+- `Tools/Invoke-QualityGate.ps1`, the one script that CI and developers run. It runs the tests in a
+  shuffled order and reports the seed when one fails.
+- Rules for failures that raise no error: a local variable named like a parameter (STY-16),
+  `return` in `begin` (FUN-04), state that does not reach a job or a parallel block (FUN-05),
+  functions that reduce their input (FUN-25), response data in two shapes (FUN-26), confirmation in
+  unattended runs (FUN-32), and the reach of `-WhatIf` (FUN-33).
+- Rules for releasing to the PowerShell Gallery (MOD-10 to MOD-14) and for rehearsing the release on
+  every pull request (CIC-10).
+- Test rules: import the module once (TST-05), mock scope across setup blocks (TST-23), both
+  pipeline paths (TST-44), documented examples (TST-45), and shuffled runs in CI (TST-46).
+- A rule to write a function's output after its `try` block (ERR-15).
+
+### Changed
+
+- The always-loaded core went from about 33 KB to about 15 KB. For a `.ps1` file an agent now loads
+  about 79 KB of instructions in total, down from about 123 KB.
+- Twelve topic files named `powershell-<topic>.instructions.md` replace the earlier instruction
+  files. Their front matter contains only keys that instruction files support.
+- The Claude Code rules under `.claude/rules/powershell-standards/` are generated. Each one imports
+  its instruction file, as before, and is now named after it.
+- The core rules are installed once. GitHub Copilot loads `AGENTS.md` as well as its own file, so
+  `AGENTS.md` is a short pointer to `.github/copilot-instructions.md` wherever that file is installed.
+- The branch, commit, and pull request conventions are now a topic with rule IDs (PRQ), and ask for
+  a fetch before work starts (PRQ-01).
+- Errors that end an advanced function are raised with `$PSCmdlet.ThrowTerminatingError()` from a
+  `catch` block. `throw` and `Write-Error -ErrorAction Stop` are no longer used there (ERR-10,
+  ERR-11). A failure of one input item is reported with `$PSCmdlet.WriteError()` (ERR-13).
+- A script that is run directly sets `$ErrorActionPreference = 'Stop'`; module code never sets it.
+  `Set-StrictMode -Version Latest` is required, and code must run under it (ERR-01 to ERR-03).
+- Local variables are camelCase (STY-12), and hashtables are not padded to align their `=` signs
+  (STY-04).
+- An array is never grown with `+=` in a loop, on any version (STY-40).
+- Help written as `#` lines is valid (DOC-04). Help contains no version, date, or change history
+  (DOC-07).
+- `SupportsShouldProcess` is not declared on functions that only read (FUN-31).
+- CI fails when the Pester result is not `Passed`, which also catches a failed setup or teardown
+  block, and when coverage is below 80 percent (TST-40, TST-42).
+- `Tools/Install-CopilotStandards.ps1` installs for the agents selected with `-Agent`, never
+  replaces a file the project wrote, never touches `CLAUDE.md`, and removes files it no longer
+  installs.
+- `Tools/Test-StandardsCompliance.ps1` reports findings by rule ID and returns objects.
+- The sync workflow template runs the installer instead of copying folders, pins its actions to
+  commits, and lets a project choose the reference to install from. An earlier sync workflow keeps
+  working, because the folders it copies are still present.
+- The thirteen Pester guides were rewritten against Pester 6.2.0. The test suite checks that every
+  PowerShell sample in them parses.
+
+### Fixed
+
+- `Test-Json` takes `-Options IgnoreComments, AllowTrailingCommas`. The earlier text named switches
+  that do not exist.
+- `Join-Path` with several child paths has worked since PowerShell 6. It was described as new in 7.6.
+- `+=` on an array still copies the array on every append in PowerShell 7.5 and 7.6. It keeps pace
+  with `List.Add()` up to about 10,000 elements and is more than ten times slower by 40,000.
+- `Should-BeCollection` does not check order in Pester 6.2.0.
+- A custom object's `PSTypeName` is its type name, not a property, so the earlier test template
+  could not pass.
+- PowerShell 7.4 and 7.5 reached the end of support on 10-Nov-2026.
+- A module class can be a parameter type when the class file loads before the function file. The
+  earlier text said that it breaks the import.
+- `.Count` on a `[PSCustomObject]` is `1` on PowerShell 7 and `$null` on Windows PowerShell 5.1. The
+  earlier text said the two versions agree.
+- Adding `Tls12` to a `SecurityProtocol` of `SystemDefault` restricts a session to TLS 1.2. The
+  earlier sample did that on every import.
+- A mandatory collection parameter rejects an empty array as well as `$null`, so wrapping a call in
+  `@()` is not enough without `[AllowEmptyCollection()]`.
+
+### Removed
+
+- The ten prompt files and the Claude Code commands that attached them. VS Code documents that
+  prompt files run only in a mode that is being removed; the skills replace them.
+- Correlation IDs, `Write-EnterpriseLog`, and the PSFramework dependency. Functions use the output
+  streams (ERR-30).
+- The compliance patterns for specific regulations. They called functions that were defined
+  nowhere, and one block did not parse.
+- The `Troubleshooting` folder. Its samples broke the rules, for example with `Write-Host`, `+=` in
+  loops, and correlation IDs, and nothing referred to it.
+- `Documentation/PowerShell-Best-Practices.md`, `Implementation-Guide.md`, `Prompt-Files-Guide.md`,
+  and `Enterprise-Extensions.md`, which repeated or contradicted the rules.
+- The installer parameters `-StandardsType` and `-LinkType`, and the compliance checker parameters
+  `-Detailed`, `-OutputFormat`, and `-OutputPath`.

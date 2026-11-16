@@ -1,119 +1,109 @@
 # Pester 6 Assertion Guide
 
-Targets **Pester 6.2+**.
-
-Pester 6 ships a new family of `Should-*` assertions (dash, no space) alongside the classic
-`Should -Be` operator. Both work. This guide covers which to use and how they differ.
-
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
+Reference for the `Should-*` assertions. The rules are TST-10 to TST-17 in the
+[Pester rules](../powershell-pester.instructions.md); this guide holds the detail behind them. Every
+statement about behaviour was checked by running it on Pester 6.2.0.
 
 ## Which Syntax To Use
 
-| Situation | Syntax |
-| --- | --- |
-| New test files | `Should-*` (preferred) |
-| Editing an existing `Should -Be` file | Keep the file's existing style; do not mix within a file |
-| Repo-wide migration not yet done | Leave `Should.DisableV5 = $false` (the default) |
+Pester 6 has two assertion styles: the `Should-*` commands (`Should-Be`) and the classic operator
+(`Should -Be`). TST-10 decides between them: `Should-*` in a new file, the existing style in an
+existing file, never both in one file.
 
-Do not set `Should.DisableV5 = $true` until every test file in the repository has been migrated.
-That switch makes any use of `Should -Be` throw.
+Setting `Should.DisableV5 = $true` makes every classic assertion fail with
+`Pester Should -Be syntax is disabled`. Leave it at its default until no test file uses that style.
 
-## Why The New Syntax
+## What The Should-* Assertions Change
 
-The classic `Should` routes `-Be`, `-BeExactly`, `-Contain` and friends through one command. The
-left side is always unwrapped by the pipeline and failure messages have to guess intent. The
-`Should-*` assertions are specialized and type-aware:
+- Each assertion does one job, so its options are its own (`Should-BeString -IgnoreWhitespace`) and
+  its failure message is specific: a caret under the first differing character of a string, a line
+  diff for a long string, the missing and extra values of a collection.
+- `-Expected` decides how the values are compared. `1 | Should-Be $true` and `'1' | Should-Be 1` both
+  pass, so assert the type as well when the type matters.
+- A value assertion refuses a collection as `-Expected`. `Should-Be -Expected @(1, 2)` is an error
+  that names `Should-BeCollection`.
+- The set can be extended. See the [custom assertion guide](./custom-assertions.md).
 
-- Failure messages are precise (a short string diff points a caret at the first differing character
-  and a long one prints every differing region with line numbers; collection comparisons point at
-  the first differing index).
-- `$Expected` drives the comparison type, so `1 | Should-Be $true` compares as booleans.
-- Type-specific switches live where they belong (`Should-BeString -IgnoreWhitespace`).
-- `$null`, empty collections, and single-item arrays behave consistently.
-- The set is **open** - see [Custom Assertion Guide](./custom-assertions.md) to add your own.
+## Pipeline Or -Actual
 
-## Pipeline vs. -Actual
-
-The actual value comes from the pipeline or from `-Actual`:
+The value under test comes from the pipeline or from `-Actual`:
 
 ```powershell
 1 | Should-Be -Expected 1
 Should-Be -Actual 1 -Expected 1
 ```
 
-The pipeline **unwraps** its input. A _value_ assertion sees `1` and `@(1)` identically, and `@()`
-as `$null`. A _collection_ assertion sees the same input as `@(1)` and `@()`.
+The pipeline unrolls its input, and the two kinds of assertion read the result differently:
 
-Use `-Actual` when the exact value or the concrete collection type matters:
+| Piped input | A value assertion sees | A collection assertion sees |
+| --- | --- | --- |
+| `1` or `@(1)` | `1` | one item |
+| `@()` | `$null` | no items |
+| `$null` | `$null` | one item, which is `$null` |
+| `1, 2, 3` | one `[Object[]]`, and the failure message says so | three items |
+| `[int[]](1, 2)` | `[Object[]]`; the element type is lost | two items |
+
+Pass the value with `-Actual` when its exact type matters:
 
 ```powershell
-# Value assertions - all pass
-1     | Should-Be -Expected 1
-@(1)  | Should-Be -Expected 1
-$null | Should-Be -Expected $null
-
-# Collection assertions
-1, 2, 3 | Should-BeCollection @(1, 2, 3)
-@()     | Should-BeCollection @()
-
-# -Actual preserves the original type; piping would re-collect as [Object[]]
 Should-HaveType -Actual ([int[]](1, 2)) -Expected ([int[]])
 ```
 
-When unwrapping causes a failure, the message explains what the pipeline did and points back to
-`-Actual`, so this is never a silent surprise.
+When a value assertion fails on a piped collection, the message ends with a hint that explains what
+the pipeline did and points to `-Actual`.
 
-## Migration Map: Should -Be to Should-*
+## Migration Map: Should -Be To Should-*
 
-| Classic (v5) | New (v6) | Notes |
+| Classic | Pester 6 | Notes |
 | --- | --- | --- |
 | `Should -Be $x` | `Should-Be $x` | |
 | `Should -Not -Be $x` | `Should-NotBe $x` | |
 | `Should -BeExactly $x` | `Should-BeString $x -CaseSensitive` | For strings |
-| `Should -BeOfType [T]` | `Should-HaveType ([T])` | Name changed |
+| `Should -BeOfType [T]` | `Should-HaveType ([T])` | Not with `[PSCustomObject]`; see Types |
 | `Should -Not -BeOfType [T]` | `Should-NotHaveType ([T])` | |
 | `Should -Match 'regex'` | `Should-MatchString 'regex'` | |
 | `Should -Not -Match 'regex'` | `Should-NotMatchString 'regex'` | |
 | `Should -BeLike 'pat*'` | `Should-BeLikeString 'pat*'` | |
-| `Should -BeTrue` / `-BeFalse` | `Should-BeTrue` / `Should-BeFalse` | Strict `[bool]` |
-| `Should -BeNullOrEmpty` | `Should-BeNull` / `Should-BeEmptyString` / `Should-BeFalsy` | **No single equivalent** - pick by intent |
-| `Should -Not -BeNullOrEmpty` | `Should-NotBeNull` / `Should-NotBeEmptyString` / `Should-BeTruthy` | Same, pick by intent |
+| `Should -BeTrue` / `-BeFalse` | `Should-BeTrue` / `Should-BeFalse` | Only a real `[bool]` passes |
+| `Should -BeNullOrEmpty` | `Should-BeNull`, `Should-BeEmptyString`, or `Should-BeFalsy` | No single equivalent |
+| `Should -Not -BeNullOrEmpty` | `Should-NotBeNull`, `Should-NotBeEmptyString`, or `Should-BeTruthy` | No single equivalent |
 | `Should -BeGreaterThan $x` | `Should-BeGreaterThan $x` | |
 | `Should -BeLessThan $x` | `Should-BeLessThan $x` | |
 | `Should -BeGreaterOrEqual $x` | `Should-BeGreaterThanOrEqual $x` | Name changed |
 | `Should -BeLessOrEqual $x` | `Should-BeLessThanOrEqual $x` | Name changed |
-| `Should -Contain $item` | `Should-ContainCollection @($item)` | Now an ordered sub-collection check |
+| `Should -Contain $item` | `Should-ContainCollection $item` | |
+| `$item \| Should -BeIn $list` | `$list \| Should-ContainCollection $item` | The list is piped |
 | `Should -HaveCount 3` | `Should-BeCollection -Count 3` | |
-| `Should -Throw '*msg*'` | `Should-Throw -ExceptionMessage 'msg'` | See exceptions below |
+| `Should -Throw '*msg*'` | `Should-Throw -ExceptionMessage '*msg*'` | Both need the wildcards |
 | `Should -Invoke Cmd` | `Should-Invoke Cmd` | |
 | `Should -Not -Invoke Cmd` | `Should-NotInvoke Cmd` | |
 | `Should -InvokeVerifiable` | `Should-Invoke -Verifiable` | |
 | `Should -HaveParameter Name` | `Should-HaveParameter -ParameterName Name` | |
-| `Should -BeIn @(...)` | `Should-Any { $_ -eq $actual }` or keep classic | No direct 1:1 |
-| `Should -Exist` | Keep classic `Should -Exist` | No `Should-*` equivalent; gained `-LiteralPath` in v6 |
+| `$path \| Should -Exist` | `Test-Path -LiteralPath $path \| Should-BeTrue` | There is no `Should-Exist` |
 
-`Should -BeNullOrEmpty` has no single replacement on purpose - it conflated three different
-questions. Choose the one you actually mean:
+`Should -BeNullOrEmpty` asked three questions at once. Choose the one that is meant:
 
 ```powershell
-$result.Error   | Should-BeNull            # is it $null?
-$result.Name    | Should-BeEmptyString     # is it ''?
-$result.Items   | Should-BeFalsy           # $null, '', 0, $false, or @()
+$result.Error | Should-BeNull
+$result.Name | Should-BeEmptyString
+$result.Items | Should-BeFalsy
 ```
+
+`Should-BeFalsy` passes for `$null`, `''`, `0`, `$false`, and `@()`. `'' | Should-BeNull` fails, and
+so does `$null | Should-BeEmptyString`.
 
 ## The Four Families
 
 | Family | Examples | Use for |
 | --- | --- | --- |
-| Value - generic | `Should-Be`, `Should-NotBe`, `Should-BeGreaterThan`, `Should-BeSame`, `Should-BeNull`, `Should-HaveType` | A single value, compared like the PowerShell operators |
-| Value - type specific | `Should-BeString`, `Should-MatchString`, `Should-BeLikeString`, `Should-BeTrue`/`False`, `Should-BeFalsy`/`Truthy`, `Should-BeBefore`/`After`, `Should-BeFasterThan`/`SlowerThan` | A value of known type, with type-specific options |
-| Collection - generic | `Should-BeCollection`, `Should-ContainCollection`, `Should-NotContainCollection` | Whole-collection comparison, or an ordered sub-collection |
-| Collection - combinator | `Should-All`, `Should-Any` | A condition across every / any item |
+| Value, generic | `Should-Be`, `Should-NotBe`, `Should-BeGreaterThan`, `Should-BeSame`, `Should-BeNull`, `Should-HaveType` | One value, compared the way the PowerShell operators compare |
+| Value, typed | `Should-BeString`, `Should-MatchString`, `Should-BeLikeString`, `Should-BeTrue`, `Should-BeFalsy`, `Should-BeBefore`, `Should-BeFasterThan` | One value of a known type, with options for that type |
+| Collection, generic | `Should-BeCollection`, `Should-ContainCollection`, `Should-NotContainCollection` | The same items in any order, or a sub-collection in order |
+| Collection, combinator | `Should-All`, `Should-Any` | A condition on every item, or on at least one |
 
-Plus dedicated assertions for exceptions (`Should-Throw`), mocks (`Should-Invoke`,
-`Should-NotInvoke`), command metadata (`Should-HaveParameter`), hashtable shape
-(`Should-BeHashtable`), and deep comparison (`Should-BeEquivalent`).
+There are also assertions for errors (`Should-Throw`), mocks (`Should-Invoke`, `Should-NotInvoke`),
+command metadata (`Should-HaveParameter`), hashtables (`Should-BeHashtable`), and deep comparison
+(`Should-BeEquivalent`).
 
 ## Common Patterns
 
@@ -121,291 +111,316 @@ Plus dedicated assertions for exceptions (`Should-Throw`), mocks (`Should-Invoke
 
 ```powershell
 '  hello ' | Should-BeString 'hello' -TrimWhitespace
-'Hello'    | Should-BeString 'hello' -CaseSensitive     # fails, caret marks the first difference
-'a  b'     | Should-BeString 'a b'   -IgnoreWhitespace
-$name      | Should-MatchString '^[A-Z][a-z]+$'
-$path      | Should-BeLikeString 'C:\Temp\*'
+'a  b' | Should-BeString 'a b' -IgnoreWhitespace
+'Hello' | Should-BeString 'Hello' -CaseSensitive
+$name | Should-MatchString '^[A-Z][a-z]+$'
+$path | Should-BeLikeString '*.json'
 ```
 
-Use `-NormalizeLineEnding` whenever the actual value came off disk. It treats `` `n `` and `` `r`n ``
-as equal, which is the difference between a test that passes everywhere and one that fails on
-whichever platform did not write the fixture:
+`Should-Be`, `Should-BeString`, and `Should-BeLikeString` ignore case. `Should-BeString` and
+`Should-BeLikeString` take `-CaseSensitive`.
+
+Use `-NormalizeLineEnding` when the actual value was read from a file. It treats `` `n `` and
+`` `r`n `` as equal, so the test does not depend on the platform that wrote the file:
 
 ```powershell
-"a`r`nb"                     | Should-BeString "a`nb" -NormalizeLineEnding
-Get-Content $path -Raw       | Should-BeString $expected -NormalizeLineEnding
+Get-Content -LiteralPath $reportPath -Raw | Should-BeString $expected -NormalizeLineEnding
 ```
 
-`Should-NotBeString` takes both `-TrimWhitespace` and `-NormalizeLineEnding`, and its `-Expected` is
-mandatory.
+`Should-NotBeString` takes the same switches, and its `-Expected` is mandatory.
 
-#### Long strings get a real diff
+#### Long Strings
 
-From 6.2, when either string is longer than 10 lines or 120 characters, a failing `Should-BeString`
-prints every region that differs with context, instead of a caret under the first difference.
-Expected line numbers are on the left and actual on the right, so the output stays readable when
-lines were added or removed and the two sides stop lining up:
+A failing `Should-BeString` prints a line diff in place of the caret when the strings have more than
+one line and either more than 10 lines or more than 120 characters. Expected line numbers are on the
+left and actual on the right:
 
 ```text
 Expected strings to be the same, but they were different.
-Expected length: 860
-Actual length:   834
-Expected 30 line(s), actual 30 line(s).
-2 regions differ.
+Expected length: 309
+Actual length:   296
+Expected 11 line(s), actual 11 line(s).
+1 region differs.
+
    3  3 |   line 3 of the expected text
    4  4 |   line 4 of the expected text
    5    | - line 5 of the expected text
       5 | + line 5 CHANGED
    6  6 |   line 6 of the expected text
-  ...
-  17    | - line 17 of the expected text
-     17 | + line 17 CHANGED
+   7  7 |   line 7 of the expected text
 ```
 
-Only the differing lines are expanded, so a tab or trailing space shows up without the unchanged
-context turning into escape codes. This is the assertion to use for snapshot tests, rendered
-templates, and generated configuration files - pair it with `-NormalizeLineEnding`. Short strings
-keep the caret.
+This makes `Should-BeString` the assertion for rendered templates and generated files. `Should-Be`
+on the same strings prints both in full.
 
-### Booleans and null
+### Booleans And Null
 
 ```powershell
-$true          | Should-BeTrue
-$result        | Should-NotBeNull
-$result.Error  | Should-BeNull
-$result.Items  | Should-BeTruthy
+$result.IsReady | Should-BeTrue
+$result.Error | Should-BeNull
+$result.Name | Should-NotBeEmptyString
 ```
+
+`Should-BeTrue` and `Should-BeFalse` pass only for a `[bool]`: `1 | Should-BeTrue` fails. Use
+`Should-BeTruthy` and `Should-BeFalsy` when any value that PowerShell converts to that Boolean will
+do.
+
+An empty array reaches a value assertion as `$null`, so `@() | Should-BeNull` passes and
+`@() | Should-NotBeNull` fails. To assert that a command returned something, assert the count
+(TST-12).
 
 ### Types
 
 ```powershell
-$result           | Should-HaveType ([pscustomobject])
-$result.Retries   | Should-HaveType ([int])
-$result           | Should-NotHaveType ([hashtable])
+$result | Should-HaveType 'ModuleName.Thing'
+$result.RetryCount | Should-HaveType ([int])
+$result | Should-NotHaveType ([hashtable])
 ```
 
-`Should-HaveType` honors `PSTypeNames`, so an object decorated with a synthetic type name - the usual
-way a module brands its output - asserts against that name directly:
+A string argument is matched against the object's type and against its `PSTypeName`, so a custom
+object is asserted by the name its function gives it (TST-13). Related facts:
 
-```powershell
-$session | Should-HaveType 'MyModule.Session'
-```
-
-That is the assertion to reach for when a module's formatting or a `ValidateScript` depends on the
-type name, and it beats asserting on `$session.PSTypeNames[0]` as a string.
+- `Should-HaveType ([PSCustomObject])` passes for every piped value, including `5`. For an object
+  that carries no type name, such as the output of `ConvertFrom-Json`, pass the full name as a
+  string: `Should-HaveType 'System.Management.Automation.PSCustomObject'` fails for a number, a
+  string, and a hashtable.
+- `PSTypeName` is not a property. `$result.PSTypeName` is `$null`; the name is
+  `$result.PSObject.TypeNames[0]`.
+- A piped array arrives as `[Object[]]`. Assert a typed array with `-Actual`, as shown under
+  "Pipeline Or -Actual".
 
 ### Collections
 
 ```powershell
-1, 2, 3          | Should-BeCollection @(1, 2, 3)
-1, 2, 3          | Should-BeCollection -Count 3
-1, 2, 3          | Should-All { $_ -gt 0 }
-1, 2, 3          | Should-Any { $_ -gt 2 }
-@('a', 'b', 'c') | Should-ContainCollection @('a', 'c')   # ordered sub-collection, gaps allowed
+$names | Should-BeCollection @('alpha', 'beta')
+$names | Should-BeCollection -Count 2
+$names | Should-All { $_ -like '*a' }
+$names | Should-Any { $_ -eq 'beta' }
+$names | Should-ContainCollection @('alpha', 'beta')
+$names | Should-ContainCollection @('beta', 'alpha') -IgnoreOrder
+$names | Should-NotContainCollection @('gamma')
 ```
 
-`Should-ContainCollection` is order-sensitive by default. When the source genuinely has no defined
-order - a hashtable's keys, a directory listing, a set of exported command names - assert with
-`-IgnoreOrder` rather than sorting both sides at the call site:
+The Pester rules list the results that matter most: `Should-BeCollection` does not compare order,
+and `Should-All` fails on an empty input. In addition:
+
+| Assertion | Behaviour |
+| --- | --- |
+| `1, 1, 2 \| Should-BeCollection @(1, 2, 2)` | Fails. Each value must occur the same number of times. |
+| `1, 2, 3 \| Should-BeCollection @(1, 2)` | Fails. The counts differ. |
+| `$null \| Should-BeCollection -Count 0` | Fails. `$null` is one item. Pipe `@()` for an empty collection. |
+| `'a' \| Should-BeCollection -Count 1` | Passes. |
+| `'a', 'b', 'c' \| Should-ContainCollection @('a', 'c')` | Passes. The items must appear in this order; gaps are allowed. |
+| `'a', 'b', 'c' \| Should-ContainCollection @('c', 'a')` | Fails. It passes with `-IgnoreOrder`. |
+
+To assert order, assert the count and then each element (TST-14). For a list of strings, one
+assertion on the joined text also shows the whole sequence when it fails:
 
 ```powershell
-1, 2, 3                    | Should-ContainCollection @(3, 1) -IgnoreOrder
-$module.ExportedFunctions.Keys | Should-ContainCollection @('Get-Thing', 'Set-Thing') -IgnoreOrder
+$result | Should-BeCollection -Count 2
+$result[0].Name | Should-Be 'beta'
+$result[1].Name | Should-Be 'alpha'
+
+$calls -join ', ' | Should-Be 'Connect, Query, Disconnect'
 ```
 
-### Exceptions
+The script block of `Should-All` may contain assertions. When one fails, the message of `Should-All`
+includes its reason:
 
-`Should-Throw` takes the scriptblock from the pipeline (or `-ScriptBlock`) and matches on message,
-type, or error id:
+```powershell
+$results | Should-All { $_.State | Should-Be 'ready' }
+```
+
+Use `-IgnoreOrder` on `Should-ContainCollection` when the source has no defined order, such as the
+keys of a hashtable.
+
+### Errors
+
+`Should-Throw` takes the script block from the pipeline and can match the message, the type, or the
+error ID:
 
 ```powershell
 { throw 'kaboom' } | Should-Throw -ExceptionMessage 'kaboom'
+{ throw 'the disk is full' } | Should-Throw -ExceptionMessage '*disk*'
 
-{ Get-Thing -Id $null } |
-    Should-Throw -ExceptionType ([System.ArgumentNullException])
+{ Get-Thing -Name 'alpha' -ErrorAction Stop } |
+    Should-Throw -ExceptionType ([System.InvalidOperationException])
 
-{ Get-Thing -Id 'bad' } |
-    Should-Throw -FullyQualifiedErrorId 'InvalidId,Get-Thing'
-
-# Non-terminating errors need the switch
-{ Get-Thing -Id 'bad' } | Should-Throw -AllowNonTerminatingError
+{ Get-Thing -Name 'alpha' -ErrorAction Stop } |
+    Should-Throw -FullyQualifiedErrorId 'ThingReadFailed,Get-Thing'
 ```
 
-`-ExceptionMessage` matches with wildcards, so `'kaboom'` matches the whole message and
-`'*kaboom*'` matches a substring. This differs from classic `Should -Throw '*kaboom*'`, where the
-leading wildcard was almost always required.
+- `-ExceptionMessage` and `-FullyQualifiedErrorId` compare with `-like` against the whole value,
+  ignoring case. Without wildcards the pattern must equal the whole message, and `'ThingReadFailed'`
+  does not match `'ThingReadFailed,Get-Thing'`. Write `'*disk*'` or `'ThingReadFailed*'` for a
+  partial match. The classic `Should -Throw 'text'` compares the same way.
+- `-ExceptionType` passes for that type or a type derived from it. It compares the outer exception:
+  a failure inside a .NET method call arrives as a `MethodInvocationException`.
+- `-Because` is named only. The positional arguments are the message, the error ID, and the type,
+  in that order.
+- `Should-Throw` returns the error record, so a test can assert more about it:
 
-Because the match is `-like`, the characters `[ ] * ?` in the expected message are **wildcards, not
-literals**. A message containing brackets fails against itself unless you escape them:
+```powershell
+$failure = { Export-Thing -Thing $things -LiteralPath $missingPath } |
+    Should-Throw -ExceptionType ([System.Management.Automation.MethodInvocationException])
+
+$failure.Exception.InnerException | Should-HaveType ([System.IO.DirectoryNotFoundException])
+```
+
+Because the match is `-like`, the characters `[ ] * ?` in the expected message are wildcards. A
+message that contains brackets does not match itself until they are escaped:
 
 ```powershell
 { throw 'value is [1]' } | Should-Throw -ExceptionMessage 'value is `[1]'
-{ throw 'value is [1]' } |
-    Should-Throw -ExceptionMessage ([System.Management.Automation.WildcardPattern]::Escape('value is [1]'))
+
+$pattern = [System.Management.Automation.WildcardPattern]::Escape('value is [1]')
+{ throw 'value is [1]' } | Should-Throw -ExceptionMessage $pattern
 ```
 
-Pester detects this specific case - when the two messages differ only in those characters the
-failure says so, rather than printing two strings that look identical. `Should-Throw -Because` is
-named-only; it cannot be passed positionally.
+When the two messages differ only in those characters, the failure message says so.
 
-There is no `Should-NotThrow`. Call the code directly - an unhandled exception fails the test:
+#### Code That Must Not Fail
+
+There is no `Should-NotThrow` (TST-16). Call the command in the test, with `-ErrorAction Stop`:
 
 ```powershell
-It 'accepts a valid id' {
-    Get-Thing -Id 'valid'   # no assertion needed; a throw fails the test
+It 'Accepts a name with a hyphen' {
+    $null = Get-Thing -Name 'alpha-2' -ErrorAction Stop
 }
 ```
+
+Any error then fails the test. Without `-ErrorAction Stop`, a non-terminating error is only written
+to the error stream and the test still passes.
+
+#### Non-Terminating Errors
+
+`Should-Throw` runs the script block with `$ErrorActionPreference` set to `Stop`. The result depends
+on where the error comes from:
+
+| Source of the non-terminating error | `Should-Throw` |
+| --- | --- |
+| A cmdlet, such as `Get-Item` on a missing path | Passes |
+| A function defined in the test file | Passes |
+| A function in a module | Fails. A module does not see that preference. |
+| A function in a module, called with `-ErrorAction Stop` | Passes |
+
+`-AllowNonTerminatingError` does not help here. It runs the script block with `Continue`, so
+non-terminating errors are let through and only a terminating error passes.
+
+For module code, follow TST-17: merge the error stream and count the records. To test that the error
+stops the caller on request, pass `-ErrorAction Stop` inside the script block.
 
 ### Mocks
 
 ```powershell
-Should-Invoke Send-Email -Times 2 -Exactly -ParameterFilter { $To -eq 'alice@example.com' }
-Should-NotInvoke Remove-Item
+Should-Invoke -CommandName Invoke-RestMethod -ModuleName ModuleName -Times 1 -Exactly
+Should-NotInvoke -CommandName Remove-Item -ModuleName ModuleName
 Should-Invoke -Verifiable
 ```
 
-When a mock assertion fails, Pester 6 prints the recorded invocation history and marks which calls
-matched the `-ParameterFilter` with `[*]`:
+The [mocking guide](./mocking-patterns.md) covers parameter filters, scopes, and the invocation
+history that a failed assertion prints.
 
-```text
-[-] emails alice exactly twice
- Expected Send-Email to be called 2 times exactly, but was called 1 times
- Performed invocations:
-   [*] Send-Email -To 'alice@example.com' -Subject 'Welcome' from Order.Tests.ps1:7
-   [ ] Send-Email -To 'bob@example.com'   -Subject 'Receipt' from Order.Tests.ps1:7
-```
-
-### Command metadata
+### Command Metadata
 
 ```powershell
-Get-Command Get-Thing | Should-HaveParameter -ParameterName Name -Type ([string[]]) -Mandatory
-Get-Command Get-Thing | Should-HaveParameter -ParameterName Path -DefaultValue '.'
-Get-Command Get-Thing | Should-NotHaveParameter -ParameterName Force
+Get-Command -Name Get-Thing | Should-HaveParameter -ParameterName Name -Type ([string[]]) -Mandatory
+Get-Command -Name Get-Thing | Should-HaveParameter -ParameterName Path -DefaultValue '.'
+Get-Command -Name Get-Thing | Should-NotHaveParameter -ParameterName Force
 ```
 
-### Time and duration
+### Time And Duration
 
 ```powershell
-{ Invoke-Thing }               | Should-BeFasterThan '100ms'
-{ Invoke-Thing }               | Should-BeSlowerThan '10ms'
-[datetime]::Now.AddMinutes(11) | Should-BeAfter 10minutes -Ago
-$record.Created                | Should-BeBefore ([datetime]::Now)
+{ Get-ThingSummary -Thing $things } | Should-BeFasterThan '100ms'
+{ Start-Sleep -Milliseconds 50 } | Should-BeSlowerThan '10ms'
+$record.Created | Should-BeBefore ([datetime]::Now)
+$record.Created | Should-BeAfter 10minutes -Ago
 ```
 
-`Should-BeFasterThan` replaces hand-rolled `Measure-Command` plus `Should -BeLessThan` and avoids
-the TimeSpan-vs-double comparison mistakes that pattern invites. Its `-Expected` is mandatory, as is
-`Should-BeSlowerThan`'s - a bare `Should-BeFasterThan` no longer binds to a silent default.
+- `Should-BeFasterThan` and `Should-BeSlowerThan` measure a piped script block, or compare a piped
+  `[timespan]`. Any other input is an error:
+  `Expected a [scriptblock] to measure or a [timespan] to compare, but got [string] 'result'.` Pipe
+  the script block, not its result.
+- `-Expected` is mandatory. It is a `[timespan]` or a number with a unit: `ms`, `s`, `m`, `h`, `d`,
+  `w`, or a longer form such as `'1.5hours'`.
+- The failure message contains the measured time.
+- `Should-BeLessThan` cannot compare a `[timespan]` with a number; it stops with
+  `Could not compare`. Compare `$elapsed.TotalMilliseconds` with a number, or a `[timespan]` with a
+  `[timespan]`.
+- `-Ago`, `-FromNow`, and `-Now` compare with the current time. When the code under test reads the
+  clock, mock `Get-Date` instead (TST-31).
 
-Both take a `[scriptblock]` to measure or a `[timespan]` to compare, and nothing else. From 6.2
-anything else **throws**:
+### Deep Object Comparison
+
+`Should-BeEquivalent` compares nested properties, hashtables, and collections, and prints the
+differences by property. Use it for a whole response or configuration object:
 
 ```powershell
-{ Invoke-Thing } | Should-BeFasterThan 1s    # measures the scriptblock
-(Invoke-Thing)   | Should-BeFasterThan 1s    # 6.1: passed without measuring anything. 6.2: throws
-# Expected a [scriptblock] to measure or a [timespan] to compare, but got [string] 'result'.
+$expected = [PSCustomObject]@{
+    Name = 'Jakub'
+    Age = 31
+    Address = [PSCustomObject]@{ City = 'Prague'; Country = 'CZ' }
+    Roles = @('admin', 'user')
+}
+
+$user | Should-BeEquivalent $expected
 ```
 
-On 6.1 a string, a number, or `$null` fell through the assertion and the test passed having asserted
-nothing. A performance test that starts failing on 6.2 with that message was never measuring.
-
-### Deep object comparison
-
-`Should-BeEquivalent` walks nested properties, hashtables, dictionaries, and collections and emits
-a property-by-property diff. Use it for whole API responses or configuration objects:
+By default every property must be present on both sides: an extra property on the actual object
+fails, and so does a missing one. Two options relax that:
 
 ```powershell
-$user | Should-BeEquivalent ([pscustomobject]@{
-    Name    = 'Jakub'
-    Age     = 31
-    Address = [pscustomobject]@{ City = 'Prague'; Country = 'CZ' }
-    Roles   = @('admin', 'user')
-})
-```
+# Properties that $expected does not have are not compared.
+$user | Should-BeEquivalent ([PSCustomObject]@{ Name = 'Jakub' }) -ExcludePathsNotOnExpected
 
-The comparison is **strict and symmetric** by default - an extra property on the actual object
-fails. Compare like with like (object to object, hashtable to hashtable). Two options relax it:
-
-```powershell
-# Assert a subset: properties absent from $expected are never looked at
-$user | Should-BeEquivalent ([pscustomobject]@{ Name = 'Jakub' }) -ExcludePathsNotOnExpected
-
-# Full comparison except volatile fields; dot-notation reaches nested members
+# Everything is compared except the named paths. A dot reaches a nested property.
 $actual | Should-BeEquivalent $expected -ExcludePath 'Id', 'Metadata.Timestamp'
-
-# Non-recursive equality when that is all you need
-$actual | Should-BeEquivalent $expected -Comparator Equality
 ```
 
-Prefer `-ExcludePathsNotOnExpected` over listing every field you do not care about. It keeps tests
-focused and resilient: a new field on the object under test will not break an assertion that never
-claimed to care about it.
+What it does not check:
+
+- The order of a collection. `@(1, 2, 3) | Should-BeEquivalent @(3, 2, 1)` passes, and so does a
+  property that holds the same items in another order.
+- The type of a value. A property that holds `1` is equivalent to one that holds `'1'`.
+
+Compare like with like: an object is not equivalent to a hashtable that has the same keys.
 
 ## Writing Your Own
 
-The `Should-*` family is open for extension. Declare a function, call `New-ShouldAssertion` inside
-it, and the result collects pipeline input, formats values, and fails through the same path a
-built-in assertion uses - so soft assertions and mock parameter filters work with no extra effort:
-
-```powershell
-function Assert-BeValidSemVer {
-    [CmdletBinding()]
-    param (
-        [Parameter(Position = 0, ValueFromPipeline)] $Actual,
-        [string] $Because
-    )
-
-    $assert = New-ShouldAssertion -Caller $PSCmdlet -Actual $Actual -Buffer $Input
-    $Actual = $assert.Actual()
-
-    $parsed = $null
-    if (-not [version]::TryParse($Actual, [ref] $parsed) -or $parsed.Build -lt 0) {
-        $assert.Fail(
-            'Expected a Major.Minor.Patch version,<because> but got <actual>.',
-            @{ Because = $Because })
-    }
-}
-
-Set-Alias -Name Should-BeValidSemVer -Value Assert-BeValidSemVer
-```
-
-Reach for this only when the same non-trivial check recurs across files **and** naming the offending
-value is the point. See [Custom Assertion Guide](./custom-assertions.md) for the full treatment -
-`-As` modes, message tokens, the `Assert-` verb packaging rule, and how to test the assertion itself.
-
-This replaces `Add-ShouldOperator` for new work. That mechanism still exists for the classic `Should`
-syntax, but it is a different shape and the runspace caps out at 32 operators.
+A custom assertion is a function that calls `New-ShouldAssertion`. It gets the same input handling,
+formatting, and failure path as the built-in assertions. Write one only when the same check recurs
+in several test files and the built-in failure message cannot name what went wrong. The
+[custom assertion guide](./custom-assertions.md) has the details.
 
 ## Soft Assertions
 
-Both syntaxes honor `Should.ErrorAction = 'Continue'`, which collects every failure in an `It`
-instead of stopping at the first:
+With `Should.ErrorAction = 'Continue'`, a failed assertion is recorded and the test goes on, so one
+`It` reports every failure:
 
 ```powershell
-$config = New-PesterConfiguration
-$config.Should.ErrorAction = 'Continue'
+$configuration = New-PesterConfiguration
+$configuration.Should.ErrorAction = 'Continue'
 ```
 
 ```powershell
-It 'has the expected shape' {
+It 'Returns the expected user' {
     $user.Name | Should-Be 'Jakub'
-    $user.Age  | Should-Be 31
+    $user.Age | Should-Be 31
     $user.City | Should-Be 'Prague'
 }
 ```
 
-All three run and every failure is reported at the end of the test. Use this for shape assertions
-on a single object. Keep the default `'Stop'` elsewhere, so a failed precondition does not cascade
-into a wall of downstream noise.
+A single assertion can opt in with `-ErrorAction Continue`. Keep the default, `Stop`, for assertions
+that later lines depend on, such as a count before an index.
 
-## Assertion Selection Guidelines
+## Choosing An Assertion
 
-- Assert on the narrowest thing that proves the behavior. `Should-Be 'Active'` beats
-  `Should-NotBeNull`.
-- Prefer `Should-BeEquivalent -ExcludePathsNotOnExpected` over a run of six property assertions.
-- Use `Should-HaveType` rather than asserting on `.GetType().Name` as a string.
-- Use `-Because` to record intent on non-obvious assertions:
-  `$retries | Should-Be 3 -Because 'the transient-failure policy caps retries at 3'`.
-- Do not assert on the text of a message you also control and change often; assert on the error
-  type or id instead.
-- Write a [custom assertion](./custom-assertions.md) only when the same domain rule is asserted in
-  several files and the built-in failure message cannot name what went wrong.
+- Assert the narrowest fact that proves the behaviour. `Should-Be 'Active'` is better than
+  `Should-NotBeNull` (TST-11).
+- Assert the count before reading an element by index (TST-12).
+- Prefer one `Should-BeEquivalent -ExcludePathsNotOnExpected` to a run of property assertions, and
+  add index assertions when order matters.
+- Assert an error by its type or error ID. A message that the code owns changes more often.
+- Use `-Because` to record the reason for a value that is not obvious:
+  `$retryCount | Should-Be 3 -Because 'the retry policy stops after three attempts'`.

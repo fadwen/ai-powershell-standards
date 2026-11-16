@@ -1,64 +1,93 @@
 # Examples
 
-Working code demonstrating the standards in this repository. Every file here runs and is covered by
-tests. This folder is mirrored into consuming projects by the sync workflow.
+Working code that follows the PowerShell standards in this repository, and one file that breaks them
+on purpose. The function, the module, and the negative example have Pester tests.
 
-## What is here
+## Requirements
 
-| Example | Demonstrates |
+- PowerShell 7.6 or later.
+- Windows, for `Basic-Function-Example.ps1`. It calls the CIM commands and queries computers over
+  WinRM.
+- Pester 6.2.0 or later, to run the tests.
+- PSScriptAnalyzer 1.25.0 or later, for `Test-QualityGates.Tests.ps1`.
+
+## Contents
+
+| Example | What it shows |
 | --- | --- |
-| [Basic-Function-Example.ps1](./Basic-Function-Example.ps1) | A complete advanced function: pipeline input, parameter validation, correlation IDs, per-item error handling, and a named `[OutputType]` |
-| [Module-Structure-Example/](./Module-Structure-Example/) | A minimal working module - the Public/Private/Classes layout and the export boundary it creates |
-| [Testing-Examples/](./Testing-Examples/) | Pester 6 tests for `Basic-Function-Example.ps1`, including CIM mocking and `-RemoveParameterType` |
-| [Configuration/DefaultConfiguration.psd1](./Configuration/DefaultConfiguration.psd1) | A configuration data file: environment settings, validation thresholds, and logging targets |
+| [Basic-Function-Example.ps1](Basic-Function-Example.ps1) | One advanced function, `Get-BasicServerInfo`, with pipeline input, per-item errors, and a named output type. |
+| [Testing-Examples/](Testing-Examples/) | The tests for `Get-BasicServerInfo`, with the CIM commands and the clock mocked. |
+| [Module-Structure-Example/](Module-Structure-Example/) | A small working module. Its own [README](Module-Structure-Example/README.md) describes it. |
+| [Configuration/DefaultConfiguration.psd1](Configuration/DefaultConfiguration.psd1) | A settings file that holds data only. |
+| [Test-QualityGates.ps1](Test-QualityGates.ps1) | A negative example. It breaks the standards on purpose and is not code to copy. |
 
-## Start with the function example
+## Usage
 
-[Basic-Function-Example.ps1](./Basic-Function-Example.ps1) is the densest single file:
+Run the commands in this section from this folder.
+
+### The function example
 
 ```powershell
-. .\Basic-Function-Example.ps1
+. ./Basic-Function-Example.ps1
 
-Get-BasicServerInfo -ComputerName 'SERVER01' -WhatIf
-'SERVER01', 'SERVER02' | Get-BasicServerInfo -Verbose
+Get-BasicServerInfo -ComputerName 'SERVER01'
+'SERVER01', 'SERVER02' | Get-BasicServerInfo -IncludeServices
 ```
 
-It shows:
+Replace the names with computers that accept WinRM connections. The first command returns one
+`Example.ServerInfo` object. The second takes the names from the pipeline and fills the
+`RunningServices` property of each object. A computer that cannot be queried produces a
+non-terminating error, and the remaining computers are still processed.
 
-- `[OutputType('BasicServerInfo')]` with a matching `PSTypeName` on the output, rather than
-  `[OutputType([PSCustomObject])]`, which tells a caller nothing about the shape returned
-- A correlation ID generated once in `begin` and carried through every message
-- `$_` in `catch`, and `continue` so one unreachable host does not abort the batch
-- `ShouldProcess` support, so `-WhatIf` works
+| Rule | What to look at in the file |
+| --- | --- |
+| DOC-02 | The help block is the first thing in the function body. |
+| FUN-10 | `[OutputType('Example.ServerInfo')]` names the type, and the object carries the same name as `PSTypeName`. |
+| FUN-21 | `ComputerName` is an array that the `process` block loops over. |
+| FUN-31 | The function only reads, so it does not declare `SupportsShouldProcess`. |
+| SEC-03 | `Credential` is a `PSCredential` with the `Credential()` attribute and an empty default. |
+| SEC-11 | An anchored `ValidatePattern` rejects a bad computer name when the parameter is bound. |
+| ERR-13, ERR-14 | The `catch` block wraps the failure in a new `ErrorRecord`, passes it to `$PSCmdlet.WriteError()`, and continues with the next computer. |
+| ERR-22 | The CIM session is closed in `finally`. |
 
-## Then the module
+### The settings file
 
-[Module-Structure-Example/](./Module-Structure-Example/) is deliberately small. Its point is not the
-code but the boundary: `FunctionsToExport` names the public surface, so the private helper stays
-internal and can change without a breaking release. Classes load before the functions that return
-them.
+```powershell
+$settings = Import-PowerShellDataFile -LiteralPath ./Configuration/DefaultConfiguration.psd1
+$settings['Environments']['Production']['TimeoutSeconds']
+```
 
-Its own tests live in [Module-Structure-Example/Tests/](./Module-Structure-Example/Tests/) and cover
-the module contract, the class, the private helper via `InModuleScope`, and the per-item failure
-path. Examples here are held to the same coverage bar as the tooling.
+Reads the file into a hashtable and returns `10`, the timeout of the Production environment.
 
-## The anti-pattern file
+### The negative example
 
-[Test-QualityGates.ps1](https://github.com/fadwen/ai-powershell-standards/blob/main/Documentation/Anti-Patterns/Test-QualityGates.ps1)
-lives in the standards repository, outside this mirrored folder. It intentionally breaks the
-standards - `Write-Host`, `$Error[0]` in a catch, a non-approved verb, string building in a loop. It
-exists so the quality gates have something to catch, and the CI workflows exclude it from production
-analysis by name for that reason.
+[Test-QualityGates.ps1](Test-QualityGates.ps1) exists so that the quality gates have something to
+catch. Its header lists every rule it breaks, in two groups: the violations that PSScriptAnalyzer
+reports, and the ones that it does not report.
 
-Its tests in [Test-QualityGates.Tests.ps1](https://github.com/fadwen/ai-powershell-standards/blob/main/Documentation/Anti-Patterns/Test-QualityGates.Tests.ps1)
-document that behaviour
-rather than endorsing it.
+```powershell
+Invoke-ScriptAnalyzer -Path ./Test-QualityGates.ps1 -Settings ../../PSScriptAnalyzerSettings.psd1
+```
 
-## Related
+Shows the first group. An analysis run that has to pass must leave this file out by name.
 
-- [PowerShell Best Practices](https://github.com/fadwen/ai-powershell-standards/blob/main/Documentation/PowerShell-Best-Practices.md):
-  the reasoning behind these patterns
-- [Templates/Powershell-Module](https://github.com/fadwen/ai-powershell-standards/tree/main/Templates/Powershell-Module):
-  a fuller starting point to copy
-- [Version baseline](../../.github/instructions/powershell-version.instructions.md) - which PowerShell
-  version to target, and why
+## Tests
+
+```powershell
+Invoke-Pester -Path ./Testing-Examples, ./Test-QualityGates.Tests.ps1
+```
+
+Runs the tests for the function example and for the negative example. The tests for the negative
+example record what its functions do, and they fail when a violation is added to the file or removed
+from it. The module example has its own tests; see its README.
+
+## Related files
+
+- [PSScriptAnalyzerSettings.psd1](../../PSScriptAnalyzerSettings.psd1): the analyzer settings that
+  check the layout rules.
+- [Templates/Powershell-Module](../../Templates/Powershell-Module/): a module to copy and rename.
+- The rules that the examples follow:
+  [powershell-functions](../../.github/instructions/powershell-functions.instructions.md),
+  [powershell-error-handling](../../.github/instructions/powershell-error-handling.instructions.md),
+  [powershell-help](../../.github/instructions/powershell-help.instructions.md), and
+  [powershell-pester](../../.github/instructions/powershell-pester.instructions.md).

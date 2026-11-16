@@ -1,832 +1,389 @@
 # Pester Configuration Guide
 
-Targets **Pester 6.2+**. All settings below were verified against the `PesterConfiguration` object.
+This guide lists the options of the Pester configuration object and explains the ones that are
+easy to get wrong. It supports the testing rules in
+[powershell-pester.instructions.md](../powershell-pester.instructions.md). The option names,
+defaults, and behaviour were read from the configuration object of Pester 6.2.0 and checked by
+running it. `Get-Help about_PesterConfiguration` shows the same list on the installed version.
 
-**NOTE**: Do not use Unicode emojis in any generated code, documentation, or test output. Use plain
-text descriptions and standard ASCII characters only.
-
-## Standard Pester Configuration
-
-Use this standardized configuration for consistent test execution:
+## Creating a Configuration
 
 ```powershell
-# PesterConfiguration.psd1
-@{
-    Run = @{
-        Path        = @('./Tests/Unit', './Tests/Integration')
-        ExcludePath = @()
-        PassThru    = $true
-        Throw       = $true
-        SkipRun     = $false
+$configuration = New-PesterConfiguration
+$configuration.Run.Path = Join-Path -Path $PSScriptRoot -ChildPath 'Tests'
+$configuration.Run.PassThru = $true
+$configuration.Output.Verbosity = 'Detailed'
 
-        # Pester 6: empty -ForEach fails discovery. Keep on; opt out per test with
-        # -AllowNullOrEmptyForEach where an empty set is legitimately expected.
-        FailOnNullOrEmptyForEach = $true
-
-        # None | Run | Container | Block
-        SkipRemainingOnFailure = 'None'
-
-        # EXPERIMENTAL. Off by default. See "Parallel Execution" below.
-        Parallel              = $false
-        ParallelThrottleLimit = 0
-
-        # EXPERIMENTAL and off by default, but turn it on in CI. See "Shuffled Test Order" below.
-        Shuffle     = $false
-        ShuffleSeed = 0                    # 0 picks a new seed per run and prints it
-    }
-
-    Output = @{
-        Verbosity           = 'Detailed'
-        StackTraceVerbosity = 'Filtered'   # None | FirstLine | Filtered | Full
-        CIFormat            = 'Auto'       # Auto | AzureDevops | GithubActions
-        CILogLevel          = 'Error'
-        CIDebugOutput       = 'Auto'       # Auto | None - surface verbose/debug on CI debug runs
-        RenderMode          = 'Auto'       # Auto | Ansi | ConsoleColor | Plaintext
-        ShowTags            = $false       # append [Tags: ...] to each output line
-    }
-
-    Mock = @{
-        # EXPERIMENTAL. Off by default. See "Global Mocks" below.
-        Global = $false
-    }
-
-    CodeCoverage = @{
-        Enabled              = $true
-        Path                 = @('./Public/*.ps1', './Private/*.ps1', './Classes/*.ps1')
-        OutputFormat         = 'JaCoCo'    # JaCoCo | Cobertura
-        OutputPath           = './Tests/Results/Coverage.xml'
-        OutputEncoding       = 'UTF8'
-        CoveragePercentTarget = 80         # NOT "Threshold" - that setting does not exist
-        UseBreakpoints       = $false      # $false = profiler-based (v6 default, much faster)
-        SingleHitBreakpoints = $true
-        ExcludeTests         = $true       # keep test files out of the coverage numbers
-        RecursePaths         = $true
-        ReportRoot           = ''          # defaults to Run.RepoRoot
-    }
-
-    TestResult = @{
-        Enabled        = $true
-        OutputFormat   = 'NUnitXml'        # NUnitXml | NUnit2.5 | NUnit3 | JUnitXml
-        OutputPath     = './Tests/Results/TestResults.xml'
-        OutputEncoding = 'UTF8'
-        TestSuiteName  = 'PowerShell Tests'
-    }
-
-    Should = @{
-        ErrorAction = 'Stop'               # 'Continue' enables soft assertions
-        DisableV5   = $false               # $true makes `Should -Be` throw
-    }
-
-    Debug = @{
-        ShowFullErrors         = $false
-        WriteDebugMessages     = $false
-        WriteDebugMessagesFrom = @()
-        ShowNavigationMarkers  = $false
-        ShowStartMarkers       = $false    # v6: marks when each test starts
-        ReturnRawResultObject  = $false
-    }
-
-    Filter = @{
-        Tag        = @()
-        ExcludeTag = @()
-        Line       = @()
-        ExcludeLine = @()
-        FullName   = @()
-    }
-}
+$result = Invoke-Pester -Configuration $configuration
 ```
 
-### Settings That Do Not Exist
-
-These appear in older guidance and in a lot of blog posts. They are not real. From 6.2
-`Invoke-Pester` warns `Ignoring configuration keys '...', there are no such options` when a hashtable
-carries one; before 6.2 they were silently ignored:
-
-| Not a setting | Use instead |
-| --- | --- |
-| `CodeCoverage.Threshold` | `CodeCoverage.CoveragePercentTarget` |
-| `CodeCoverage.PerFileThreshold` | No equivalent - enforce per-file in your own gate |
-| `CodeCoverage.ExcludePath` | `Run.ExcludePath`, or narrow `CodeCoverage.Path` |
-| `TestResult.OutputFormat = 'VSTest'` | `NUnitXml`, `NUnit2.5`, `NUnit3`, or `JUnitXml` |
-| `CodeCoverage.OutputFormat = 'CoverageGutters'` | `JaCoCo` - removed in v6, see below |
-
-`CoveragePercentTarget` sets the target Pester reports against. It does **not** fail the run on its
-own - enforce the gate yourself:
+Each option is an object with the properties `Value`, `Default`, `IsModified`, and `Description`.
+Assign to the option itself, and read the setting from `.Value`:
 
 ```powershell
-$result = Invoke-Pester -Configuration $config
-$covered = $result.CodeCoverage.CoveragePercent
-if ($covered -lt $config.CodeCoverage.CoveragePercentTarget.Value) {
-    throw "Code coverage $([math]::Round($covered, 2))% is below the $($config.CodeCoverage.CoveragePercentTarget.Value)% target"
-}
+$configuration.CodeCoverage.CoveragePercentTarget = 80
+$target = $configuration.CodeCoverage.CoveragePercentTarget.Value
 ```
 
-### Auto-Enable Behavior
+`Invoke-Pester` also has a short form for simple runs. Its parameters are `-Path`, `-ExcludePath`,
+`-TagFilter`, `-ExcludeTagFilter`, `-FullNameFilter`, `-Output`, `-PassThru`, `-Container`, and
+`-CI`. Use a configuration object for anything else. The Pester 4 parameters such as `-Script` and
+`-EnableExit` do not exist in Pester 6.
 
-In Pester 6, `TestResult` and `CodeCoverage` **auto-enable** when you set any of their non-default
-options. You can no longer silently configure a report that never gets written. Setting
-`CodeCoverage.Path` is enough to turn coverage on.
+### Loading Settings From a File
 
-## Environment-Specific Configurations
-
-### Development Configuration
+`New-PesterConfiguration -Hashtable` accepts a hashtable that contains only the options to change,
+so settings can be kept in a `.psd1` file:
 
 ```powershell
-# PesterConfiguration.Development.psd1
+# build/PesterConfiguration.psd1
 @{
     Run = @{
-        Path     = @('./Tests/Unit')
         PassThru = $true
     }
 
-    Output = @{
-        Verbosity = 'Detailed'
-    }
-
     CodeCoverage = @{
-        Enabled               = $true
-        CoveragePercentTarget = 70  # Lower target for development
-    }
-}
-```
-
-### CI/CD Configuration
-
-```powershell
-# PesterConfiguration.CI.psd1
-@{
-    Run = @{
-        Path     = @('./Tests/Unit', './Tests/Integration', './Tests/Security')
-        PassThru = $true
-        Throw    = $true
-        Exit     = $true
-    }
-
-    Output = @{
-        Verbosity  = 'Normal'
-        CIFormat   = 'GithubActions'  # or 'AzureDevops'
-        RenderMode = 'Ansi'
-    }
-
-    CodeCoverage = @{
-        Enabled               = $true
+        Enabled = $true
         CoveragePercentTarget = 80
-        OutputFormat          = 'JaCoCo'
-        OutputPath            = './Tests/Results/Coverage.xml'
     }
 
     TestResult = @{
-        Enabled      = $true
+        Enabled = $true
         OutputFormat = 'NUnitXml'
-        OutputPath   = './Tests/Results/TestResults.xml'
     }
 }
 ```
 
-### Performance Testing Configuration
+Paths in a configuration are relative to the current location, which a build script does not
+control. Keep paths out of the file and set them in the script from `$PSScriptRoot`:
 
 ```powershell
-# PesterConfiguration.Performance.psd1
-@{
-    Run = @{
-        Path     = @('./Tests/Performance')
-        PassThru = $true
+$repositoryRoot = Split-Path -Path $PSScriptRoot -Parent
+$settingsPath = Join-Path -Path $PSScriptRoot -ChildPath 'PesterConfiguration.psd1'
+$settings = Import-PowerShellDataFile -LiteralPath $settingsPath
 
-        # Performance tests must not share the box with other work
-        Parallel = $false
-    }
-
-    Output = @{
-        Verbosity = 'Minimal'
-    }
-
-    Filter = @{
-        Tag = @('Performance', 'Benchmark')
-    }
-
-    TestResult = @{
-        Enabled    = $true
-        OutputPath = './Tests/Results/PerformanceResults.xml'
-    }
-}
+$configuration = New-PesterConfiguration -Hashtable $settings
+$configuration.Run.Path = Join-Path -Path $repositoryRoot -ChildPath 'Tests'
+$configuration.Run.RepoRoot = $repositoryRoot
+$configuration.CodeCoverage.Path = @(
+    Join-Path -Path $repositoryRoot -ChildPath 'Public'
+    Join-Path -Path $repositoryRoot -ChildPath 'Private'
+)
 ```
 
-## Parallel Execution (Experimental)
+To use different settings for one kind of run, load the same file and then assign the options that
+differ. The coverage figure that CI enforces is 80 percent (TST-40); do not keep a second, lower
+figure for other runs.
 
-Pester 6 can run test **files** concurrently, one file per runspace. From 6.2 the workers run on a
-runspace pool, which Windows PowerShell 5.1 and PowerShell 7 both have; 6.0 and 6.1 used
-`ForEach-Object -Parallel` and so ran sequentially on 5.1.
+### Checking What Was Loaded
 
-```powershell
-$config = New-PesterConfiguration
-$config.Run.Path = './Tests/Unit'
-$config.Run.Parallel = $true
-$config.Run.ParallelThrottleLimit = 4   # 0 (default) uses all processors
-Invoke-Pester -Configuration $config
-```
+Pester 6.2.0 checks a hashtable in three ways, at three different times.
 
-**Requirements**: file-based containers (`Run.Path`, or `New-PesterContainer -Path` including
-parametrized files built with `-Data`).
-
-**Falls back to a sequential run with a warning** when:
-
-- Using in-memory `ScriptBlock` containers
-- `Run.SkipRemainingOnFailure = 'Run'`
-- Running on Windows PowerShell 5.1 with Pester 6.0 or 6.1
-
-If every file opts out with `#pester:no-parallel` the run is simply sequential, with no warning -
-there is nothing left to parallelize.
-
-**A lost file is an error** from 6.2. A worker that died before returning its result used to vanish
-from the run - not failed, not skipped, simply absent, and the run looked green with one file fewer.
-The run now compares results to the files it sent and throws naming the missing ones. A worker that
-throws is reported with `Write-Error` and the remaining files still report, even under
-`$ErrorActionPreference = 'Stop'`, which used to abort the loop at the first failing file.
-
-**Code coverage works under parallel** as of 6.1: each worker measures the same locations and the
-parent merges the per-location hits into one report. The cost is that coverage in a parallel run is
-forced onto **breakpoint mode**, because the profiler-based tracer keeps its state in a
-process-global static and is not concurrency-safe. `CodeCoverage.UseBreakpoints = $false` is ignored
-for the parallel path. Breakpoint coverage is substantially slower per file, so parallel plus
-coverage is not automatically faster than sequential plus the profiler - measure before adopting it.
-
-**Opting a file out** with a comment directive parsed like `#requires` (matched only inside real
-comment tokens, never inside strings):
-
-```powershell
-#pester:no-parallel
-Describe 'integration that must not share the box' {
-}
-```
-
-Opted-out files run in the parent session on the normal serial path, with shared session state and
-live output, while other files run in parallel.
-
-Console output, the `TestResult` report, and IDE adapters behave the same in both modes - only the
-concurrency differs. The run's total `Duration` becomes the orchestrator's elapsed time rather than
-the sum of the files, and per-phase run totals (user, framework, discovery) are blank - that
-breakdown is still reported on each container.
-
-Treat this as opt-in and experimental. The directive name, config shape, and behavior may still
-change.
-
-### Shared Per-File Setup
-
-Pester dot-sources every **`Pester.BeforeContainer.ps1`** it finds between `Run.RepoRoot` and the
-test file's own folder before that file is discovered and run, outermost first, in both serial and
-parallel runs. This matters most under parallel, where each worker starts from a clean runspace.
-
-The file follows the same rule as a test file. Top-level code runs during **discovery** only - use it
-for what `-ForEach` data or `BeforeDiscovery` needs. Anything the tests need at **run** time goes in
-a `BeforeAll`:
-
-```powershell
-# Pester.BeforeContainer.ps1, at the repository root
-BeforeAll {
-    Import-Module "$PSScriptRoot/Tests/TestHelpers/Assertions.psd1" -Force
-    . "$PSScriptRoot/Tests/TestHelpers/Bootstrap.ps1"
-}
-```
-
-Before 6.2 the file had no `BeforeAll` and everything sat at top level. That shape silently stops
-working on 6.2: a function or variable dot-sourced at top level is gone by the time a test runs
-(verified - `CommandNotFoundException` for the helper, `$null` for the variable), and only an
-`Import-Module` happens to survive because module state is session-wide. Wrap it.
-
-Because it is a real file it always exposes a stable `$PSScriptRoot` and `$PSCommandPath`, so
-relative paths have something reliable to anchor against. The files run before **every** container,
-so what they do must be safe to run more than once.
-
-> **Removed in 6.1**: the `Run.BeforeContainer` configuration option. 6.0 shipped both the option
-> and the convention file; the option had no file to anchor relative paths against, so it was
-> dropped and the convention file kept. Assigning `$config.Run.BeforeContainer` now throws
-> `The property 'BeforeContainer' cannot be found on this object`. Move the scriptblock's body into
-> a `BeforeAll` in `Pester.BeforeContainer.ps1` at the repository root.
-
-### Folder-Scoped Setup (6.2+)
-
-One file at the root was all 6.1 used. From 6.2 the chain follows the folder structure, so unit and
-integration tests can each carry their own setup without repeating it in every test file:
-
-```text
-reporoot/Pester.BeforeContainer.ps1                    <- applies to everything
-reporoot/Tests/Pester.BeforeContainer.ps1              <- Tests/ and below
-reporoot/Tests/Unit/Pester.BeforeContainer.ps1         <- Tests/Unit only
-reporoot/Tests/Integration/Pester.BeforeContainer.ps1  <- Tests/Integration only
-```
-
-```powershell
-# reporoot/Tests/Unit/Pester.BeforeContainer.ps1
-BeforeAll { $script:Db = 'in-memory' }
-
-# reporoot/Tests/Integration/Pester.BeforeContainer.ps1
-BeforeAll { $script:Db = 'real-sql' }
-```
-
-The files are dot-sourced into the container's own scope, not the run session state, so a file in
-`Tests/Integration` never sees what `Tests/Unit` set up, whichever runs first. A folder opts out of
-everything above it with a directive, the same meaning `root = true` has in an `.editorconfig`:
-
-```powershell
-# reporoot/Tests/Docs/Pester.BeforeContainer.ps1
-#pester:no-inherit
-BeforeAll { Import-Module "$PSScriptRoot/../../Source/ModuleName.psd1" }
-```
-
-Each container records which setup files applied to it, outermost first, as `BeforeContainerFile`
-on the result object - the folder tree cannot show a `#pester:no-inherit`, but this can:
-
-```powershell
-$result = Invoke-Pester -Path ./Tests -PassThru
-foreach ($container in $result.Containers) {
-    $container.Item.Name
-    $container.BeforeContainerFile | ForEach-Object { "    $_" }
-}
-```
-
-`Run.SkipRun` applies the chain too, so a discovery-only pass sees the same `-ForEach` data a real
-run does.
-
-### Run.RepoRoot Decides Where the Chain Starts
-
-The chain starts at `Run.RepoRoot`, and nothing above it is looked at. Be explicit in any script or
-CI job:
-
-```powershell
-$config.Run.RepoRoot = $PSScriptRoot
-```
-
-`Run.RepoRoot` defaults to the nearest ancestor directory containing `.git`, falling back to the
-starting directory when no `.git` is found. Where that search starts changed in 6.2:
-
-- `New-PesterConfiguration` still resolves the default from
-  `[System.IO.Directory]::GetCurrentDirectory()`, the .NET process working directory, which
-  `Set-Location` does not update. That is the value you see on the object.
-- `Invoke-Pester` then re-resolves it from the session's current location (`$PWD`) - **only when
-  you did not set it**. On 6.1 the run used the process directory, so a session that started
-  elsewhere and then changed into the repository found no setup file, with nothing to say why.
-
-```powershell
-Set-Location $repo
-(New-PesterConfiguration).Run.RepoRoot.Value    # still the directory the process started in
-$result = Invoke-Pester -Configuration $config   # 6.2 resolves $repo here; 6.1 used the process directory
-$result.Configuration.Run.RepoRoot.Value         # what the run actually used
-```
-
-It is never derived from `Run.Path`, so pointing Pester at a test directory in another repository
-does not move it. When the two diverge the bootstrap silently does not run, and every test that
-depended on it fails with `CommandNotFoundException` rather than anything naming the real cause.
-
-This does **not** replace per-file setup. Each file must still be able to be discovered on its own;
-see [Pester 6 Migration Guide](./v6-migration.md).
-
-## Shuffled Test Order (Experimental)
-
-New in 6.1. `Run.Shuffle` reorders the test files, and the blocks and tests inside them, so a suite
-that quietly depends on declaration order fails instead of passing by luck.
-
-```powershell
-$config = New-PesterConfiguration
-$config.Run.Path    = './Tests/Unit'
-$config.Run.Shuffle = $true
-Invoke-Pester -Configuration $config
-```
-
-Items are reordered only **within their own level** - a test never leaves its `Context`, and a
-`Context` never leaves its `Describe`. The tree keeps its shape; only sibling order changes.
-
-The run picks a seed, prints it at the start, and records it on the result object:
-
-```text
-Shuffling execution order using seed 852659930. Set 'Run.ShuffleSeed = 852659930' to repeat this order.
-```
-
-```powershell
-$config.Run.ShuffleSeed = 852659930     # replay the exact order that failed
-```
-
-```powershell
-# after a PassThru run, the seed that was actually used
-$result.Configuration.Run.ShuffleSeed.Value
-```
-
-`ShuffleSeed` defaults to `0`, which means "pick a new one each run". Capture the printed seed from
-a failing CI log before re-running, or the order is gone.
-
-A file whose blocks genuinely must run in sequence opts out with a comment directive, parsed like
-`#requires` and like `#pester:no-parallel`:
-
-```powershell
-#pester:no-shuffle
-Describe 'ordered migration steps' -Tag 'Integration' {
-}
-```
-
-Opting out is an admission of order dependence, so treat a `#pester:no-shuffle` file the same way as
-a `#pester:no-parallel` one - fine for a genuinely sequential integration script, a smell in a unit
-test file.
-
-The option is experimental and may change. Enabling it changes only ordering, never which tests run
-or how they are filtered.
-
-### Run It in CI
-
-Turn shuffling on in the CI unit-test job, with a fresh seed each run and the seed named in the
-failure message. The first shuffled run of one 1,300-test suite failed three tests under seed 1 that
-file order had always hidden: each wrote into a folder an earlier test in the same file had created.
-Two other seeds passed. The same suite later moved to importing the module once per run instead of
-in every file, which makes state visible across files; the shuffled run is what keeps that trade
-honest, because a test that passes only after a fresh import fails there with a seed to replay.
-
-```powershell
-$config = New-PesterConfiguration
-$config.Run.Path = './Tests/Unit'
-$config.Run.PassThru = $true
-$config.Run.Shuffle = $true          # ShuffleSeed stays 0: a new seed each run, printed at the start
-
-$result = Invoke-Pester -Configuration $config
-
-if ($result.FailedCount -gt 0 -or $result.FailedContainersCount -gt 0) {
-    $seed = $result.Configuration.Run.ShuffleSeed.Value
-    throw "Tests failed: $($result.FailedCount) test(s), $($result.FailedContainersCount) container(s). " +
-        "Replay this order with Run.ShuffleSeed = $seed"
-}
-```
-
-Document the replay command in the tests README, so whoever reads the failing log knows what to do
-with the number.
-
-## Global Mocks (Experimental)
-
-New in 6.1. Normally a mock applies to calls from the scope that defined it, or from the single
-module named by `-ModuleName`. `Mock.Global` makes every mock apply to calls of that command from
-**any module or script in the runspace**:
-
-```powershell
-$config = New-PesterConfiguration
-$config.Mock.Global = $true
-```
-
-Mocks are written exactly as before - see
-[Mocking Patterns Guide](./mocking-patterns.md#global-mocks-experimental) for what changes in
-practice. With the option on, `-ModuleName` becomes a hint used to resolve the command rather than a
-scope, so existing mocks keep working. Mocks are still removed when the block that defined them
-ends, and are tied to the run that created them, so they cannot leak into a nested Pester-in-Pester
-run.
-
-The option is experimental and may change; the Pester team has stated an intent to make it the
-default in v7.
-
-## Dynamic Configuration Loading
-
-### Configuration Loader Function
-
-```powershell
-function Get-PesterConfiguration {
-    [CmdletBinding()]
-    param(
-        [ValidateSet('Development', 'CI', 'Performance', 'Security', 'Integration')]
-        [string]$Environment = 'Development',
-        [string]$ConfigPath = './Tests'
-    )
-
-    # Load base configuration
-    $baseConfigPath = Join-Path $ConfigPath "PesterConfiguration.psd1"
-    $baseConfig = Import-PowerShellDataFile $baseConfigPath
-
-    # Load environment-specific overrides
-    $envConfigPath = Join-Path $ConfigPath "PesterConfiguration.$Environment.psd1"
-    if (Test-Path $envConfigPath) {
-        $envConfig = Import-PowerShellDataFile $envConfigPath
-
-        # Merge configurations (environment overrides base)
-        $mergedConfig = Merge-HashTable $baseConfig $envConfig
-    } else {
-        $mergedConfig = $baseConfig
-    }
-
-    # Create Pester configuration object
-    return New-PesterConfiguration -Hashtable $mergedConfig
-}
-
-function Merge-HashTable {
-    param(
-        [hashtable]$Base,
-        [hashtable]$Override
-    )
-
-    $result = $Base.Clone()
-
-    foreach ($key in $Override.Keys) {
-        if ($result.ContainsKey($key) -and $result[$key] -is [hashtable] -and $Override[$key] -is [hashtable]) {
-            $result[$key] = Merge-HashTable $result[$key] $Override[$key]
-        } else {
-            $result[$key] = $Override[$key]
-        }
-    }
-
-    return $result
-}
-```
-
-From 6.2 the configuration checks what it is handed. A value of the wrong type throws while the
-configuration is built - which bites first with `psd1` and JSON files, where a boolean written in
-quotes arrives as a string:
+A value of the wrong type throws when the configuration is created. This happens most often with a
+Boolean written as a string in a `.psd1` or JSON file:
 
 ```powershell
 New-PesterConfiguration -Hashtable @{ Run = @{ Parallel = 'yes' } }
-# Error: "Run.Parallel expects a bool, but got the string 'yes'."
+# Error: Run.Parallel expects a bool, but got the string 'yes'.
 ```
 
-An `int` where a `decimal` is expected is still accepted, and a key present with a `$null` value
-still means "not set". A key that matches no option is collected rather than thrown on, because a
-hashtable may carry keys meant for something else, and `Invoke-Pester` warns about all of them once:
+An `int` is accepted for a decimal option, and a key whose value is `$null` is treated as not set.
+
+A key that matches no option does not throw. `Invoke-Pester` writes one warning for all of them:
 
 ```text
-WARNING: Ignoring configuration keys 'Nonsense', 'Run.Paralel', there are no such options.
-         Check the spelling, 'Get-Help about_PesterConfiguration' lists all the options.
+WARNING: Ignoring configuration keys 'Nonsense', 'Run.Paralel', there are no such options. Check
+the spelling, 'Get-Help about_PesterConfiguration' lists all the options.
 ```
 
-A warning is easy to lose in CI output. Read the same list off the object and fail before the run:
+A warning does not fail a build. Read the same list from the object and throw:
 
 ```powershell
-$config = New-PesterConfiguration -Hashtable $mergedConfig
-$unknown = @($config.GetUnknownKeys())
-if ($unknown.Count -gt 0) {
-    throw "Configuration keys that match no option: $($unknown -join ', ')"
+$configuration = New-PesterConfiguration -Hashtable $settings
+
+$unknownKeys = @($configuration.GetUnknownKeys())
+if ($unknownKeys.Count -gt 0) {
+    throw "Configuration keys that match no option: $($unknownKeys -join ', ')"
 }
 ```
 
-Before 6.2 both cases were silent - a misspelled key or a wrong-typed value simply did not apply,
-and the only defence was reading the value back off the object.
+A value that has the right type but is not one of the allowed words is reported when the run
+starts. `Invoke-Pester` writes an error such as
+`TestResult.OutputFormat must be 'NUnitXml', 'NUnit2.5', 'NUnit3' or 'JUnitXml', but it was 'VSTest'`
+and returns no result. Test the result for `$null`, as the CI gate does.
 
-## Test Filtering Configuration
+Before 6.2 a misspelled key and a value of the wrong type were both ignored without a message.
 
-### Tag-Based Filtering
+## Option Reference
+
+### Run
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `Run.Path` | `.` | Folders or files to search for tests. Wildcards are allowed. |
+| `Run.ExcludePath` | empty | Folders or files to leave out. Each entry is compared with full paths; see [Pester Test Structure Guide](./test-structure-guide.md#hidden-folders-and-excluded-paths). |
+| `Run.ScriptBlock` | empty | Script blocks that contain tests. |
+| `Run.Container` | empty | Containers made by `New-PesterContainer`, used to pass data to a test file. |
+| `Run.TestExtension` | `.Tests.ps1` | Suffix that identifies a test file. |
+| `Run.PassThru` | `$false` | Return the result object. |
+| `Run.SkipRun` | `$false` | Discover the tests but do not run them. |
+| `Run.Throw` | `$false` | Throw when the run fails. |
+| `Run.Exit` | `$false` | End the process with a non-zero exit code when the run fails. |
+| `Run.SkipRemainingOnFailure` | `None` | What to skip after the first failure: `None`, `Block`, `Container`, or `Run`. |
+| `Run.FailOnNullOrEmptyForEach` | `$true` | Fail discovery when `-ForEach` receives `$null` or an empty array. |
+| `Run.RepoRoot` | found when the run starts | Experimental. Where the search for setup files starts; see [Run.RepoRoot](#runreporoot). |
+| `Run.Parallel` | `$false` | Experimental. Run test files at the same time. |
+| `Run.ParallelThrottleLimit` | `0` | Experimental. Number of files to run at once; `0` uses every processor. |
+| `Run.Shuffle` | `$false` | Experimental. Run files, blocks, and tests in a random order. |
+| `Run.ShuffleSeed` | `0` | Experimental. Seed for the order; `0` picks a new seed for each run. |
+
+`Run.Throw` and `Run.Exit` stop the script inside `Invoke-Pester` when the run fails, so the
+statements after it, such as a coverage check, do not run. The CI gate in the testing rules leaves
+both off, sets `Run.PassThru`, and inspects the result itself. Neither option reports a run that
+found no tests: measured on 6.2.0, a file without tests gives the result `Passed` with `Run.Throw`
+set.
+
+`Invoke-Pester` always sets `$LASTEXITCODE`: to the number of failed tests, blocks, and files, or to
+`-1` when Pester itself fails, for example because no test file was found.
+
+### Filter
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `Filter.Tag` | empty | Run tests that have any of these tags. `None` selects tests without a tag. |
+| `Filter.ExcludeTag` | empty | Leave out tests that have any of these tags. `None` leaves out tests without a tag. |
+| `Filter.FullName` | empty | Run tests whose full name matches a wildcard pattern, for example `*Get-Thing*`. |
+| `Filter.Line` | empty | Run the test or block that starts at a line, written as `<full path>:<line>`. |
+| `Filter.ExcludeLine` | empty | Leave out the test or block that starts at a line. It takes precedence over `Filter.Line`. |
+
+Several tags in `Filter.Tag` select a test that has any one of them, not a test that has all of
+them. The reserved value `None` is explained in
+[Pester Test Structure Guide](./test-structure-guide.md#the-reserved-tag-none).
+
+### CodeCoverage
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `CodeCoverage.Enabled` | `$false` | Measure coverage. |
+| `CodeCoverage.Path` | empty | Folders or files to measure. When empty, `Run.Path` is used. |
+| `CodeCoverage.ExcludeTests` | `$true` | Leave test files out of the figures. |
+| `CodeCoverage.RecursePaths` | `$true` | Search the folders in `CodeCoverage.Path` recursively. |
+| `CodeCoverage.CoveragePercentTarget` | `75` | The figure that Pester reports against. It does not fail the run. |
+| `CodeCoverage.OutputFormat` | `JaCoCo` | Report format: `JaCoCo` or `Cobertura`. |
+| `CodeCoverage.OutputPath` | `coverage.xml` | Report file. |
+| `CodeCoverage.OutputEncoding` | `UTF8` | Encoding of the report file. |
+| `CodeCoverage.ReportRoot` | not set | Folder that paths in the report are relative to. When not set, `Run.RepoRoot` is used. |
+| `CodeCoverage.UseBreakpoints` | `$false` | `$false` measures with the profiler-based tracer; `$true` sets a breakpoint on every command. |
+| `CodeCoverage.SingleHitBreakpoints` | `$true` | Remove a breakpoint after its first hit. Applies only to breakpoint mode. |
+
+### TestResult
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `TestResult.Enabled` | `$false` | Write a test result report. |
+| `TestResult.OutputFormat` | `NUnitXml` | Report format: `NUnitXml`, `NUnit2.5`, `NUnit3`, or `JUnitXml`. |
+| `TestResult.OutputPath` | `testResults.xml` | Report file. |
+| `TestResult.OutputEncoding` | `UTF8` | Encoding of the report file. |
+| `TestResult.TestSuiteName` | `Pester` | Name of the root test suite in the report. |
+
+### Output
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `Output.Verbosity` | `Normal` | `None`, `Normal`, `Detailed`, or `Diagnostic`. |
+| `Output.StackTraceVerbosity` | `Filtered` | `None`, `FirstLine`, `Filtered`, or `Full`. `Filtered` hides Pester's own frames. |
+| `Output.CIFormat` | `Auto` | Format of failures in a build log: `None`, `Auto`, `AzureDevops`, or `GithubActions`. |
+| `Output.CILogLevel` | `Error` | Level that failures are logged at in a build log: `Error` or `Warning`. |
+| `Output.CIDebugOutput` | `Auto` | `Auto` shows verbose and debug output when the CI system runs in debug mode; `None` does not. |
+| `Output.RenderMode` | `Auto` | `Auto`, `Ansi`, `ConsoleColor`, or `Plaintext`. |
+| `Output.ShowTags` | `$false` | Add the tags of each block and test to its output line. |
+
+### Should, Mock, TestDrive, and TestRegistry
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `Should.ErrorAction` | `Stop` | `Stop` ends the test at the first failed assertion. `Continue` runs the rest of the test and reports every failed assertion. |
+| `Should.DisableV5` | `$false` | `$true` makes the `Should -Be` style fail. |
+| `Mock.Global` | `$false` | Experimental. Every mock applies to calls from any module or script. |
+| `TestDrive.Enabled` | `$true` | Provide `$TestDrive`. |
+| `TestRegistry.Enabled` | `$true` | Provide the `TestRegistry:` drive on Windows. |
+
+Do not set `Should.DisableV5` while any test file still uses the `Should -Be` style. With the option
+on, such an assertion fails with `Pester Should -Be syntax is disabled`.
+
+### Debug
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `Debug.WriteDebugMessages` | `$false` | Write Pester's debug messages. |
+| `Debug.WriteDebugMessagesFrom` | `Discovery`, `Skip`, `Mock`, `CodeCoverage` | Sources of the debug messages. Wildcards are allowed. |
+| `Debug.ShowNavigationMarkers` | `$false` | Write the path after every block and test. |
+| `Debug.ShowStartMarkers` | `$false` | Write a line when each test starts. |
+| `Debug.ShowFullErrors` | `$false` | Deprecated. Use `Output.StackTraceVerbosity = 'Full'`. |
+| `Debug.ReturnRawResultObject` | `$false` | For the development of Pester only. |
+
+## Options and Values That Do Not Exist
+
+These names appear in older guidance. On Pester 6.2.0 a key from the first table is reported as an
+unknown key, and a value from the second table is rejected when the run starts.
+
+| Not an option | Use instead |
+| --- | --- |
+| `CodeCoverage.Threshold` | `CodeCoverage.CoveragePercentTarget`, with the check in the gate script |
+| `CodeCoverage.PerFileThreshold` | No option. Compute it in the gate script from `CodeCoverage.CommandsMissed`. |
+| `CodeCoverage.ExcludePath` | Narrow `CodeCoverage.Path` |
+| `Run.BeforeContainer` | A `Pester.BeforeContainer.ps1` file; see [Pester Test Structure Guide](./test-structure-guide.md#shared-setup-files) |
+
+| Not a value | Use instead |
+| --- | --- |
+| `TestResult.OutputFormat = 'VSTest'` | `NUnitXml`, `NUnit2.5`, `NUnit3`, or `JUnitXml` |
+| `CodeCoverage.OutputFormat = 'CoverageGutters'` | `JaCoCo` |
+| `Output.Verbosity = 'Minimal'` | `Normal`. Pester accepts `Minimal` and changes it to `Normal`. |
+
+## Reports Turn On by Themselves
+
+Setting any option of `CodeCoverage` or `TestResult` to a value other than its default turns that
+section on for the run, even when `Enabled` still reads `$false` on the object. Measured on 6.2.0:
+setting only `CodeCoverage.Path` wrote `coverage.xml`, and setting only `TestResult.OutputFormat`
+wrote `testResults.xml`.
+
+Set `Enabled` explicitly anyway. It states the intent, and it is what a reader looks for.
+
+## Run.RepoRoot
+
+`Run.RepoRoot` is the folder where Pester starts to look for `Pester.BeforeContainer.ps1` files, and
+the default for `CodeCoverage.ReportRoot`. Pester marks the option as experimental. The setup files
+themselves are described in
+[Pester Test Structure Guide](./test-structure-guide.md#shared-setup-files).
+
+When the option is not set, `Invoke-Pester` finds the root when the run starts: it searches upwards
+from the current location (`$PWD`) for a folder that contains `.git`, and uses the current location
+when it finds none. It never derives the root from `Run.Path`. Measured on 6.2.0 with a setup file
+at the repository root:
+
+| Current location when the run starts | Root that the run used | Setup file applied |
+| --- | --- | --- |
+| The repository root, or a folder inside it | The repository root | Yes |
+| An unrelated folder | That folder | No |
+| A folder inside a checkout that has no `.git` folder | That folder | No, unless the setup file is in that folder or below |
+
+Nothing is written when a setup file is not found. The tests then fail with
+`CommandNotFoundException` or read `$null`, which does not point at the cause.
+
+Two details make this harder to see:
+
+- `New-PesterConfiguration` fills in a value before the run, from the working directory of the
+  process, which `Set-Location` does not change. The object can therefore show a different folder
+  from the one the run uses. The folder that was used is in
+  `$result.Configuration.Run.RepoRoot.Value`.
+- Pester 6.1 used the working directory of the process for the run as well.
+
+Set the option in every script and CI job, from a path that does not depend on the current location:
 
 ```powershell
-# Filter by test type
-$config.Filter.Tag = @('Unit')           # Only unit tests
-$config.Filter.Tag = @('Integration')    # Only integration tests
-$config.Filter.Tag = @('Security')       # Only security tests
-
-# Filter by priority
-$config.Filter.Tag = @('Critical')       # Only critical tests
-$config.Filter.ExcludeTag = @('Slow')    # Exclude slow tests
-
-# Combined filtering
-$config.Filter.Tag = @('Unit', 'Public') # Unit tests for public functions only
+$configuration.Run.RepoRoot = Split-Path -Path $PSScriptRoot -Parent
 ```
 
-### The Reserved `None` Tag Value
+## Code Coverage
 
-Pester 6 reserves `None` (case-insensitive) as a filter value meaning **tests that have no tag** on
-themselves or any parent block:
+### What Is Measured
 
-```powershell
-$config.Filter.Tag = @('None')            # only untagged tests - use to audit tagging coverage
-$config.Filter.ExcludeTag = @('None')     # skip untagged tests, run only tagged ones
-$config.Filter.Tag = @('None', 'Acceptance')  # untagged tests plus Acceptance
-```
+Pester counts commands, not lines. `CodeCoverage.CoveragePercent` on the result is
+`CommandsExecutedCount` divided by `CommandsAnalyzedCount`, as a percentage. The commands that did
+not run are in `CodeCoverage.CommandsMissed`, each with its file and line.
 
-Never use `None` as a literal tag name. If an existing suite does, rename it - filtering by it now
-also selects every untagged test.
+`CodeCoverage.Path` takes folders or files. With `CodeCoverage.ExcludeTests` at its default, files
+that match `Run.TestExtension` are left out of the figures.
 
-### Path-Based Filtering
+### The Target Is Not a Gate
 
-```powershell
-# Test specific modules
-$config.Run.Path = @('./Tests/Unit/Public/Get-*.Tests.ps1')
-
-# Test specific areas
-$config.Run.Path = @('./Tests/Unit/Authentication', './Tests/Unit/Authorization')
-```
-
-### Excluding Paths
-
-Pester 6 discovers test files inside **hidden and dot-prefixed folders** (file search uses
-`Get-ChildItem -Force`). Version-control metadata folders (`.git`, `.svn`, `.hg`) are still ignored.
-Exclude anything else you do not want picked up:
+`CodeCoverage.CoveragePercentTarget` changes what Pester prints and writes to the report. Measured
+on 6.2.0, a run with 60 percent coverage and a target of 99 has the result `Passed`. The script
+compares the figure itself (TST-40):
 
 ```powershell
-$config.Run.ExcludePath = @(
-    './.build/**',
-    './.config/**',
-    './Tests/Fixtures/**'
-)
-```
+$result = Invoke-Pester -Configuration $configuration
 
-## Code Coverage Configuration
-
-### Coverage Paths
-
-```powershell
-$config.CodeCoverage.Path = @(
-    './Public/*.ps1',           # All public functions
-    './Private/*.ps1',          # All private functions
-    './Classes/*.ps1',          # All class files
-    './Modules/*/Public/*.ps1'  # Multi-module support
-)
-```
-
-There is no `CodeCoverage.ExcludePath`. Narrow `CodeCoverage.Path` instead, and rely on
-`CodeCoverage.ExcludeTests = $true` (the default) to keep `*.Tests.ps1` files out of the numbers.
-
-### Profiler vs. Breakpoint Coverage
-
-Pester 6 uses the Profiler's tracer by default instead of setting a breakpoint on every command.
-This is dramatically faster on large code bases. The old behavior is still available:
-
-```powershell
-$config.CodeCoverage.UseBreakpoints = $true   # only if you depend on breakpoint-based numbers
-```
-
-A parallel run overrides this and always uses breakpoints - see
-[Parallel Execution](#parallel-execution-experimental) above.
-
-### Output Formats and Report Root
-
-```powershell
-$config.CodeCoverage.OutputFormat = 'JaCoCo'      # default
-$config.CodeCoverage.OutputFormat = 'Cobertura'   # for GitLab, Codecov, and similar
-```
-
-`CoverageGutters` was **removed** in v6. It only existed to produce repo-root-relative paths, and
-now _all_ coverage output is relative to the repository root, so plain `JaCoCo` works with the
-Coverage Gutters extension.
-
-Paths are relative to `CodeCoverage.ReportRoot`, which defaults to `Run.RepoRoot` (found from the
-nearest `.git` directory, falling back to the working directory). Override it when the repo layout
-does not match what your CI tool expects:
-
-```powershell
-$config.CodeCoverage.ReportRoot = "$PSScriptRoot/.."
-```
-
-## Output Configuration
-
-### Verbosity Levels
-
-```powershell
-$config.Output.Verbosity = 'None'        # No output
-$config.Output.Verbosity = 'Minimal'     # Only summary
-$config.Output.Verbosity = 'Normal'      # Standard output (default)
-$config.Output.Verbosity = 'Detailed'    # Verbose output with test details
-$config.Output.Verbosity = 'Diagnostic'  # Full diagnostic information
-```
-
-### Render Mode
-
-```powershell
-$config.Output.RenderMode = 'Auto'          # detect terminal capability (default)
-$config.Output.RenderMode = 'Ansi'          # force ANSI/VT sequences
-$config.Output.RenderMode = 'ConsoleColor'  # legacy console colors
-$config.Output.RenderMode = 'Plaintext'     # no color - best for log capture
-```
-
-### CI/CD Integration
-
-```powershell
-$config.Output.CIFormat = 'GithubActions'  # GitHub Actions error/warning annotations
-$config.Output.CIFormat = 'AzureDevops'    # Azure DevOps logging commands
-$config.Output.CIFormat = 'Auto'           # Auto-detect (default)
-$config.Output.CILogLevel = 'Error'        # Error | Warning
-$config.Output.CIDebugOutput = 'Auto'      # Auto | None
-```
-
-`CIDebugOutput = 'Auto'` (the default) surfaces `Write-Verbose` and `Write-Debug` output when the CI
-system is running with its own debug switch on - Azure DevOps `System.Debug`, GitHub Actions runner
-debug logging. Set it to `None` to keep a re-run-with-debug quiet.
-
-### Showing Tags
-
-```powershell
-$config.Output.ShowTags = $true
-# Describing Get-Planet [Tags: Slow, Unix]
-```
-
-Appends each `Describe`, `Context`, and `It` tag list to its output line. Use it when a `-Tag` or
-`-ExcludeTag` filter selects a surprising set of tests - it shows what the filter actually matched
-rather than leaving you to infer it from the names.
-
-### Stack Traces
-
-```powershell
-$config.Output.StackTraceVerbosity = 'None'
-$config.Output.StackTraceVerbosity = 'FirstLine'
-$config.Output.StackTraceVerbosity = 'Filtered'  # default - hides Pester internals
-$config.Output.StackTraceVerbosity = 'Full'
-```
-
-## Test Result Configuration
-
-### Output Formats
-
-```powershell
-$config.TestResult.OutputFormat = 'NUnitXml'   # NUnit 2.5 schema, most widely consumed (default)
-$config.TestResult.OutputFormat = 'NUnit2.5'   # explicit alias for the above
-$config.TestResult.OutputFormat = 'NUnit3'     # NUnit 3 schema, new in v6
-$config.TestResult.OutputFormat = 'JUnitXml'   # JUnit, for GitLab and most Java-ecosystem tools
-```
-
-Reports honor `TestResult.OutputEncoding`. Control characters and ANSI/VT sequences in values are
-escaped using Unicode Control Pictures so they cannot corrupt the report XML.
-
-### Multiple Output Formats
-
-`TestResult` is a single section, not a collection - you cannot configure two formats in one run.
-Convert the result object afterwards instead:
-
-```powershell
-$config.Run.PassThru = $true
-$result = Invoke-Pester -Configuration $config
-
-Export-NUnitReport -Result $result -Path './Tests/Results/NUnit.xml'
-Export-JUnitReport -Result $result -Path './Tests/Results/JUnit.xml'
-```
-
-## Configuration Best Practices
-
-### Environment Detection
-
-```powershell
-# Auto-detect CI/CD environment
-if ($env:CI -eq 'true' -or $env:BUILD_ID) {
-    $environment = 'CI'
-} elseif ($env:PERFORMANCE_TESTING -eq 'true') {
-    $environment = 'Performance'
-} else {
-    $environment = 'Development'
-}
-
-$config = Get-PesterConfiguration -Environment $environment
-```
-
-### Configuration Validation
-
-```powershell
-function Test-PesterConfiguration {
-    param([PesterConfiguration]$Configuration)
-
-    # Validate Pester version
-    $pester = Get-Module Pester -ListAvailable |
-        Sort-Object Version -Descending | Select-Object -First 1
-    if ($pester.Version -lt [version]'6.2.0') {
-        throw "Pester 6.2+ required, found $($pester.Version)"
-    }
-
-    # Validate required paths exist
-    foreach ($path in $Configuration.Run.Path.Value) {
-        if (-not (Test-Path $path)) {
-            Write-Warning "Test path not found: $path"
-        }
-    }
-
-    # Validate output directories
-    $outputDir = Split-Path $Configuration.TestResult.OutputPath.Value -Parent
-    if ($outputDir -and -not (Test-Path $outputDir)) {
-        New-Item -Path $outputDir -ItemType Directory -Force | Out-Null
-    }
-
-    # Validate coverage target
-    $target = $Configuration.CodeCoverage.CoveragePercentTarget.Value
-    if ($target -gt 100 -or $target -lt 0) {
-        throw "Invalid coverage target: $target"
-    }
-
-    # 6.2 collects keys that match no option instead of throwing on them.
-    # Invoke-Pester warns once; a gate should fail on them instead.
-    $unknown = @($Configuration.GetUnknownKeys())
-    if ($unknown.Count -gt 0) {
-        throw "Configuration keys that match no option: $($unknown -join ', ')"
-    }
+$coverage = [math]::Round($result.CodeCoverage.CoveragePercent, 2)
+if ($coverage -lt 80) {
+    throw "Code coverage is $coverage percent. The minimum is 80."
 }
 ```
 
-Note that reading a value off the configuration object gives you an option wrapper - use `.Value`
-to get the underlying setting.
+### Profiler and Breakpoints
 
-### Configuration Inheritance
+By default Pester 6 measures coverage with a profiler-based tracer. Pester 5 set a breakpoint on
+every command by default. `CodeCoverage.UseBreakpoints = $true` selects the breakpoint method.
+
+A parallel run always measures with breakpoints, whatever the option says; see
+[Test Execution Guide](./test-execution.md#coverage-in-a-parallel-run).
+
+### Report Format and Paths
+
+`JaCoCo` is the default format and `Cobertura` is the alternative. The `CoverageGutters` format of
+Pester 5 was removed.
+
+Paths in the report are relative to `CodeCoverage.ReportRoot`, which defaults to `Run.RepoRoot`.
+Measured on 6.2.0 for the file `C/src/Code.ps1` in a repository: the JaCoCo package is `C/src` by
+default and `src` with `ReportRoot` set to the folder `C`. Set `ReportRoot` when the tool that reads
+the report expects paths relative to another folder.
+
+## Output
+
+`Output.Verbosity` has four values. `Normal` prints one line for each test file and the failures,
+`Detailed` prints every block and test, and `Diagnostic` adds Pester's debug messages.
+
+`Output.CIFormat = 'Auto'` detects Azure Pipelines (`TF_BUILD`) and GitHub Actions
+(`GITHUB_ACTIONS`) from their environment variables. In GitHub Actions a failed test is written as
+an `::error::` command followed by a group that holds the message. `Output.CILogLevel = 'Warning'`
+writes failures as warnings instead.
+
+`Output.CIDebugOutput = 'Auto'` shows verbose and debug output when the pipeline runs with
+`System.Debug` set in Azure Pipelines, or with step debug logging on in GitHub Actions.
+
+`Output.ShowTags` helps to see why a tag filter selected a test:
+
+```text
+Describing Get-Planet [Tags: Unit, Slow]
+  [+] Returns the planet by name 11ms
+ Context When the name is unknown [Tags: Negative]
+   [+] Writes an error [Tags: Fast] 4ms
+```
+
+## Test Results
+
+`TestResult` writes one report in one format for each run. `NUnitXml` and `NUnit2.5` are the same
+NUnit 2.5 format, `NUnit3` is the NUnit 3 format, and `JUnitXml` is the JUnit format.
+
+To write a second format, convert the result object after the run:
 
 ```powershell
-# Base configuration for organization
-$orgConfig = @{
-    CodeCoverage = @{
-        CoveragePercentTarget = 80
-        OutputFormat          = 'JaCoCo'
-    }
-    TestResult = @{
-        OutputFormat = 'NUnitXml'
-    }
-}
+$configuration.Run.PassThru = $true
+$result = Invoke-Pester -Configuration $configuration
 
-# Project-specific overrides
-$projectConfig = @{
-    CodeCoverage = @{
-        CoveragePercentTarget = 85  # Higher target for critical project
-    }
-}
-
-# Merge configurations
-$finalConfig = Merge-HashTable $orgConfig $projectConfig
+Export-NUnitReport -Result $result -Path (Join-Path -Path $outputPath -ChildPath 'nunit.xml')
+Export-JUnitReport -Result $result -Path (Join-Path -Path $outputPath -ChildPath 'junit.xml')
 ```
+
+`Export-NUnitReport` also has `-Format NUnit3`.
+
+A file that fails discovery is written to the report as a failure.
+
+A raw control character in a test name or in a failure message breaks the report. Measured on
+6.2.0, a message that contains the escape character (0x1B) makes the export fail with
+`hexadecimal value 0x1B, is an invalid character` in all three formats, and the report file is left
+incomplete. Remove ANSI colour sequences from text before a test throws it or uses it in a name.
+
+## Experimental Options
+
+`Run.Parallel`, `Run.Shuffle`, and `Mock.Global` are off by default, and Pester marks them as
+experimental. Do not enable `Run.Parallel` or `Mock.Global` in a configuration that you generate
+unless the user asks. `Run.Shuffle` is the exception: turn it on for the unit tests in CI (TST-46).
+
+- `Run.Parallel` and `Run.ParallelThrottleLimit`: see
+  [Test Execution Guide](./test-execution.md#parallel-test-execution).
+- `Run.Shuffle` and `Run.ShuffleSeed`: see
+  [Test Execution Guide](./test-execution.md#shuffled-test-order).
+- `Mock.Global`: with the option on, a mock applies to calls of the command from any module or
+  script, and `-ModuleName` no longer limits where it applies. See
+  [Mocking Patterns Guide](./mocking-patterns.md).

@@ -1,56 +1,21 @@
-<#
-    ModuleExample root module.
+# Root module. Files load in the order Classes, Private, Public, so that a type exists before a
+# function that names it is defined. The manifest's FunctionsToExport decides what is exported.
 
-    Loads classes first, then private functions, then public ones - classes must be
-    available before any function that returns one is defined. Export is controlled
-    by the manifest's FunctionsToExport rather than a wildcard here, so the public
-    surface stays explicit.
+Set-StrictMode -Version Latest
 
-    Quality Standards: https://github.com/fadwen/ai-powershell-standards
-#>
-
-$ErrorActionPreference = 'Stop'
-
-#region Classes
-# Classes load first: Get-ExampleData returns an ExampleServiceResult, so the type
-# must exist before that function is dot-sourced.
-$ClassFiles = Get-ChildItem -Path "$PSScriptRoot/Classes/*.ps1" -ErrorAction SilentlyContinue
-foreach ($ClassFile in $ClassFiles) {
-    try {
-        . $ClassFile.FullName
-        Write-Verbose "Loaded class: $($ClassFile.BaseName)"
+foreach ($folder in 'Classes', 'Private', 'Public') {
+    $folderPath = Join-Path -Path $PSScriptRoot -ChildPath $folder
+    if (-not (Test-Path -LiteralPath $folderPath)) {
+        continue
     }
-    catch {
-        throw "Failed to load class $($ClassFile.BaseName): $($_.Exception.Message)"
+
+    foreach ($file in Get-ChildItem -LiteralPath $folderPath -Filter '*.ps1' -File) {
+        try {
+            . $file.FullName
+        } catch {
+            # A file that fails to load must fail the import. Without this, the loop would carry
+            # on and the module would import with commands missing.
+            throw
+        }
     }
 }
-#endregion
-
-#region Private Functions
-# Internal helpers - deliberately not exported by the manifest.
-$PrivateFunctions = Get-ChildItem -Path "$PSScriptRoot/Private/*.ps1" -ErrorAction SilentlyContinue
-foreach ($Function in $PrivateFunctions) {
-    try {
-        . $Function.FullName
-        Write-Verbose "Loaded private function: $($Function.BaseName)"
-    }
-    catch {
-        throw "Failed to load private function $($Function.BaseName): $($_.Exception.Message)"
-    }
-}
-#endregion
-
-#region Public Functions
-$PublicFunctions = Get-ChildItem -Path "$PSScriptRoot/Public/*.ps1" -ErrorAction SilentlyContinue
-foreach ($Function in $PublicFunctions) {
-    try {
-        . $Function.FullName
-        Write-Verbose "Loaded public function: $($Function.BaseName)"
-    }
-    catch {
-        throw "Failed to load public function $($Function.BaseName): $($_.Exception.Message)"
-    }
-}
-#endregion
-
-Write-Verbose "ModuleExample loaded: $($PublicFunctions.Count) public, $($PrivateFunctions.Count) private"

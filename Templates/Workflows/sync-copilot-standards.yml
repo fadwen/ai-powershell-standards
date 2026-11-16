@@ -1,17 +1,14 @@
-name: Sync Copilot Standards
+name: Sync PowerShell standards
 
-# Keeps this repository's Copilot and Claude Code standards files in sync with the standards
-# repository, and opens a pull request whenever they drift.
-#
-# Copy to .github/workflows/sync-copilot-standards.yml in the consuming project.
+# Keeps this repository's PowerShell standards files in step with the standards
+# repository, and opens a pull request when they change.
 #
 # Before the first run, enable:
 #   Settings -> Actions -> General -> Workflow permissions
 #     -> "Allow GitHub Actions to create and approve pull requests"
-# Without it the job detects drift correctly and then fails at the PR step.
+# Without it the job installs the files and then fails at the pull request step.
 #
-# Forked the standards repository? Change STANDARDS_REPO below. It is the only
-# line that needs editing.
+# Edit the three values under env to suit this repository.
 
 on:
   schedule:
@@ -23,7 +20,12 @@ permissions:
   pull-requests: write
 
 env:
+  # Repository that publishes the standards. Change it if you maintain a fork.
   STANDARDS_REPO: fadwen/ai-powershell-standards
+  # Branch, tag, or commit to install from. Set a release tag to decide when updates arrive.
+  STANDARDS_REF: main
+  # Agents this repository uses: any of Copilot, ClaudeCode, Codex, separated by commas.
+  STANDARDS_AGENTS: Copilot,ClaudeCode,Codex
 
 jobs:
   sync:
@@ -31,82 +33,42 @@ jobs:
 
     steps:
       - name: Check out this repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check out the standards repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.STANDARDS_REPO }}
+          ref: ${{ env.STANDARDS_REF }}
           path: .standards
+          persist-credentials: false
 
-      - name: Mirror instruction files
+      - name: Install the standards
+        id: install
+        shell: pwsh
         run: |
-          set -euo pipefail
-          src=.standards/.github
-
-          cp "$src/copilot-instructions.md" .github/copilot-instructions.md
-
-          # Mirror, not merge: files deleted upstream are deleted here too.
-          # Local edits to these paths are overwritten. Customisations belong
-          # upstream, or in a file outside the six mirrored paths.
-          for dir in instructions prompts; do
-            rm -rf ".github/$dir"
-            cp -r "$src/$dir" ".github/$dir"
-          done
-
-          # The instruction files link to worked examples at ../../powershell-standards/Examples/.
-          # Mirror that folder too, or every one of those links dangles here.
-          rm -rf powershell-standards
-          cp -r .standards/powershell-standards powershell-standards
-
-          # Claude Code rules. They import the instruction files by relative path, so
-          # they must sit at this exact depth. The project's own CLAUDE.md and any other
-          # rules under .claude/rules/ are not touched.
-          mkdir -p .claude/rules
-          rm -rf .claude/rules/powershell-standards
-          cp -r .standards/.claude/rules/powershell-standards .claude/rules/powershell-standards
-
-          # Claude Code slash commands, one per prompt file. Each attaches its prompt from
-          # .github/prompts/ rather than copying it. Other commands under .claude/commands/
-          # are not touched.
-          mkdir -p .claude/commands
-          rm -rf .claude/commands/powershell-standards
-          cp -r .standards/.claude/commands/powershell-standards .claude/commands/powershell-standards
-
-          rm -rf .standards
-
-      - name: Detect drift
-        id: drift
-        run: |
-          # Stage first: a file added upstream is untracked here, and plain
-          # `git diff` would not see it.
-          git add -A .github powershell-standards .claude/rules/powershell-standards .claude/commands/powershell-standards
-          if git diff --cached --quiet -- .github powershell-standards .claude/rules/powershell-standards .claude/commands/powershell-standards; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Instruction files are already up to date."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            git diff --cached --stat -- .github powershell-standards .claude/rules/powershell-standards .claude/commands/powershell-standards
-          fi
+          $ErrorActionPreference = 'Stop'
+          $agents = @($env:STANDARDS_AGENTS -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+          $files = @(./.standards/Tools/Install-CopilotStandards.ps1 -ProjectPath . -Agent $agents -RemoveLegacyFiles)
+          $files | Where-Object Status -NE 'Unchanged' | Format-Table -Property Status, Path -AutoSize
+          $manifest = Import-PowerShellDataFile -LiteralPath ./.standards/standards/manifest.psd1
+          "version=$($manifest.Version)" >> $env:GITHUB_OUTPUT
+          Remove-Item -LiteralPath ./.standards -Recurse -Force
 
       - name: Open pull request
-        if: steps.drift.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
-          branch: chore/sync-copilot-standards
+          branch: chore/sync-powershell-standards
           delete-branch: true
-          commit-message: 'chore: sync Copilot and Claude Code standards from standards repo'
-          title: 'chore: sync Copilot and Claude Code standards from standards repo'
+          commit-message: 'chore: sync PowerShell standards ${{ steps.install.outputs.version }}'
+          title: 'chore: sync PowerShell standards ${{ steps.install.outputs.version }}'
           body: |
-            Automated sync from the AI PowerShell Standards repository.
+            Automated update from `${{ env.STANDARDS_REPO }}` at `${{ env.STANDARDS_REF }}`,
+            standards version ${{ steps.install.outputs.version }}.
 
-            Covers `.github/copilot-instructions.md`, `.github/instructions/`,
-            `.github/prompts/`, `powershell-standards/` (the worked examples),
-            `.claude/rules/powershell-standards/` (the Claude Code rules) and
-            `.claude/commands/powershell-standards/` (the Claude Code slash commands).
-            Other workflows in `.github/workflows/`, this repository's own `CLAUDE.md`,
-            and any other rules or commands under `.claude/` are not touched by this job.
+            The files in this pull request are generated. Do not edit them here: a change made in
+            this repository is overwritten by the next run. Propose it in the standards repository
+            instead.
 
-            Review the diff before merging. Anything intended as a permanent local
-            customisation belongs upstream, or this job will overwrite it again on
-            the next run.
+            This repository's own `AGENTS.md` and `.github/copilot-instructions.md`
+            are replaced only if an earlier installation wrote them.
