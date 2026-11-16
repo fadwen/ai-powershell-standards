@@ -92,8 +92,11 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   earlier sample did that on every import.
 - A mandatory collection parameter rejects an empty array as well as `$null`, so wrapping a call in
   `@()` is not enough without `[AllowEmptyCollection()]`.
-- The README again acknowledges the PowerShell community, the GitHub Copilot team, and enterprise
-  PowerShell users. The rewrite had dropped those three entries.
+- The README again tells a new user how to start: the quick start, the module template, the
+  template repository, how each agent loads the rules, the skills, the GitHub Actions workflows,
+  an example of a project's own rules, and links to the documentation. It also acknowledges the
+  PowerShell community, the GitHub Copilot team, and enterprise PowerShell users again. The rewrite
+  had cut all of these.
 
 ### Removed
 
