@@ -17,9 +17,12 @@ holds the rules, a pull request workflow, and a publishing workflow.
    add a version or operating system the project does not claim to support.
 3. Add the pull request workflow from the CI rules: install PSScriptAnalyzer and Pester at fixed
    versions, run PSScriptAnalyzer and fail on findings, and run the test gate.
-4. Put the test gate in a script in the repository, using the gate in
-   `.github/instructions/powershell-pester.instructions.md`, so that developers can run the same
-   check locally. Set its test path and coverage paths to the project's real folders.
+4. Put the test gate in a script in the repository, `Tests/Invoke-Tests.ps1` unless the project
+   keeps its build scripts elsewhere, so that developers can run the same check locally. Use the
+   runner in `.github/instructions/pester-supporting-docs/test-execution.md`, and pass
+   `-CodeCoverage` in the job that holds the coverage gate; the alternative is the minimal gate in
+   `.github/instructions/powershell-pester.instructions.md`, which takes no parameters. Set its test
+   path and coverage paths to the project's real folders.
 5. If the repository has no `PSScriptAnalyzerSettings.psd1`, offer to add the one shown in the CI
    rules. Adding it can surface many layout findings in existing code, so say that first.
 6. If the repository has no `.gitattributes` file, add one that contains `* text=auto eol=lf`

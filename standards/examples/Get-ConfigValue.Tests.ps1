@@ -4,23 +4,20 @@ BeforeAll {
     . (Join-Path -Path $PSScriptRoot -ChildPath 'Get-ConfigValue.ps1')
 }
 
-Describe 'Get-ConfigValue' -Tag 'Unit' {
+Describe 'Get-ConfigValue' -Tag 'Unit', 'Public' {
     BeforeAll {
         $configPath = Join-Path -Path $TestDrive -ChildPath 'settings.json'
         $json = '{ "Region": "westeurope", "Tier": "standard" }'
         Set-Content -LiteralPath $configPath -Value $json -Encoding ascii
     }
 
-    Context 'When the requested values exist' {
-        It 'Returns <ValueName> with the value <Expected>' -ForEach @(
-            @{ ValueName = 'Region'; Expected = 'westeurope' }
-            @{ ValueName = 'Tier'; Expected = 'standard' }
+    Context 'Parameter Validation' {
+        It 'Declares <ParameterName> as a mandatory parameter' -ForEach @(
+            @{ ParameterName = 'Path'; ParameterType = [string] }
+            @{ ParameterName = 'Name'; ParameterType = [string[]] }
         ) {
-            $result = Get-ConfigValue -Path $configPath -Name $ValueName
-
-            $result | Should-HaveType 'Example.ConfigValue'
-            $result.Name | Should-Be $ValueName
-            $result.Value | Should-Be $Expected
+            Get-Command -Name Get-ConfigValue |
+                Should-HaveParameter -ParameterName $ParameterName -Type $ParameterType -Mandatory
         }
 
         It 'Emits one object for each name received from the pipeline, in order' {
@@ -32,7 +29,20 @@ Describe 'Get-ConfigValue' -Tag 'Unit' {
         }
     }
 
-    Context 'When a requested value is missing' {
+    Context 'Core Functionality' {
+        It 'Returns <ValueName> with the value <Expected>' -ForEach @(
+            @{ ValueName = 'Region'; Expected = 'westeurope' }
+            @{ ValueName = 'Tier'; Expected = 'standard' }
+        ) {
+            $result = Get-ConfigValue -Path $configPath -Name $ValueName
+
+            $result | Should-HaveType 'Example.ConfigValue'
+            $result.Name | Should-Be $ValueName
+            $result.Value | Should-Be $Expected
+        }
+    }
+
+    Context 'Error Handling' {
         It 'Writes one non-terminating error and still returns the values that exist' {
             $output = Get-ConfigValue -Path $configPath -Name 'Missing', 'Region' -ErrorAction Continue 2>&1
             $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
@@ -43,9 +53,7 @@ Describe 'Get-ConfigValue' -Tag 'Unit' {
             $values | Should-BeCollection -Count 1
             $values[0].Name | Should-Be 'Region'
         }
-    }
 
-    Context 'When the file cannot be used' {
         It 'Throws when the file does not exist' {
             $missingPath = Join-Path -Path $TestDrive -ChildPath 'absent.json'
 
@@ -59,6 +67,14 @@ Describe 'Get-ConfigValue' -Tag 'Unit' {
 
             { Get-ConfigValue -Path $arrayPath -Name 'Region' } |
                 Should-Throw -ExceptionType ([System.IO.InvalidDataException])
+        }
+    }
+
+    Context 'Performance Requirements' {
+        It 'Reads 200 values in less than five seconds' {
+            $names = @('Region', 'Tier') * 100
+
+            { Get-ConfigValue -Path $configPath -Name $names } | Should-BeFasterThan '5s'
         }
     }
 }

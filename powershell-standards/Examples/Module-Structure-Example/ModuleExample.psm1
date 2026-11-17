@@ -1,3 +1,5 @@
+#Requires -Version 7.6
+
 # Root module. Files load in the order Classes, Private, Public, so that a type exists before a
 # function that names it is defined. The manifest's FunctionsToExport decides what is exported.
 
@@ -11,6 +13,7 @@ foreach ($folder in 'Classes', 'Private', 'Public') {
 
     foreach ($file in Get-ChildItem -LiteralPath $folderPath -Filter '*.ps1' -File) {
         try {
+            Write-Verbose "Loading $folder file: $($file.Name)"
             . $file.FullName
         } catch {
             # A file that fails to load must fail the import. Without this, the loop would carry

@@ -36,6 +36,16 @@ comment-based help instead; see `.github/instructions/powershell-help.instructio
 - **PLT-09** CI fails when the documented commands differ from the exported commands, when a command's
   documented parameters differ from its real ones, and when `Test-MarkdownCommandHelp` reports a
   problem.
+- **PLT-10** Every module generates its command help with Microsoft.PowerShell.PlatyPS and ships
+  the compiled help in its package.
+- **PLT-11** Give each command at least three examples that progress from simple to advanced, each
+  with a description and the output to expect.
+- **PLT-12** The help build SHOULD be part of the normal local build, so that a working tree always
+  has current help.
+- **PLT-13** A module with more than a handful of commands SHOULD have an `about_` topic for the
+  concepts that belong to no single command.
+- **PLT-14** Before a release, read `Get-Help <Command> -Full` against the packaged module on a
+  case-sensitive file system, not only on Windows.
 
 ## Notes and examples
 
@@ -109,11 +119,30 @@ Details that decide whether the compiled help is found:
 - The value is a file name with no path, on the same line as the keyword.
 - `Export-MamlCommandHelp` writes `<ModuleName>-Help.xml` with a capital `H`. Copy that exact name. On
   Linux and macOS a different case means the file is not found and every command loses its help.
+  Windows hides the mistake, which is why PLT-14 asks for a check on a case-sensitive file system.
 - Keep the keyword inside the `<# ... #>` block. Written as a `#` line directly under an ordinary
   comment, it is ignored without any error.
 - The keyword applies even when the compiled file does not exist yet. In a working tree that has not
   been built, `Get-Help` shows only the generated syntax. Preview with
-  `Show-HelpPreview -Path ./maml/ModuleName/ModuleName-Help.xml`, or build first.
+  `Show-HelpPreview -Path ./maml/ModuleName/ModuleName-Help.xml`, or build first. Making the help
+  build part of the local build keeps this from happening (PLT-12).
+
+A `# .EXTERNALHELP` line outside the block can work too, but one arrangement of it fails with no
+error and no warning. Tested on PowerShell 7.6 and Windows PowerShell 5.1, with the same compiled
+help in `en-US/` each time and a blank line before each separate block:
+
+| Arrangement | Compiled help used |
+| --- | --- |
+| `.EXTERNALHELP` inside the `<# #>` block with `.SYNOPSIS` | Yes |
+| `# .EXTERNALHELP` alone, no other help block | Yes |
+| `# .EXTERNALHELP` alone, then a separate `<# .SYNOPSIS #>` block | Yes |
+| Ordinary comment, blank line, `# .EXTERNALHELP`, then a separate block | Yes |
+| Ordinary comment, no blank line, `# .EXTERNALHELP`, then a separate block | No |
+
+The last row is the arrangement that a helpful comment above the keyword produces: `Get-Help` shows
+the synopsis of the block and never reads the compiled help. In the third and fourth rows the
+keyword is ignored as well when the separate block follows the `#` line with no blank line between
+them. Putting the keyword inside the block avoids the question.
 
 ### Generating the Markdown the first time (PLT-08)
 
@@ -134,11 +163,24 @@ with the `en-US` folder the help is compiled into.
 
 The result is `./docs/ModuleName/` with one file for each exported command and a module page. The
 files are templates: every placeholder in double braces has to be replaced with real content, or its
-section removed where the section is optional, as `## ALIASES` is.
+section removed where the section is optional, as `## ALIASES` is. The content standards of
+comment-based help apply to the Markdown from here on: the description says what the command is
+for, each parameter's text gives its validation rules and what the value means, and the examples
+progress from simple to advanced (PLT-11).
 
 Check the `## INPUTS` and `## OUTPUTS` sections after generating. Each type is a level-three heading
 that holds the full type name and nothing else, with the description as text under it. Text taken
 from comment-based help can end up in the heading.
+
+If the Markdown was generated without `-WithModulePage`, add the module page later, once the
+synopses are written:
+
+```powershell
+Measure-PlatyPSMarkdown -Path ./docs/ModuleName/*.md |
+    Where-Object Filetype -Match 'CommandHelp' |
+    Import-MarkdownCommandHelp -Path { $_.FilePath } |
+    New-MarkdownModuleFile -OutputFolder ./docs -Force
+```
 
 ### Writing examples (PLT-05)
 
@@ -181,7 +223,9 @@ originals; compare against them before committing. Two things it cannot infer:
 - Output types come from `[OutputType()]` on the function.
 - Wildcard support is shown only when the parameter has `[SupportsWildcards()]`.
 
-A command added since the last run has no Markdown to update. Run `New-MarkdownCommandHelp` for it.
+A command added since the last run has no Markdown to update. Run `New-MarkdownCommandHelp` for it,
+or generate into the same folder again: without `-Force`, existing files are left alone, and a
+warning names each file that was skipped.
 
 ### Validating (PLT-06, PLT-07)
 
@@ -203,8 +247,9 @@ if ($relativeLinks) {
 }
 ```
 
-`Test-MarkdownCommandHelp` accepts a relative path in a related link, but `Get-Help` then fails when
-it reads the compiled help. The two valid forms are not interchangeable:
+`Test-MarkdownCommandHelp` returns `True` for a file whose related links are relative paths, but
+`Get-Help` then throws `The specified URI ... is not valid` when it reads the compiled help, and
+returns nothing. The two valid forms are not interchangeable:
 
 | Target | Form |
 | --- | --- |
@@ -212,6 +257,13 @@ it reads the compiled help. The two valid forms are not interchangeable:
 | Anything outside the installed module | `- [Title](https://example.com/page)` |
 
 The pattern above allows empty parentheses so that the bare form passes.
+
+Use the bare form for anything `Get-Help` can resolve by itself, sibling commands above all. An
+absolute URL for a sibling command is the common mistake. It passes the check, but `Get-Help -Full`
+then prints a GitHub URL where a command name would read better, and the link stops working when the
+repository moves or goes private. Keep URLs for material that lives outside the module. A user who
+installed the module from the Gallery has no checkout of the repository, which is also why a
+relative path would be useless even if `Get-Help` accepted it.
 
 ### Building the compiled help
 
@@ -226,8 +278,13 @@ $null = New-Item -Path $cultureFolder -ItemType Directory -Force
 Copy-Item -LiteralPath ./maml/ModuleName/ModuleName-Help.xml -Destination $cultureFolder -Force
 ```
 
-`maml/` is a build intermediate; add it to `.gitignore`. `about_*.help.txt` files are plain text
-written by hand and go in the same culture folder.
+`maml/` is a build intermediate; add it to `.gitignore`. Whether `en-US/` is committed or produced
+only when the package is built is each project's decision; when it is committed, the drift gate
+below is what keeps it current. Add a culture folder for each language when the module is localized.
+
+`about_*.help.txt` files are plain text written by hand and go in the same culture folder. The topic
+that PLT-13 asks for covers what belongs to no single command, such as authentication setup and
+configuration precedence.
 
 ### Markdown linting
 
@@ -237,16 +294,21 @@ exclude the generated files from the linter instead of correcting them:
 
 ```yaml
 - name: Lint Markdown
-  uses: DavidAnson/markdownlint-cli2-action@v14
+  uses: DavidAnson/markdownlint-cli2-action@v25
   with:
     globs: |
       **/*.md
       !**/docs/*/*.md
+    config: '.markdownlint.json'
 ```
 
 A `.markdownlintignore` file has no effect once globs are passed on the command line.
 
 ### The CI drift gate (PLT-09)
+
+Stale compiled help is worse than none: `.EXTERNALHELP` guarantees that users see the stale text
+instead of falling back to anything correct. CI therefore fails when the committed Markdown no
+longer matches the module.
 
 ```powershell
 #Requires -Modules @{ ModuleName = 'Microsoft.PowerShell.PlatyPS'; ModuleVersion = '1.0.3' }

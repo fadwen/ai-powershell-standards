@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/*.Tests.ps1"
+  - "**/Tests/**/*.ps1"
 ---
 
 @../../../.github/instructions/powershell-pester.instructions.md

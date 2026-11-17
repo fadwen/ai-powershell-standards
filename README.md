@@ -248,6 +248,11 @@ description: "Team rules for PowerShell"
 
 - Name internal modules with the `Contoso.` prefix.
 - Read service endpoints from `Configuration/Endpoints.psd1`, never from a literal in the code.
+- Functions that manage servers support bulk operations and report progress.
+- Validate a server name with `[ValidatePattern('^(WEB|DB|APP|DC)\d{2}$')]` and an environment
+  with `[ValidateSet('DEV', 'TEST', 'STAGE', 'PROD')]`.
+- Use these error IDs: `E1001` server connectivity failure, `E1002` Active Directory operation
+  failed, `E1003` SCOM integration error, `E1004` change management approval required.
 ```
 
 The same rules for Claude Code go in `.claude/rules/team.md`, with `paths:` and a list of patterns

@@ -16,7 +16,8 @@ Read these before writing code, unless they are already loaded:
 ## Steps
 
 1. Find the target version. Read the `#requires -Version` lines and the nearest module manifest. If the
-   project declares nothing, target PowerShell 7.6 and say that you assumed it.
+   project declares nothing and it is not clear which target applies, ask. If you cannot ask, target
+   PowerShell 7.6 and say that you assumed it.
 2. Choose the name. Use a verb that `Get-Verb` lists and a singular noun. Search the repository for an
    existing function with that name or purpose before creating a new one.
 3. Decide where the file goes. In a module, an exported function goes in `Public/<Name>.ps1` and its
@@ -29,8 +30,9 @@ Read these before writing code, unless they are already loaded:
    produced.
 5. If the function changes state, add `SupportsShouldProcess` and guard each change with
    `$PSCmdlet.ShouldProcess()`. If it only reads, do not.
-6. Write `Tests/<Name>.Tests.ps1` following `.github/instructions/powershell-pester.instructions.md`.
-   Cover each parameter set, the documented output, each validation failure, and each error path.
+6. Write the tests following `.github/instructions/powershell-pester.instructions.md`, in
+   `Tests/Unit/<Name>.Tests.ps1` (MOD-01) or beside the tests the project already has. Cover each
+   parameter set, the documented output, each validation failure, and each error path.
 7. Run PSScriptAnalyzer on the new files, with `-Settings ./PSScriptAnalyzerSettings.psd1` when that
    file exists, and run the tests. Fix what they report.
 

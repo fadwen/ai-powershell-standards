@@ -26,7 +26,8 @@ date instead of relying on the wording here.
 - **VER-03** Declare the target. A script that is run directly starts with
   `#requires -Version <target>`, and a module manifest sets `PowerShellVersion` and
   `CompatiblePSEditions`. A file that only defines functions for a module or script to load needs no
-  `#requires` line.
+  `#requires` line. A root module repeats the manifest's version in a `#Requires -Version` line
+  (MOD-08).
 - **VER-04** Code MUST NOT use a command, parameter, operator, or type that the declared target does
   not have. The feature tables in the PowerShell version rules list the ones that differ.
 - **VER-05** Code, `#requires` lines, and CI matrices MUST NOT target a PowerShell version that is
@@ -71,6 +72,18 @@ moving to the current LTS. Do not silently change the project's declared target.
 #requires -Version 7.6
 ```
 
+When the project declares no target and it is not clear which row applies, ask before generating
+code. If the question cannot be asked, VER-01 applies: write for 7.6 and say that the target was
+assumed.
+
+`#requires -Version 7.0` is obsolete, because that version is retired. To say "any PowerShell 7",
+name the lowest supported version: 7.6 since 10-Nov-2026, when 7.4 and 7.5 left support.
+
+A module that targets 5.1 gates each command that only PowerShell 7 has behind a version check
+(VER-07), or a test of the command for a parameter (VER-09), and gives 5.1 the replacement from the
+table below. Syntax cannot be gated: a file that contains 7-only syntax does not parse on 5.1,
+whichever branch would run.
+
 ## Features by version
 
 ### Not available in Windows PowerShell 5.1
@@ -81,7 +94,7 @@ Code that must run on 5.1 MUST NOT use these:
 | --- | --- |
 | Ternary `a ? b : c`, `??`, `??=`, `?.`, `?[]` | `if` / `else` |
 | Pipeline chain operators `&&` and `\|\|` | Separate statements that test `$?` or `$LASTEXITCODE` |
-| `ForEach-Object -Parallel` | `Start-Job`, or the ThreadJob module installed separately |
+| `ForEach-Object -Parallel` | `Start-Job`, a runspace pool, sequential code, or the ThreadJob module installed separately |
 | `$IsWindows`, `$IsLinux`, `$IsMacOS` | See operating system detection below |
 | `Join-Path` with more than one child path | Nested `Join-Path` calls |
 | `-Encoding utf8NoBOM` | `[System.IO.File]::WriteAllText()` with `[System.Text.UTF8Encoding]::new($false)` |
@@ -101,11 +114,12 @@ so one helper can take every command of the module with it.
 | Feature | Notes |
 | --- | --- |
 | `ConvertTo-CliXml`, `ConvertFrom-CliXml` | Serialize to CLIXML text without a temporary file |
-| `ConvertFrom-Json -DateKind` | Controls how date strings are converted (`Local`, `Utc`, `Offset`, `String`) |
+| `ConvertFrom-Json -DateKind` | Controls how date strings are converted (`Local`, `Utc`, `Offset`, `String`). Use `Utc` or `Offset` for audit data. |
 | `Test-Json -Options IgnoreComments, AllowTrailingCommas` | Validates JSON that has comments or trailing commas |
 | `Resolve-Path -Force`, `Convert-Path -Force` | Wildcard resolution that includes hidden items |
 | `New-Guid -Empty`, `New-Guid -InputObject` | An empty GUID, and conversion of a string to a GUID |
 | `Get-Process -IncludeUserName` | No longer needs elevation on Windows |
+| Error `ConciseView` | Shows the `RecommendedAction` of an error, on a `Recommendation:` line |
 
 ### Added in PowerShell 7.6
 
@@ -114,8 +128,21 @@ so one helper can take every command of the module with it.
 | `Get-Command -ExcludeModule` | Leaves out commands from the named modules |
 | `Get-Clipboard -Delimiter` | Splits clipboard text while reading it |
 | `Register-ArgumentCompleter -NativeFallback` | One completer for native commands that have none |
-| `.PSForEach()`, `.PSWhere()` | Aliases for the `.ForEach()` and `.Where()` intrinsic methods |
+| `.PSForEach()`, `.PSWhere()` | Aliases for the `.ForEach()` and `.Where()` intrinsic methods. Prefer them when `.ForEach()` or `.Where()` collides with a method of the object's own type, as `.ForEach()` does on a `List[T]`. |
 | Redirection to a variable | `Get-Item -LiteralPath $path 2>&1 > variable:itemResult` |
+| `PipelineStopToken` on `Cmdlet` | For binary cmdlets: a `CancellationToken` that is signalled when the pipeline stops |
+
+### Promoted from experimental
+
+These features are always on from the version shown. Do not tell users to enable them with
+`Enable-ExperimentalFeature`.
+
+| Version | Features |
+| --- | --- |
+| 7.5 | `PSCommandNotFoundSuggestion`, `PSCommandWithArgs`, `PSModuleAutoLoadSkipOfflineFiles` |
+| 7.6 | `PSFeedbackProvider`, `PSNativeWindowsTildeExpansion`, `PSRedirectToVariable`, `PSSubsystemPluginModel` |
+
+`PSRedirectToVariable` is the redirection to a variable in the table above.
 
 ### Behaviour that changed
 
@@ -123,12 +150,12 @@ Code MUST NOT depend on the older behaviour.
 
 | Version | Change |
 | --- | --- |
-| 7.6 | The `ThreadJob` module is now `Microsoft.PowerShell.ThreadJob`. Call `Start-ThreadJob` without a module prefix; `ThreadJob\Start-ThreadJob` and a `RequiredModules` entry for `ThreadJob` no longer resolve. |
+| 7.6 | The `ThreadJob` module is now `Microsoft.PowerShell.ThreadJob`. Call `Start-ThreadJob` without a module prefix; `ThreadJob\Start-ThreadJob` and a `RequiredModules` entry for `ThreadJob` no longer resolve. Where a prefix or an entry is needed, write `Microsoft.PowerShell.ThreadJob\Start-ThreadJob` and `@{ ModuleName = 'Microsoft.PowerShell.ThreadJob'; ModuleVersion = '2.2.0' }`. |
 | 7.6 | `Join-Path -ChildPath` accepts an array. An array that used to be joined into one segment is now treated as several segments. |
 | 7.6 | `[WildcardPattern]::Escape()` escapes a lone backtick correctly. Code that escaped twice to work around the old result now escapes too much. |
 | 7.5 | `ConvertTo-Json` writes a `BigInteger` as a number, not as an object. |
-| 7.5 | `Test-Path -OlderThan` and `-NewerThan` both apply when used together. |
-| 7.5 | `New-FileCatalog -CatalogVersion` defaults to 2. |
+| 7.5 | `Test-Path -OlderThan` and `-NewerThan` both apply when used together. Before, `-OlderThan` was silently ignored, so a date-range check that appeared to work was not filtering. |
+| 7.5 | `New-FileCatalog -CatalogVersion` defaults to 2. Pass `-CatalogVersion 1` when a downstream validator still requires version 1. |
 | 7.5 | `Select-String` returns `LineNumber` as `[ulong]`. |
 | 7.4 | `Test-Json` accepts only strictly valid JSON and no longer supports Draft 4 schemas. |
 
@@ -222,7 +249,8 @@ function Invoke-ModuleWebRequest {
     }
 
     if ($status -ge 400) {
-        $exception = [System.InvalidOperationException]::new("The request failed with HTTP status $status.")
+        $requestUri = ([uri]$Request['Uri']).GetLeftPart([System.UriPartial]::Path)
+        $exception = [System.InvalidOperationException]::new("HTTP $status from $requestUri.")
         $exception.Data['Body'] = $body
         $category = [System.Management.Automation.ErrorCategory]::InvalidResult
         $errorRecord = [System.Management.Automation.ErrorRecord]::new(
@@ -234,8 +262,9 @@ function Invoke-ModuleWebRequest {
 }
 ```
 
-The body goes into the exception's `Data`, not into the message, because a reply can carry personal
-data (SEC-06).
+The message names the status and the request URI. The URI is written without its query string,
+which can carry a token, and the body goes into the exception's `Data`, not into the message,
+because a reply can carry personal data (SEC-06).
 
 ## Detecting the version and operating system (VER-07, VER-10)
 
@@ -270,22 +299,34 @@ if (-not $onWindows) {
 The test also runs under strict mode on Windows PowerShell 5.1, where `$IsWindows` does not exist:
 `-or` does not evaluate its right side when the left side is true.
 
+Report the .NET runtime when diagnosing behaviour that differs by platform. The value starts with
+`.NET 10` on PowerShell 7.6 and with `.NET Framework 4.8` on Windows PowerShell 5.1:
+
+```powershell
+[System.Runtime.InteropServices.RuntimeInformation]::FrameworkDescription
+```
+
 ## Installing modules (VER-08)
 
 ```powershell
 Install-PSResource -Name Pester -Version 6.2.0 -Scope CurrentUser -TrustRepository
 ```
 
-Microsoft.PowerShell.PSResourceGet is included with PowerShell 7.4 and later. On Windows
-PowerShell 5.1 it has to be installed first, so a script that must bootstrap on both checks for it:
+Microsoft.PowerShell.PSResourceGet is included with PowerShell 7.4 and later. PowerShellGet 2.2.5
+still ships with PowerShell 7.6, so `Install-Module` and `Find-Module` still exist there, but new
+instructions use the PSResourceGet commands. On Windows PowerShell 5.1 PSResourceGet has to be
+installed first, so a script that must bootstrap on both checks for it:
 
 ```powershell
 if (Get-Command -Name Install-PSResource -ErrorAction SilentlyContinue) {
     Install-PSResource -Name $moduleName -Scope CurrentUser -TrustRepository
 } else {
-    Install-Module -Name $moduleName -Scope CurrentUser -Force
+    Install-Module -Name $moduleName -Scope CurrentUser -Force -SkipPublisherCheck
 }
 ```
+
+`-SkipPublisherCheck` is needed when Windows ships an older copy of the module under another
+publisher, as it ships Pester 3.4.0.
 
 ## Tool versions
 

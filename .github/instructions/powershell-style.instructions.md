@@ -1,6 +1,6 @@
 ---
 applyTo: "**/*.ps1,**/*.psm1,**/*.psd1"
-description: "PowerShell layout, naming, strings, paths, and collection rules."
+description: "PowerShell layout, naming, strings, paths, collections, and preferred constructs."
 ---
 
 # PowerShell style: layout, naming, strings, paths, collections
@@ -21,13 +21,19 @@ change. Do not reformat code that the task does not otherwise touch.
   the same line.
 - **STY-03** Lines SHOULD NOT exceed 115 characters. Shorten a long command with splatting, or break
   the line after a pipe, comma, or operator. Backtick line continuation MUST NOT be used.
-- **STY-04** Put one space around binary and assignment operators and after commas. Padding that
-  aligns `=` or values across lines MUST NOT be added.
+- **STY-04** Put one space around binary and assignment operators, after commas, and between a
+  command, its parameter names, and their values. Padding that aligns `=` or values across lines
+  MUST NOT be added.
 - **STY-05** Lines MUST NOT end in whitespace, and a file MUST end with exactly one newline.
 - **STY-06** Source MUST be ASCII unless a string literal needs another character: no emoji,
-  typographic quotes, or en and em dashes in code or comments.
-- **STY-07** Put two blank lines between a function definition and the code around it, and at most
-  one blank line between statements inside a function.
+  typographic quotes, or en and em dashes in code or comments. Generated documentation and test
+  output MUST NOT contain emoji either.
+- **STY-07** Put two blank lines between a function definition and the code around it, one blank
+  line between the methods of a class, and at most one blank line between statements inside a
+  function.
+- **STY-08** In a `param()` block, write each attribute on its own line above the parameter, and
+  separate parameters with one blank line. Break a `[Parameter()]` attribute that is too long for
+  one line after a comma, and indent the continuation lines by four spaces.
 
 ### Naming
 
@@ -54,8 +60,10 @@ change. Do not reformat code that the task does not otherwise touch.
 - **STY-21** Use single quotes for a string that needs no expansion and contains no single quote. In
   an expandable string write `$($object.Property)` for member access, and `${name}` when a colon or
   a name character follows the variable.
-- **STY-22** Build a long or looped string with `-join`, the `-f` operator, or
-  `[System.Text.StringBuilder]`. A string MUST NOT be extended with `+=` inside a loop.
+- **STY-22** Choose by size. For fewer than about 100 concatenations, `+=` is fine and more
+  readable, and `[System.Text.StringBuilder]` SHOULD NOT be used. Build a longer string, or one
+  whose size is not known, with `-join`, the `-f` operator, or `[System.Text.StringBuilder]`; there
+  a string MUST NOT be extended with `+=` inside a loop.
 - **STY-23** Apply the `-f` operator inside the parentheses of a command argument:
   `Write-Verbose ('{0} items' -f $count)`. Written after the closing parenthesis, `-f` is passed to
   the command as an argument.
@@ -88,7 +96,20 @@ change. Do not reformat code that the task does not otherwise touch.
 - **STY-43** Filter at the source: prefer a command's own filtering parameters (`-Filter`, `-Include`,
   a query) to piping everything into `Where-Object`.
 - **STY-44** Prefer the `foreach` statement for a collection that is already in memory. Use the
-  pipeline to stream input whose size is unknown.
+  pipeline to stream a large dataset from its source, or input whose size is unknown.
+- **STY-45** Where speed matters, prefer a language feature to a cmdlet that does the same job, as
+  in `foreach` with `if` instead of `ForEach-Object` and `Where-Object`, and measure the difference.
+  When `Where-Object` tests one property, prefer its comparison form,
+  `Where-Object -Property Status -EQ -Value 'Running'`, to a script block.
+
+### Preferred constructs
+
+- **STY-50** Create a .NET object with the type's constructor, `[TypeName]::new()`, not with
+  `New-Object`: `[PSCredential]::new($userName, $securePassword)`.
+- **STY-51** To learn only whether something exists, call the command with
+  `-ErrorAction SilentlyContinue` and test the result for `$null`. Do not force an exception for
+  that. Use `try` and `catch` with `-ErrorAction Stop` when the error detail is needed or the
+  failure must stop the work.
 
 ## Notes and examples
 
@@ -116,6 +137,22 @@ non-ASCII characters and must also run on 5.1, save it as UTF-8 with a byte orde
 **STY-07.** A file that holds a single function needs no blank lines around it. A comment that
 describes a function sits directly above it, after the two blank lines.
 
+**STY-08.** Continuation lines are not aligned under the first argument: with this standard's
+settings, PSScriptAnalyzer reports that under `PSUseConsistentIndentation`.
+
+```powershell
+param(
+    [Parameter(
+        Mandatory,
+        ValueFromPipeline,
+        ValueFromPipelineByPropertyName)]
+    [string[]]$ComputerName,
+
+    [ValidateRange(1, 100)]
+    [int]$Threshold = 90
+)
+```
+
 **STY-13.** A parameter named `$Input`, or a loop written as `foreach ($event in $events)`, silently
 reads or replaces the automatic variable. PSScriptAnalyzer reports assignments under
 `PSAvoidAssignmentToAutomaticVariable`.
@@ -134,6 +171,10 @@ reference. `"$state.Attempt"` parses but expands only `$state`, followed by the 
 ```powershell
 Write-Verbose "${computer}: retry $($state.Attempt) of $maximumAttempts"
 ```
+
+**STY-22.** Measured on PowerShell 7.6 and Windows PowerShell 5.1: 100 concatenations take less
+than a millisecond with `+=` and with `StringBuilder`. For 10,000, `+=` took 0.8 seconds on 7.6 and
+2.8 seconds on 5.1, against less than 0.1 seconds for `StringBuilder` or `-join` on both.
 
 **STY-23.** Measured on PowerShell 7.6 and Windows PowerShell 5.1:
 `Write-Output ('{0} items' + ' found') -f 5` emits three objects, the unformatted text, `-f`, and
@@ -272,5 +313,30 @@ if ($logFiles.Count -eq 0) {
 
 A function that writes an empty array gives its caller nothing, which is `$null` once it is assigned,
 because PowerShell unrolls the array on the way out. `@()` around the call restores the empty array.
-A mandatory collection parameter rejects both `$null` and an empty array unless it carries
-`[AllowEmptyCollection()]`.
+The function can instead return the array whole with `Write-Output -NoEnumerate`. Use one remedy or
+the other: `@()` around a call that returns with `-NoEnumerate` gives an array of one element, which
+is the array. A mandatory collection parameter rejects both `$null` and an empty array unless it
+carries `[AllowEmptyCollection()]`.
+
+**STY-44, STY-45.** Measured with 200,000 objects in memory, on PowerShell 7.6 and on Windows
+PowerShell 5.1: a `foreach` statement with `if` filtered them in 0.2 and 0.3 seconds, `Where-Object`
+in its comparison form in 1.1 and 2.0 seconds, and `Where-Object` with a script block in 1.7 and 3.0
+seconds. A pipeline of `Where-Object` and `ForEach-Object` took 2.5 and 3.6 seconds where one
+`foreach` statement took 0.3 on both. The pipeline earns its place when the data is streamed from
+its source and is never held whole in memory.
+
+**STY-50.** `::new()` is available from PowerShell 5.0. Measured for 20,000 objects: `New-Object`
+took 0.36 seconds against 0.07 on PowerShell 7.6, and 2.1 seconds against 0.01 on Windows
+PowerShell 5.1.
+
+**STY-51.** A null test is enough when only the presence matters:
+
+```powershell
+$service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($null -eq $service) {
+    Write-Verbose "Service '$serviceName' is not installed."
+}
+```
+
+`-ErrorAction SilentlyContinue` silences a non-terminating error only. A command that raises a
+terminating error, as `ConvertFrom-Json` does for invalid text, still needs `try` (ERR-20).

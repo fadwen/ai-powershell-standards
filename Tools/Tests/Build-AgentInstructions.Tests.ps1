@@ -192,9 +192,9 @@ Describe 'Generated instruction files' -Tag 'Unit' {
     }
 
     It 'Keep what loads for <SamplePath> within <Budget> bytes' -ForEach @(
-        @{ SamplePath = 'src/Get-Thing.ps1'; Budget = 88000; ExpectedRuleCount = 7 }
-        @{ SamplePath = 'Tests/Get-Thing.Tests.ps1'; Budget = 108000; ExpectedRuleCount = 8 }
-        @{ SamplePath = 'Module/Module.psm1'; Budget = 100000; ExpectedRuleCount = 8 }
+        @{ SamplePath = 'src/Get-Thing.ps1'; Budget = 124000; ExpectedRuleCount = 7 }
+        @{ SamplePath = 'Tests/Get-Thing.Tests.ps1'; Budget = 146000; ExpectedRuleCount = 8 }
+        @{ SamplePath = 'Module/Module.psm1'; Budget = 142000; ExpectedRuleCount = 8 }
     ) {
         $loadedPaths = [System.Collections.Generic.List[string]]::new()
         $loadedPaths.Add('.github/copilot-instructions.md')

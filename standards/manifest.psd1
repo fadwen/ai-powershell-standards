@@ -18,7 +18,7 @@
         @{
             Id = 'powershell-style'
             Prefix = 'STY'
-            Description = 'PowerShell layout, naming, strings, paths, and collection rules.'
+            Description = 'PowerShell layout, naming, strings, paths, collections, and preferred constructs.'
             Globs = @('**/*.ps1', '**/*.psm1', '**/*.psd1')
         }
         @{
@@ -61,7 +61,7 @@
             Id = 'powershell-pester'
             Prefix = 'TST'
             Description = 'Pester 6 testing rules for PowerShell code.'
-            Globs = @('**/*.Tests.ps1')
+            Globs = @('**/*.Tests.ps1', '**/Tests/**/*.ps1')
         }
         @{
             Id = 'powershell-platyps'
