@@ -25,7 +25,8 @@ holds the rules and every command used below.
    links.
 7. Build the compiled help with `Export-MamlCommandHelp`, copy it into the module's culture folder,
    and confirm with `Get-Help <Command> -Full` against the imported module that the text and the
-   examples appear.
+   examples appear. Before a release, repeat the check against the packaged module on a
+   case-sensitive file system (PLT-14).
 
 ## Report
 

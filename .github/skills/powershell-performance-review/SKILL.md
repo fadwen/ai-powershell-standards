@@ -6,7 +6,7 @@ description: Find and fix performance problems in PowerShell code by measuring i
 # Performance review of PowerShell code
 
 The collection and string rules are in `.github/instructions/powershell-style.instructions.md`
-(STY-22 and STY-40 to STY-44). Read them first, unless that file is already loaded.
+(STY-22, STY-40 to STY-45, and STY-50). Read them first, unless that file is already loaded.
 
 ## Steps
 
@@ -16,7 +16,8 @@ The collection and string rules are in `.github/instructions/powershell-style.in
    repeat the run several times. If you cannot run the code, say so and present your suggestions as
    unmeasured.
 3. Look for the causes that usually dominate:
-   - An array or string grown with `+=` inside a loop.
+   - An array grown with `+=` inside a loop, or a string extended with `+=` about 100 times or
+     more. Below that, `+=` on a string is fine (STY-22); do not report it.
    - A command called once for each item when it accepts all items at once, or a remote or disk call
      inside a loop that could be made once outside it.
    - Filtering with `Where-Object` what the source command could have filtered.

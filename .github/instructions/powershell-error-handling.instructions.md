@@ -38,6 +38,9 @@ run directly, and a function, which a caller invokes and which must leave the ca
   original as its inner exception. An error MUST NOT be rethrown as a string.
 - **ERR-15** Write output to the pipeline after the `try` block, not inside it. An error raised by a
   command further down the pipeline is otherwise caught by this function's `catch`.
+- **ERR-16** For an error scenario that callers need to tell apart, define a custom exception class
+  that derives from one base exception class of the module. Carry the exception in an `ErrorRecord`
+  and raise it as ERR-10 and ERR-13 say.
 
 ### Handling failure
 
@@ -45,7 +48,7 @@ run directly, and a function, which a caller invokes and which must leave the ca
   failure, catch that exception type and state the reason in a comment.
 - **ERR-21** In `catch`, read the error from `$_`. `$Error[0]` MUST NOT be used.
 - **ERR-22** Release resources in `finally`, and assign before `try` every variable that `finally`
-  reads.
+  reads. Clean up a COM object there as well.
 - **ERR-23** After running a native executable, test `$LASTEXITCODE` and fail when it reports an
   error. A non-zero exit code does not raise a PowerShell error by default.
 - **ERR-24** In a script, pass `-ErrorAction Stop` to a module command whose non-terminating errors
@@ -56,10 +59,20 @@ run directly, and a function, which a caller invokes and which must leave the ca
 - **ERR-30** Send only data to the success stream. Use `Write-Verbose` for progress detail,
   `Write-Debug` for diagnostics, `Write-Warning` for a condition that did not stop the work but that
   the caller should know about, and `Write-Information` for status messages.
-- **ERR-31** `Write-Host` MUST NOT be used in a function or module.
+- **ERR-31** `Write-Host` MUST NOT be used in a function or module. In a script, use it only when
+  coloured console output is explicitly required.
 - **ERR-32** In code that runs for every item of a large input, a `Write-Verbose` or `Write-Debug`
   call that builds its message SHOULD sit inside a test of `$VerbosePreference` or
   `$DebugPreference`.
+
+### Measurement and diagnostics
+
+- **ERR-40** Measure the run time of a critical operation with `[System.Diagnostics.Stopwatch]`, and
+  the memory it used with `[System.GC]::GetTotalMemory($false)` before and after. Write the figures
+  to the verbose stream, so that a baseline can be established.
+- **ERR-41** A module SHOULD provide a command that exports diagnostic data to a file for remote
+  troubleshooting: system information, `$PSVersionTable`, the loaded modules, and performance
+  counters.
 
 ## Notes and examples
 
@@ -129,6 +142,9 @@ function Get-ReleaseNote {
 The first `catch` adds context and keeps the original as `InnerException`. The second passes any
 other failure on unchanged. The result is written after the `try` block.
 
+Put the entire transaction in the `try` block, not only the risky call, so that the steps that
+depend on that call do not run after it fails. Only the output is written after the `try` (ERR-15).
+
 When each input item can fail on its own, report the failure and continue. The object is again
 written after the `try` block:
 
@@ -150,6 +166,57 @@ process {
 If `$record` were written inside the `try`, an error thrown by a later command in the caller's
 pipeline, such as `Get-Thing | ForEach-Object { throw 'stop' }`, would arrive in this `catch`. The
 function would report it as its own failure and carry on, and the caller would never see it.
+
+### Custom exception classes (ERR-16)
+
+A base class holds what every error of the module carries, and one derived class describes each
+scenario:
+
+```powershell
+class BaseModuleException : System.Exception {
+    [string]$Component
+    [string]$Operation
+    [hashtable]$Context
+
+    BaseModuleException([string]$Message, [string]$Component, [string]$Operation) : base($Message) {
+        $this.Component = $Component
+        $this.Operation = $Operation
+        $this.Context = @{}
+    }
+
+    [void] AddContext([string]$Key, [object]$Value) {
+        $this.Context[$Key] = $Value
+    }
+}
+
+class ValidationException : BaseModuleException {
+    [string]$ParameterName
+    [object]$ParameterValue
+
+    ValidationException(
+        [string]$Message,
+        [string]$ParameterName,
+        [object]$ParameterValue
+    ) : base($Message, 'Validation', 'ParameterValidation') {
+        $this.ParameterName = $ParameterName
+        $this.ParameterValue = $ParameterValue
+    }
+}
+```
+
+The function puts the exception in an `ErrorRecord`:
+
+```powershell
+$exception = [ValidationException]::new('Limit must not exceed 10.', 'Limit', $Limit)
+$category = [System.Management.Automation.ErrorCategory]::InvalidArgument
+$errorRecord = [System.Management.Automation.ErrorRecord]::new(
+    $exception, 'LimitTooHigh', $category, $Limit)
+$PSCmdlet.ThrowTerminatingError($errorRecord)
+```
+
+A caller's `catch [ValidationException]` and `catch [BaseModuleException]` both receive this error,
+on PowerShell 7.6 and on Windows PowerShell 5.1. SEC-06 also applies to the values that an exception
+carries.
 
 ### Why the rules are written this way
 
@@ -212,6 +279,12 @@ try {
 A typed `catch` matches the exception that a failing .NET method call raised, and its base types,
 even though PowerShell wraps that exception in a `MethodInvocationException`.
 
+### Reading the error in `catch` (ERR-21)
+
+`$_` carries what a report of the failure needs: `$_.Exception.Message` is the message and
+`$_.ScriptStackTrace` is the script stack trace. `$MyInvocation.MyCommand.Name` is the name of the
+function that caught the error. `$PSBoundParameters` MUST NOT be added to these details (SEC-06).
+
 ### Releasing resources (ERR-22)
 
 ```powershell
@@ -222,6 +295,20 @@ try {
 } finally {
     if ($null -ne $reader) {
         $reader.Dispose()
+    }
+}
+```
+
+A COM object has no `Dispose()` method. Release it with `ReleaseComObject()`:
+
+```powershell
+$fileSystem = $null
+try {
+    $fileSystem = New-Object -ComObject 'Scripting.FileSystemObject'
+    $folderExists = $fileSystem.FolderExists($folderPath)
+} finally {
+    if ($null -ne $fileSystem) {
+        $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fileSystem)
     }
 }
 ```
@@ -251,3 +338,61 @@ foreach ($record in $records) {
 
 Inside an advanced function, `-Verbose` and `-Debug` set these preferences, so the test follows the
 caller's switch. A message that is written a few times needs no test.
+
+### Measuring an operation (ERR-40)
+
+```powershell
+function Measure-OperationPerformance {
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory)]
+        [scriptblock]$Operation,
+
+        [Parameter(Mandatory)]
+        [string]$OperationName
+    )
+
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $memoryBefore = [System.GC]::GetTotalMemory($false)
+    try {
+        $result = & $Operation
+    } catch {
+        $PSCmdlet.ThrowTerminatingError($_)
+    } finally {
+        $stopwatch.Stop()
+    }
+
+    $memoryUsedMB = [math]::Round(([System.GC]::GetTotalMemory($false) - $memoryBefore) / 1MB, 2)
+    Write-Verbose ('{0} took {1} ms and used {2} MB.' -f
+        $OperationName, $stopwatch.Elapsed.TotalMilliseconds, $memoryUsedMB)
+    $result
+}
+```
+
+The wrapper passes on the output of the operation, and its failure, unchanged.
+
+### Diagnostic data (ERR-41)
+
+```powershell
+$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$diagnosticPath = Join-Path -Path $OutputPath -ChildPath "Diagnostic-$timestamp"
+$null = New-Item -Path $diagnosticPath -ItemType Directory -Force
+$dataFilePath = Join-Path -Path $diagnosticPath -ChildPath 'diagnostic-data.json'
+
+$processName = (Get-Process -Id $PID).ProcessName
+$diagnosticData = @{
+    SystemInfo = Get-ComputerInfo | Select-Object -Property WindowsVersion, CsTotalPhysicalMemory
+    PowerShellInfo = $PSVersionTable
+    ModuleInfo = Get-Module | Select-Object -Property Name, Version
+    PerformanceCounters = Get-Counter -Counter "\Process($processName)\Working Set"
+}
+$diagnosticData | ConvertTo-Json -Depth 10 |
+    Set-Content -LiteralPath $dataFilePath -Encoding utf8
+```
+
+This ran on PowerShell 7.6 and Windows PowerShell 5.1. `Get-ComputerInfo` has no
+`TotalPhysicalMemory` property; the figure is in `CsTotalPhysicalMemory`. The counter instance has
+the name of the process, `pwsh` or `powershell`, so the sample reads it from the running process.
+Export selected properties only: a whole `Get-ComputerInfo` object also names the user and the
+computer (SEC-06).

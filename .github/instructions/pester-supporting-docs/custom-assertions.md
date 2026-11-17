@@ -244,7 +244,8 @@ carries no hint. Test the value first and call `Fail()`.
 
 `Should` is not an approved verb. A module that exports a function named `Should-*` makes
 `Import-Module` warn about unapproved verbs, on PowerShell 7 and Windows PowerShell 5.1, and listing
-the function in `FunctionsToExport` does not prevent the warning.
+the function in `FunctionsToExport` does not prevent the warning. `-DisableNameChecking` only moves
+the problem onto the module's users: the warning is back for everyone who imports without it.
 
 Name the function with the approved verb `Assert` and export a `Should-*` alias. Aliases are not
 checked:
@@ -264,8 +265,9 @@ The root module holds the functions and the `Set-Alias` lines shown above. Peste
 `$PSCmdlet` passed as `-Caller`, not from the name of the command, so the assertion behaves the same
 when it is called through the alias.
 
-Use the same names when a test file defines the function itself. No warning appears there, but
-STY-10 asks for an approved verb in every function name.
+This applies only to modules. A test file that defines or dot-sources a `Should-*` function directly
+gets no warning and needs none of it. Where PSScriptAnalyzer checks the test files, its
+`PSUseApprovedVerbs` rule still reports the name (STY-10).
 
 ## Where To Put Them
 
@@ -307,7 +309,7 @@ BeforeAll {
     Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath 'Assertions.psd1') -Force
 }
 
-Describe 'Should-BeValidSemVer' -Tag 'Unit' {
+Describe 'Should-BeValidSemVer' -Tag 'Unit', 'TestHelpers' {
     It 'Passes for <Version>' -ForEach @(
         @{ Version = '1.2.3' }
         @{ Version = '0.0.1' }
@@ -349,5 +351,9 @@ ends the test with the assertion's own message:
 ```powershell
 Should-Invoke -CommandName Publish-Module -ModuleName ModuleName -Times 1 -Exactly -ParameterFilter {
     $RequiredVersion | Should-BeValidSemVer
+    $true
 }
 ```
+
+The trailing `$true` keeps the result of the filter explicit when the assertion is not the last
+statement.

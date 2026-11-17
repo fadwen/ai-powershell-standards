@@ -37,6 +37,30 @@ in `.github/instructions/powershell-platyps.instructions.md`.
   `.EXTERNALHELP <ModuleName>-Help.xml` and a one-line `.SYNOPSIS`. Private functions and scripts keep
   full comment-based help.
 
+### Help content
+
+- **DOC-10** `.SYNOPSIS` is one line of at most 80 characters. It uses the command's approved verb,
+  states the primary action and its value, and avoids technical jargon unless it is necessary.
+- **DOC-11** Structure `.DESCRIPTION` in this order, leaving out a part that does not apply: core
+  functionality (primary purpose and key features), why the command exists, common use cases,
+  dependencies (required modules, permissions, system requirements), performance considerations,
+  and side effects (changes to the system or environment).
+- **DOC-12** Each `.PARAMETER` SHOULD state the data type and its constraints, whether the
+  parameter is mandatory, its pipeline support (ByValue, ByPropertyName), the validation rules, why
+  the parameter exists and when to use it, and sample values.
+- **DOC-13** Full help SHOULD have at least three examples of increasing complexity: basic use, an
+  advanced scenario with several parameters, and use in a pipeline with other commands.
+- **DOC-14** The text after an example's blank line SHOULD state the scenario, the expected output
+  or behaviour, and the use case, on the labelled lines `DESCRIPTION:`, `OUTPUT:`, and `USE CASE:`.
+  A `DURATION:` line is added only for a time that was measured.
+- **DOC-15** `.NOTES` holds security considerations (permissions and data handling), performance
+  characteristics, and known limitations with their workarounds. It holds the author's name, blog,
+  and LinkedIn address only when the user supplies them (DOC-07).
+- **DOC-16** List references with one `.LINK` keyword for each: related commands, the online
+  documentation of the command, and Microsoft documentation.
+- **DOC-17** Where they have been measured, help documents typical execution time, memory use, and
+  scalability. It states no performance figure that was not measured (DOC-05).
+
 ### Comments
 
 - **DOC-20** A comment explains why the code is the way it is. A comment MUST NOT restate what the
@@ -46,7 +70,10 @@ in `.github/instructions/powershell-platyps.instructions.md`.
 
 ## Notes and examples
 
-The function template in the core instructions shows complete help for a function.
+The function template in the core instructions shows where help goes and the keywords that DOC-01
+requires. DOC-10 to DOC-17 describe the content of full help. For a command that a module exports
+(DOC-09), the same content goes into its PlatyPS Markdown, where PlatyPS generates each parameter's
+type, mandatory, and pipeline entries. The samples below are shortened.
 
 **DOC-02.** `Get-Help` finds a help block only in certain positions. Verified on PowerShell 7.6 and
 Windows PowerShell 5.1:
@@ -146,6 +173,51 @@ function Get-Widget {
     param()
 }
 ```
+
+**DOC-12 to DOC-16.** The labelled layout, shortened to one parameter and one example:
+
+```powershell
+<#
+.PARAMETER ComputerName
+[string[]] (Mandatory: Yes, Pipeline: ByValue, ByPropertyName)
+
+Specifies one or more target computer names for data collection.
+
+VALIDATION RULES:
+- Must be valid computer names (NetBIOS or FQDN)
+- Maximum 50 computers per execution
+
+BUSINESS CONTEXT:
+Used to target specific servers for monitoring. Group servers by function for meaningful reports.
+
+EXAMPLES:
+- Single server: 'SERVER01'
+- Multiple servers: 'SERVER01', 'SERVER02', 'SERVER03'
+
+.EXAMPLE
+Get-ServerHealth -ComputerName 'SERVER01' -IncludePerformance
+
+DESCRIPTION: Basic health check with performance metrics.
+OUTPUT: Health status object with CPU, memory, and disk information.
+USE CASE: Daily server health verification during morning checks.
+
+.NOTES
+SECURITY CONSIDERATIONS:
+- Requires local administrator privileges on target servers.
+
+KNOWN LIMITATIONS:
+- Computers must be reachable through WinRM.
+
+.LINK
+Get-CimInstance
+
+.LINK
+Test-Connection
+#>
+```
+
+Tested on PowerShell 7.6 and Windows PowerShell 5.1: `Get-Help` keeps these lines and the blank
+lines between them, and lists each `.LINK` as one related link.
 
 **DOC-20.**
 

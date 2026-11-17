@@ -47,10 +47,11 @@ before it.
 ### Before opening the pull request
 
 - **PRQ-30** Run the repository's checks locally with the commands that CI runs, and report each
-  result as it was. A skipped or failing check is written as skipped or failing.
+  result as it was. The minimum is PSScriptAnalyzer and Pester, plus markdownlint when Markdown
+  changed. A skipped or failing check is written as skipped or failing.
 - **PRQ-31** When the repository keeps a `CHANGELOG.md`, add the change under `## [Unreleased]` in the
   Keep a Changelog section that fits: `Added`, `Changed`, `Fixed`, `Removed`, `Deprecated`, or
-  `Security`.
+  `Security`. Write the entry for someone using the module.
 - **PRQ-32** When a public function's signature changed, update its help Markdown under `docs/`.
 - **PRQ-33** In a repository that consumes these standards, the files that the standards installed
   MUST NOT be edited. Change them in the standards repository.
@@ -103,7 +104,9 @@ later by reviewers and maintainers who never saw the conversation that produced 
 A quick test: if the text would read oddly when pasted into a changelog, rewrite it.
 
 **PRQ-33.** The files that the standards install either carry a "Generated from" notice or have a
-name that starts with `powershell-`. The next update replaces them.
+name that starts with `powershell-`. The next update replaces them. A repository that has
+`.github/workflows/sync-copilot-standards.yml` consumes these standards, and each run of that
+workflow replaces the installed files.
 
 **PRQ-40.** Use this shape:
 

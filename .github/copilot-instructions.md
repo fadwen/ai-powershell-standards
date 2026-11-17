@@ -63,7 +63,8 @@ your tooling does not, you MUST read the matching files before creating or chang
 - **STY-03** Lines SHOULD NOT exceed 115 characters. Shorten a long command with splatting, or break
   the line after a pipe, comma, or operator. Backtick line continuation MUST NOT be used.
 - **STY-06** Source MUST be ASCII unless a string literal needs another character: no emoji,
-  typographic quotes, or en and em dashes in code or comments.
+  typographic quotes, or en and em dashes in code or comments. Generated documentation and test
+  output MUST NOT contain emoji either.
 - **STY-12** Name local variables in descriptive camelCase without a type prefix: `$retryCount`, not
   `$RetryCount` or `$intRetryCount`.
 - **STY-13** Automatic variables MUST NOT be assigned or reused as parameter, loop, or test-data

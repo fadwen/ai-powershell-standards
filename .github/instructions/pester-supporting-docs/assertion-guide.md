@@ -17,9 +17,11 @@ Setting `Should.DisableV5 = $true` makes every classic assertion fail with
 
 - Each assertion does one job, so its options are its own (`Should-BeString -IgnoreWhitespace`) and
   its failure message is specific: a caret under the first differing character of a string, a line
-  diff for a long string, the missing and extra values of a collection.
+  diff for a long string, the missing and extra values of a collection with the index of each.
 - `-Expected` decides how the values are compared. `1 | Should-Be $true` and `'1' | Should-Be 1` both
   pass, so assert the type as well when the type matters.
+- `$null`, an empty collection, and a single-item array are handled by the same rules in every
+  assertion of a family. The table under "Pipeline Or -Actual" lists them.
 - A value assertion refuses a collection as `-Expected`. `Should-Be -Expected @(1, 2)` is an error
   that names `Should-BeCollection`.
 - The set can be extended. See the [custom assertion guide](./custom-assertions.md).
@@ -72,7 +74,7 @@ the pipeline did and points to `-Actual`.
 | `Should -BeGreaterOrEqual $x` | `Should-BeGreaterThanOrEqual $x` | Name changed |
 | `Should -BeLessOrEqual $x` | `Should-BeLessThanOrEqual $x` | Name changed |
 | `Should -Contain $item` | `Should-ContainCollection $item` | |
-| `$item \| Should -BeIn $list` | `$list \| Should-ContainCollection $item` | The list is piped |
+| `$item \| Should -BeIn $list` | `$list \| Should-ContainCollection $item` | The list is piped. `$list \| Should-Any { $_ -eq $item }` also works |
 | `Should -HaveCount 3` | `Should-BeCollection -Count 3` | |
 | `Should -Throw '*msg*'` | `Should-Throw -ExceptionMessage '*msg*'` | Both need the wildcards |
 | `Should -Invoke Cmd` | `Should-Invoke Cmd` | |
@@ -91,6 +93,10 @@ $result.Items | Should-BeFalsy
 
 `Should-BeFalsy` passes for `$null`, `''`, `0`, `$false`, and `@()`. `'' | Should-BeNull` fails, and
 so does `$null | Should-BeEmptyString`.
+
+A file that keeps the classic style keeps `Should -Exist`. Pester 6 gave it a `-LiteralPath` switch:
+`$path | Should -Exist -LiteralPath` passes for a path that contains brackets, where the plain form
+reads the brackets as a wildcard and fails.
 
 ## The Four Families
 
@@ -131,9 +137,10 @@ Get-Content -LiteralPath $reportPath -Raw | Should-BeString $expected -Normalize
 
 #### Long Strings
 
-A failing `Should-BeString` prints a line diff in place of the caret when the strings have more than
-one line and either more than 10 lines or more than 120 characters. Expected line numbers are on the
-left and actual on the right:
+From 6.2, a failing `Should-BeString` prints a line diff in place of the caret when the strings have
+more than one line and either more than 10 lines or more than 120 characters. Pester 6.1 prints the
+caret for the same strings. Expected line numbers are on the left and actual on the right, so the
+output stays readable when lines were added or removed:
 
 ```text
 Expected strings to be the same, but they were different.
@@ -149,6 +156,9 @@ Expected 11 line(s), actual 11 line(s).
    6  6 |   line 6 of the expected text
    7  7 |   line 7 of the expected text
 ```
+
+Only the differing lines are expanded. In them a tab or a trailing space is drawn as a visible
+symbol, and the unchanged lines around them are printed as they are, not turned into escape codes.
 
 This makes `Should-BeString` the assertion for rendered templates and generated files. `Should-Be`
 on the same strings prints both in full.
@@ -419,6 +429,7 @@ that later lines depend on, such as a count before an index.
 - Assert the narrowest fact that proves the behaviour. `Should-Be 'Active'` is better than
   `Should-NotBeNull` (TST-11).
 - Assert the count before reading an element by index (TST-12).
+- Use `Should-HaveType` rather than asserting on `.GetType().Name` as a string (TST-13).
 - Prefer one `Should-BeEquivalent -ExcludePathsNotOnExpected` to a run of property assertions, and
   add index assertions when order matters.
 - Assert an error by its type or error ID. A message that the code owns changes more often.

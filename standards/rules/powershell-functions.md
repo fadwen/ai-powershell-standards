@@ -18,7 +18,10 @@ instructions shows them together.
   top of `process`.
 - **FUN-05** Code that runs in `Start-Job`, a runspace, or `ForEach-Object -Parallel` does not see the
   caller's variables, `$script:` state, or the module's private functions. Pass what it needs with
-  `-ArgumentList`, `$using:`, or a parameter.
+  `-ArgumentList`, `$using:`, or a parameter, and keep a contract test that refuses a `$script:`
+  read inside such a block.
+- **FUN-06** Inside a nested function, `$PSBoundParameters` is that function's own. Capture what the
+  nested function needs from the outer one in a plain variable before defining it.
 
 ### Output
 
@@ -42,7 +45,7 @@ instructions shows them together.
   not validated, so it MUST itself be valid.
 - **FUN-23** Do not add `[ValidateNotNullOrEmpty()]` to a mandatory `[string]` parameter; mandatory
   binding already rejects `$null` and an empty string. Reject whitespace-only text with a validation
-  attribute, not with a check in the function body.
+  attribute where one fits; FUN-27 covers the check in the function body.
 - **FUN-24** At most the first one or two parameters SHOULD be positional. When only some are, set
   `[CmdletBinding(PositionalBinding = $false)]` and mark those parameters with `Position`.
 - **FUN-25** A function that reduces its pipeline input to one result collects the input in `process`
@@ -50,6 +53,11 @@ instructions shows them together.
 - **FUN-26** Read data that came from an API or a file through one accessor that handles both a
   dictionary and an object. Index syntax (`$data['key']`) reads only a dictionary, and member syntax
   (`$data.key`) can return a dictionary's own property instead of the data.
+- **FUN-27** A parameter value MUST NOT be passed to another command before the function knows that
+  it has a value. An optional `[string]` that the caller omitted is an empty string, and its
+  validation attributes do not run. Before a critical operation, also test the value in the
+  function body, end with `$PSCmdlet.ThrowTerminatingError()` when it is empty or whitespace, and
+  pass on the trimmed value.
 
 ### State changes
 
@@ -99,6 +107,13 @@ $results = $computerNames | ForEach-Object -Parallel {
 
 Measure before making code parallel. A module that keeps one session for each process can fail
 under runspaces in ways that separate processes do not.
+
+The contract test parses each source file and fails when a `$script:` variable appears inside the
+script block of `Start-Job`, `Start-ThreadJob`, or `ForEach-Object -Parallel`.
+
+**FUN-06.** Tested on PowerShell 7.6 and Windows PowerShell 5.1: called from a function that was
+given `-Force`, a nested function finds no `Force` key in `$PSBoundParameters`, and it does see a
+variable that the outer function assigned first.
 
 **FUN-10.** `PSTypeName` becomes the object's first type name. It is not a property of the object, so
 read it with `$object.PSObject.TypeNames[0]`, not `$object.PSTypeName`.
@@ -206,14 +221,67 @@ function Get-SizeSummary {
 
 Without the `end` block, `10, 20, 30 | Get-SizeSummary` emits three summaries of one item each. This
 is the one case where a function holds its input: FUN-11 still applies to its results. When the
-parameter is typed `[object]`, decide what one element arriving alone means, and test for `[string]`
-and `[hashtable]` before testing for `IEnumerable`: a string enumerates as characters and a hashtable
-as entries, and each is one object. Test both paths, as TST-44 requires.
+parameter is typed `[object]`, decide what one element arriving alone means, and write that
+decision into the function. A whole input that is itself one object, such as an envelope with a
+`value` property or a JSON string, is folded as it arrives, so piping several whole inputs still
+yields one result each. Test for `[string]` and `[hashtable]` before testing for `IEnumerable`: a
+string enumerates as characters and a hashtable as entries, and each is one object. Test both
+paths, as TST-44 requires.
+
+`Get-FoldedOutcome` stands for the module's own function that folds a set into one outcome:
+
+```powershell
+function ConvertTo-Outcome {
+    [CmdletBinding()]
+    [OutputType('Module.Outcome')]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [AllowNull()]
+        [object]$InputObject
+    )
+
+    begin {
+        # Elements piped in one at a time are held here and folded together in end
+        $loose = [System.Collections.Generic.List[object]]::new()
+    }
+
+    process {
+        # A lone element is a single object without the envelope's value property. A string is
+        # IEnumerable (of characters) and a hashtable is IEnumerable (of entries), so both are
+        # settled before the enumerable check.
+        $isLoneElement = $null -ne $InputObject -and $InputObject -isnot [string] -and
+            ($InputObject -is [hashtable] -or $InputObject -isnot [System.Collections.IEnumerable])
+        if ($isLoneElement) {
+            if ($InputObject -is [hashtable]) {
+                $isLoneElement = -not $InputObject.ContainsKey('value')
+            } else {
+                $isLoneElement = -not $InputObject.PSObject.Properties['value']
+            }
+        }
+
+        if ($isLoneElement) {
+            $loose.Add($InputObject)
+        } else {
+            # A whole input arrived at once: a collection by parameter, an envelope, a JSON string
+            Get-FoldedOutcome -Response $InputObject
+        }
+    }
+
+    end {
+        if ($loose.Count -gt 0) {
+            Get-FoldedOutcome -Response $loose.ToArray()
+        }
+    }
+}
+```
+
+Run on PowerShell 7.6 and Windows PowerShell 5.1: three elements give one outcome piped and by
+parameter, and two piped envelopes or two piped JSON strings give two.
 
 **FUN-26.** The same JSON reaches a function in two shapes. `ConvertFrom-Json` returns objects, or
-dictionaries with `-AsHashtable` (PowerShell 7 only). Some SDK commands, such as
-`Invoke-MgGraphRequest`, return dictionaries unless asked for objects. A fixture read back from disk
-comes through `ConvertFrom-Json`. Measured on PowerShell 7.6 and Windows PowerShell 5.1:
+dictionaries with `-AsHashtable` (PowerShell 7 only). `Invoke-MgGraphRequest` returns dictionaries
+unless `-OutputType PSObject` is passed. A fixture read back from disk comes through
+`ConvertFrom-Json`. Measured on PowerShell 7.6 and Windows PowerShell 5.1:
 
 | Read | Dictionary | Object |
 | --- | --- | --- |
@@ -260,6 +328,25 @@ function Get-ResponseProperty {
 Like any function, it unrolls a collection on the way out, so wrap a read of a collection in `@()`
 (STY-42). Test the public function with both shapes, and keep fixtures real: a recorded response
 with its identifiers rewritten.
+
+**FUN-27.** Tested on PowerShell 7.6 and Windows PowerShell 5.1: an optional `[string]` that the
+caller omitted is `''` even when it carries `[ValidateNotNullOrEmpty()]`, and a mandatory `[string]`
+accepts `'   '`. Passed on, the empty value fails in the other command with `Cannot bind argument to
+parameter 'Server' because it is an empty string`, or is accepted there without an error when that
+parameter is optional.
+
+```powershell
+$server = $ServerName.Trim()
+if (-not $server) {
+    $exception = [System.ArgumentException]::new('ServerName cannot be empty or whitespace.')
+    $category = [System.Management.Automation.ErrorCategory]::InvalidArgument
+    $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+        $exception, 'ServerNameEmpty', $category, $ServerName)
+    $PSCmdlet.ThrowTerminatingError($errorRecord)
+}
+
+$connection = Connect-Database -Server $server -ErrorAction Stop
+```
 
 **FUN-30.** `ShouldProcess` gives the caller `-WhatIf` and `-Confirm`:
 

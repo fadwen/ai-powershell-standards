@@ -37,11 +37,22 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   (ERR-32), and an operating system check that fails early (VER-10).
 - A `.gitattributes` file that checks every text file out with LF, and the rule that asks for one
   (CIC-11). `Tools/Test-StandardsCompliance.ps1` now reports STY-07 and STY-23.
+- The cautions and prescriptions of the earlier instruction files that the first draft of this
+  version had dropped, about 345 of them, restored as rules with IDs and as sections of the guides.
+  Among them: what help contains (DOC-10 to DOC-17), preferred constructs (STY-50, STY-51), code
+  signing, classification, and input checks (SEC-16 to SEC-53), the features promoted out of
+  experimental in 7.5 and 7.6, the release cautions for the PowerShell Gallery, the multi-job CI
+  workflow with its matrix and nightly run (CIC-12 to CIC-22), the README sections (RDM-07 to
+  RDM-18), the test runner and its reports, and the performance, security, and integration test
+  cases. Each statement about behaviour was run again first; the Fixed section below lists the
+  ones that did not hold.
+- A caution that one `CodeCoverage.Path` entry in a folder that does not exist makes Pester 6.2.0
+  measure nothing while the result stays `Passed` (TST-40).
 
 ### Changed
 
-- The always-loaded core went from about 33 KB to about 15 KB. For a `.ps1` file an agent now loads
-  about 85 KB of instructions in total, down from about 123 KB.
+- The always-loaded core went from about 33 KB to about 15 KB. For a `.ps1` file an agent loads
+  about 118 KB of instructions in total, against about 123 KB before.
 - Twelve topic files named `powershell-<topic>.instructions.md` replace the earlier instruction
   files. Their front matter contains only keys that instruction files support.
 - The Claude Code rules under `.claude/rules/powershell-standards/` are generated. Each one imports
@@ -92,6 +103,23 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   earlier sample did that on every import.
 - A mandatory collection parameter rejects an empty array as well as `$null`, so wrapping a call in
   `@()` is not enough without `[AllowEmptyCollection()]`.
+- `HelpInfoURI = ''` does not fail the pack. `IconUri`, `ProjectUri`, and `LicenseUri` set to an
+  empty string each do (MOD-13).
+- The `foreach` statement is faster than the pipeline for a collection in memory: 291 ms against
+  2,518 ms for 200,000 objects on PowerShell 7.6 (STY-44).
+- `::set-output` is deprecated, not disabled: GitHub postponed its removal in July 2023.
+- `[System.Web.HttpUtility]::HtmlEncode` needs `Add-Type` on Windows PowerShell 5.1, not on
+  PowerShell 7.
+- `Run.ExcludePath` does not exclude files from code coverage.
+- When a parallel worker dies, Pester 6.2.0 returns no result object.
+- `Should-BeEquivalent -Comparator Equality` still compares nested objects, `-As None` unrolls a
+  single item, and `PassedCount` does not show whether a tag filter worked.
+- A discovery-only run does not find a test file that depends on another one.
+- `Install-Module` and `Find-Module` are PowerShellGet 2.2.5's own functions on PowerShell 7.6, not
+  a compatibility layer.
+- Samples that did not run are repaired: the deny-list check that a backtick defeated, the secret
+  pattern that did not parse, the test runner that did not parse, the processor test whose filter
+  matched nothing, and a signing check that let a file with only critical findings through.
 - The README again tells a new user how to start: the quick start, the module template, the
   template repository, how each agent loads the rules, the skills, the GitHub Actions workflows,
   an example of a project's own rules, and links to the documentation. It also acknowledges the
