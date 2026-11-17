@@ -53,7 +53,7 @@ Three more facts shape the jobs:
 validate (discovery only, fast)
     |
     +--> test                     (operating system matrix, parallel, no coverage: fast feedback)
-    +--> coverage                 (sequential, shuffled, coverage gate)
+    +--> coverage                 (sequential, coverage gate)
     +--> test-windows-powershell  (Windows PowerShell 5.1, when the project declares it)
 ```
 
@@ -355,8 +355,8 @@ jobs:
           name: test-results-${{ matrix.os }}
           path: Tests/Results/
 
-  # Coverage runs sequentially, so it can use the profiler-based tracer. It is also the job that
-  # runs shuffled: a new seed for each run, printed at the start and named when the run fails.
+  # Coverage runs sequentially, so it can use the profiler-based tracer. Like every run of the
+  # runner it is shuffled: a new seed for each run, printed at the start and named when it fails.
   coverage:
     needs: validate
     runs-on: windows-latest
@@ -371,7 +371,7 @@ jobs:
 
       - name: Run tests with coverage
         shell: pwsh
-        run: ./Tests/Invoke-Tests.ps1 -TestType Unit -Environment CI -CodeCoverage -Shuffle
+        run: ./Tests/Invoke-Tests.ps1 -TestType Unit -Environment CI -CodeCoverage
 
       - name: Upload coverage
         if: always()

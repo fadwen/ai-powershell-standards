@@ -102,7 +102,7 @@ jobs:
 
       - name: Run Pester
         shell: pwsh
-        run: ./Tests/Invoke-Tests.ps1 -TestType Unit -Environment CI -CodeCoverage -Shuffle
+        run: ./Tests/Invoke-Tests.ps1 -TestType Unit -Environment CI -CodeCoverage
 ```
 
 The test script is the runner in `.github/instructions/pester-supporting-docs/test-execution.md`.
@@ -268,7 +268,7 @@ jobs:
 
       - name: Run Pester
         shell: pwsh
-        run: ./Tests/Invoke-Tests.ps1 -TestType Unit -Environment CI -CodeCoverage -Shuffle
+        run: ./Tests/Invoke-Tests.ps1 -TestType Unit -Environment CI -CodeCoverage
 
   security-scan:
     runs-on: ubuntu-latest

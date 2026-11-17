@@ -80,7 +80,8 @@ Organize the tests of a project in this layout:
 Pester does not require a layout; it runs every `*.Tests.ps1` file under the paths it is given. Two
 alternatives can each replace their counterpart above:
 
-- A small module keeps `Tests/Unit` and `Tests/Integration` flat, without the second level.
+- A small module keeps `Tests/Unit` and `Tests/Integration` flat, without the second level, or
+  keeps every test file directly in `Tests` (MOD-01).
 - The runner script, its helper file, and the settings files are in a `build` folder beside
   `Tests`. Both folders are one level below the repository root, so a script that builds its paths
   from `$PSScriptRoot` works in either.

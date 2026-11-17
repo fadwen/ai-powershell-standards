@@ -37,6 +37,7 @@ A `.psd1` file holds literals only, so a duration is written as a number of mill
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
 
 #pester:no-parallel
+#pester:no-shuffle
 
 BeforeAll {
     $moduleRoot = Split-Path -Path $PSScriptRoot -Parent
@@ -459,7 +460,11 @@ the settings file of the performance run; see
 
 A performance baseline assumes a fixed order. Do not turn `Run.Shuffle` on for a run of performance
 tests. The runner script in [Test Execution Guide](./test-execution.md#the-test-runner-script)
-ignores `-Shuffle` for them.
+shuffles every other run and leaves performance tests in their declared order (TST-46).
+
+Put the comment `#pester:no-shuffle` at the top of every performance test file as well. A run of
+every test type is shuffled, and the comment keeps the blocks and tests of the file in the order
+they are written; see [Test Execution Guide](./test-execution.md#shuffled-test-order).
 
 ### Coverage Is Off
 

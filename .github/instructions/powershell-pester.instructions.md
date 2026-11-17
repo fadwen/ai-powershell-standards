@@ -91,8 +91,8 @@ specific topics are listed at the end.
 - **TST-44** For every parameter that accepts pipeline input, test both the piped call and the call
   by parameter, piping what the real upstream command emits.
 - **TST-45** Every usage example in the README and in help has a test that runs it as written.
-- **TST-46** CI runs the unit tests with `Run.Shuffle` enabled and puts the seed in the failure
-  message.
+- **TST-46** Every test run uses `Run.Shuffle`, on a developer's computer and in CI, and puts the
+  seed in the failure message. Only performance tests keep their declared order.
 - **TST-47** The unit tests run in less than 30 seconds in total, and the integration tests in less
   than 5 minutes.
 

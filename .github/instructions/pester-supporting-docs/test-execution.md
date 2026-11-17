@@ -117,8 +117,9 @@ Experimental. Runs test files at the same time. Ignored for performance and inte
 .PARAMETER ThrottleLimit
 Number of files to run at once in a parallel run. 0 uses every processor.
 
-.PARAMETER Shuffle
-Experimental. Runs files, blocks, and tests in a random order. Ignored for performance tests.
+.PARAMETER NoShuffle
+Runs the tests in their declared order. Without it every run is shuffled, except a run of
+performance tests: files, blocks, and tests run in a random order. Experimental in Pester.
 
 .PARAMETER ShuffleSeed
 Seed of an earlier shuffled run, to repeat its order. 0 picks a new seed and prints it.
@@ -129,9 +130,14 @@ Seed of an earlier shuffled run, to repeat its order. 0 picks a new seed and pri
 Runs the unit tests with the development configuration.
 
 .EXAMPLE
-./Tests/Invoke-Tests.ps1 -TestType Unit -Environment CI -CodeCoverage -Shuffle
+./Tests/Invoke-Tests.ps1 -TestType Unit -Environment CI -CodeCoverage
 
 Runs the unit tests as CI does, in a shuffled order, with the coverage gate.
+
+.EXAMPLE
+./Tests/Invoke-Tests.ps1 -TestType Unit -ShuffleSeed 852659930
+
+Repeats the order of an earlier run, to reproduce a failure that it reported.
 
 .INPUTS
 None. This script does not accept pipeline input.
@@ -163,7 +169,7 @@ param(
 
     [int]$ThrottleLimit = 0,
 
-    [switch]$Shuffle,
+    [switch]$NoShuffle,
 
     [int]$ShuffleSeed = 0
 )
@@ -194,15 +200,21 @@ $configuration.Run.PassThru = $true
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 
 # The tests of the requested type
-if ($TestType -eq 'All') {
+$typeFolders = @(
+    Get-ChildItem -LiteralPath $testRoot -Directory |
+        Where-Object { $_.Name -in 'Unit', 'Integration', 'Performance', 'Security' } |
+        ForEach-Object { $_.FullName }
+)
+if ($typeFolders.Count -eq 0) {
+    # A flat Tests folder (MOD-01): every test file is in the run, and the tag selects the type.
+    $configuration.Run.Path = $testRoot
+} elseif ($TestType -eq 'All') {
     # The Performance and Security folders exist only where such tests do (TST-43).
-    $configuration.Run.Path = @(
-        Get-ChildItem -LiteralPath $testRoot -Directory |
-            Where-Object { $_.Name -in 'Unit', 'Integration', 'Performance', 'Security' } |
-            ForEach-Object { $_.FullName }
-    )
+    $configuration.Run.Path = $typeFolders
 } else {
     $configuration.Run.Path = Join-Path -Path $testRoot -ChildPath $TestType
+}
+if ($TestType -ne 'All') {
     $configuration.Filter.Tag = $TestType
 }
 if ($Tag.Count -gt 0) {
@@ -239,18 +251,21 @@ if ($Parallel) {
     }
 }
 
-# Shuffled order
-if ($Shuffle) {
-    if ($TestType -eq 'Performance') {
-        Write-Warning 'Performance baselines assume a fixed order; ignoring -Shuffle.'
+# Shuffled order, in every run except a run of performance tests (TST-46). The settings file may
+# have set the option either way, so it is set here in both cases.
+$isShuffled = -not $NoShuffle -and $TestType -ne 'Performance'
+$configuration.Run.Shuffle = $isShuffled
+if ($isShuffled) {
+    if ($ShuffleSeed -ne 0) {
+        $configuration.Run.ShuffleSeed = $ShuffleSeed
+        Write-Host "Shuffled execution replaying seed $ShuffleSeed" -ForegroundColor Green
     } else {
-        $configuration.Run.Shuffle = $true
-        if ($ShuffleSeed -ne 0) {
-            $configuration.Run.ShuffleSeed = $ShuffleSeed
-            Write-Host "Shuffled execution replaying seed $ShuffleSeed" -ForegroundColor Green
-        } else {
-            Write-Host 'Shuffled execution enabled (the seed is printed below)' -ForegroundColor Green
-        }
+        Write-Host 'Shuffled execution enabled (the seed is printed below)' -ForegroundColor Green
+    }
+} else {
+    Write-Host 'Shuffled execution is off (declared order)' -ForegroundColor Yellow
+    if ($ShuffleSeed -ne 0) {
+        Write-Warning 'This run is not shuffled; ignoring -ShuffleSeed.'
     }
 }
 
@@ -487,11 +502,16 @@ Notes on the script:
   them and adding a tag would widen the run. The folder of the type still limits it, so
   `-TestType Unit -Tag CrossPlatform` runs the tests under `Tests/Unit` that are tagged
   `CrossPlatform`. Use `-ExcludeTag` to narrow a selection further.
+- A flat `Tests` folder (MOD-01) has no folder for a test type. The script then runs every test
+  file in `Tests`, and the tag of the test type alone selects the tests, so `-Tag` decides the
+  selection by itself there.
 - Every report has the test type and the time in its name, in `Tests/Results`, so that runs do not
   overwrite each other and one artifact pattern collects them: `Tests/Results/TestResults*.xml`,
   `Tests/Results/Coverage*.xml`, and `Tests/Results/TestMetrics*.json`. Do not commit the folder.
-- `Run.Parallel` and `Run.Shuffle` are experimental. The script turns them on only when the caller
-  passes the switch.
+- `Run.Parallel` and `Run.Shuffle` are experimental. The script turns `Run.Parallel` on only when
+  the caller passes `-Parallel`. It shuffles every run except a run of performance tests (TST-46);
+  `-NoShuffle` runs the tests in their declared order, for example to compare with a shuffled
+  failure.
 - The script targets PowerShell 7.6. For a project that declares Windows PowerShell 5.1 support,
   change the first line to `#requires -Version 5.1`. The script and its helper functions were run
   under Windows PowerShell 5.1 with that line, with and without `-Parallel`.
@@ -511,9 +531,9 @@ Notes on the script:
 # Fast feedback: unit tests in parallel, without coverage
 ./Tests/Invoke-Tests.ps1 -TestType Unit -Parallel
 
-# Find order dependence, then repeat the order that failed
-./Tests/Invoke-Tests.ps1 -TestType Unit -Shuffle
-./Tests/Invoke-Tests.ps1 -TestType Unit -Shuffle -ShuffleSeed 852659930
+# Repeat the order of a run that failed, then compare with the declared order
+./Tests/Invoke-Tests.ps1 -TestType Unit -ShuffleSeed 852659930
+./Tests/Invoke-Tests.ps1 -TestType Unit -NoShuffle
 
 # What CI runs
 ./Tests/Invoke-Tests.ps1 -TestType All -Environment CI -CodeCoverage
@@ -985,8 +1005,9 @@ it is run alone, and put shared helpers in a setup file; see
 
 ## Shuffled Test Order
 
-`Run.Shuffle` is experimental and off by default. Turn it on for the unit tests in CI, with the
-seed in the failure message (TST-46). It is what keeps importing the module once for each run
+`Run.Shuffle` is experimental, and Pester leaves it off by default. Turn it on in every run, on a
+developer's computer and in CI, with the seed in the failure message (TST-46). Only performance
+tests keep their declared order. Shuffling is what keeps importing the module once for each run
 (TST-05) safe.
 
 With the option on, Pester changes the order of the test files, of the blocks in each file, and of
@@ -1022,8 +1043,14 @@ $configuration.Run.ShuffleSeed = 314796220
 
 The option changes only the order. It does not change which tests run or how filters apply.
 
+The option combines with `Run.Parallel`. Replay a seed in the mode that produced it: measured on
+Pester 6.2.0, seed 1 gave one order within a file in a sequential run and another in a parallel
+run, and each repeated exactly in its own mode.
+
 Do not shuffle performance tests. A performance baseline assumes a fixed order, so the runner
-script ignores `-Shuffle` for them.
+script leaves the option off for a run of performance tests. A run of every test type is
+shuffled, so each performance test file also starts with `#pester:no-shuffle`, as the file in
+[Performance Test Template](./performance-test-template.md#the-run-is-not-shuffled) does.
 
 ### When a Test Fails Only in a Shuffled Run
 
@@ -1042,7 +1069,9 @@ the module is imported once for each run (TST-05).
    state in `AfterEach`.
 
 A file whose blocks must run in the declared order starts with the `#pester:no-shuffle` directive.
-Its blocks and tests then keep their order:
+Its blocks and tests then keep their order. Measured on Pester 6.2.0 under six seeds, with the
+directive before or after the `#Requires` line: the blocks and tests of the file ran as written
+every time, and the position of the file among the other files still changed.
 
 ```powershell
 #pester:no-shuffle
@@ -1053,4 +1082,5 @@ Describe 'Database migration steps' -Tag 'Integration' {
 ```
 
 The directive states that the file depends on its order. That is acceptable for an integration
-scenario that is written as a sequence of steps, and it is a defect in a unit test file.
+scenario that is written as a sequence of steps and for a performance test file, and it is a
+defect in a unit test file.

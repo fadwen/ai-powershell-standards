@@ -27,7 +27,9 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 - Rules for releasing to the PowerShell Gallery (MOD-10 to MOD-14) and for rehearsing the release on
   every pull request (CIC-10).
 - Test rules: import the module once (TST-05), mock scope across setup blocks (TST-23), both
-  pipeline paths (TST-44), documented examples (TST-45), and shuffled runs in CI (TST-46).
+  pipeline paths (TST-44), documented examples (TST-45), and a shuffled order in every test run
+  (TST-46). The test runner shuffles unless `-NoShuffle` is passed, and performance tests keep
+  their declared order.
 - A rule to write a function's output after its `try` block (ERR-15).
 - Six rules taken from a comparison with Frank Lesniak's
   [PSStyleGuide](https://github.com/franklesniak/PSStyleGuide), each tested on PowerShell 7.6 and Windows
@@ -74,6 +76,8 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 - `SupportsShouldProcess` is not declared on functions that only read (FUN-31).
 - CI fails when the Pester result is not `Passed`, which also catches a failed setup or teardown
   block, and when coverage is below 80 percent (TST-40, TST-42).
+- The tests of a module sit directly in `Tests` or in `Unit`, `Integration`, and `Performance`
+  folders under it (MOD-01). In a flat folder the test runner selects the test type by its tag.
 - `Tools/Install-CopilotStandards.ps1` installs for the agents selected with `-Agent`, never
   replaces a file the project wrote, never touches `CLAUDE.md`, and removes files it no longer
   installs.

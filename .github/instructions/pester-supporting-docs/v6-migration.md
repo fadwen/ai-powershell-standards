@@ -297,14 +297,15 @@ The differences below were measured between Pester 6.0.1 and 6.1.0.
 
 ### Adopting the Experimental Options
 
-`Mock.Global` and `Run.Shuffle` are off by default. Turning either on can expose real problems in
-an existing suite, which is what they are for: with `Mock.Global` a call that was not mocked before
-can start to reach a mock, and `Run.Shuffle` fails tests that depend on the declared order. Both
-may still change before they are declared stable. When an existing suite adopts one of them, turn
-it on in a job of its own first, not across the whole suite, and fix what it exposes there.
+Pester leaves `Mock.Global` and `Run.Shuffle` off by default. Turning either on can expose real
+problems in an existing suite, which is what they are for: with `Mock.Global` a call that was not
+mocked before can start to reach a mock, and `Run.Shuffle` fails tests that depend on the declared
+order. Both may still change before they are declared stable.
 
-The Pester rules set where the adoption ends: `Run.Shuffle` runs with the unit tests in CI
-(TST-46), and `Mock.Global` stays off unless the user asks for it.
+`Run.Shuffle` is on in every run (TST-46). When an existing suite first turns it on, fix the tests
+it exposes; a file that must keep its declared order opts out with `#pester:no-shuffle`.
+`Mock.Global` stays off unless the user asks for it. When a suite adopts it, turn it on in a job of
+its own first, not across the whole suite, and fix what it exposes there.
 
 ### Behaviour That Changed in 6.1
 

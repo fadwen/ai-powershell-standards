@@ -14,8 +14,8 @@ These rules apply to `.psm1` and `.psd1` files and to the function files a modul
 
 - **MOD-01** Lay a module out as a manifest (`ModuleName.psd1`), a root module (`ModuleName.psm1`), a
   `Public` folder for exported functions, and a `Private` folder for internal ones. Put each function
-  in its own file, named after the function. Put the tests under `Tests`, split into `Unit`,
-  `Integration`, and `Performance` folders.
+  in its own file, named after the function. Put the tests under `Tests`: either directly in that
+  folder, or split into `Unit`, `Integration`, and `Performance` folders.
 - **MOD-02** The manifest names every exported function in `FunctionsToExport`. Wildcards MUST NOT be
   used there, and `CmdletsToExport`, `VariablesToExport`, and `AliasesToExport` are `@()` unless the
   module really exports one.
@@ -90,7 +90,8 @@ ModuleName/
 ```
 
 Every PowerShell project follows this structure. Add other folders only when the module has
-something to put in them.
+something to put in them. A flat `Tests` folder, with the test files directly in it, is equally
+valid; the tags of TST-04 then tell the test types apart.
 
 ### Manifest (MOD-02, MOD-03, MOD-04)
 

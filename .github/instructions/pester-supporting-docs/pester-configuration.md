@@ -64,9 +64,10 @@ scripts are the same in either.
         Parallel = $false
         ParallelThrottleLimit = 0
 
-        # Experimental and off by default, but turned on for the unit tests in CI (TST-46).
-        # A seed of 0 picks a new seed for each run and prints it.
-        Shuffle = $false
+        # Experimental and off by default in Pester, but on in every run here (TST-46). Only
+        # the performance file turns it off. A seed of 0 picks a new seed for each run and
+        # prints it.
+        Shuffle = $true
         ShuffleSeed = 0
     }
 
@@ -273,6 +274,9 @@ for. The alternative is to leave it at `Auto`.
 
         # Performance tests must not share the machine with other work.
         Parallel = $false
+
+        # A baseline assumes the declared order (TST-46).
+        Shuffle = $false
     }
 
     Output = @{
@@ -807,7 +811,8 @@ incomplete. Remove ANSI colour sequences from text before a test throws it or us
 
 `Run.Parallel`, `Run.Shuffle`, and `Mock.Global` are off by default, and Pester marks them as
 experimental. Do not enable `Run.Parallel` or `Mock.Global` in a configuration that you generate
-unless the user asks. `Run.Shuffle` is the exception: turn it on for the unit tests in CI (TST-46).
+unless the user asks. `Run.Shuffle` is the exception: turn it on in every run except a run of
+performance tests (TST-46).
 
 - `Run.Parallel` and `Run.ParallelThrottleLimit`: see
   [Test Execution Guide](./test-execution.md#parallel-test-execution).
@@ -817,15 +822,16 @@ unless the user asks. `Run.Shuffle` is the exception: turn it on for the unit te
   script, and `-ModuleName` no longer limits where it applies. See
   [Mocking Patterns Guide](./mocking-patterns.md).
 
-### Shuffle in CI
+### Shuffle in Every Run
 
-Turn shuffling on in the CI job that runs the unit tests, with a new seed for each run and the seed
-named in the failure message. The first shuffled run of one suite of 1,300 tests failed three tests
-under seed 1 that file order had always hidden: each wrote into a folder that an earlier test in the
-same file had created. Two other seeds passed. The same suite later moved to importing the module
-once for each run instead of in every file, which makes state visible across files; the shuffled run
-is what keeps that trade honest, because a test that passes only after a fresh import fails there
-with a seed to replay.
+Turn shuffling on in every run, on a developer's computer and in CI, with a new seed for each run
+and the seed named in the failure message. A developer then meets an order dependence while
+writing the test, not in the log of a CI job. The first shuffled run of one suite of 1,300 tests
+failed three tests under seed 1 that file order had always hidden: each wrote into a folder that an
+earlier test in the same file had created. Two other seeds passed. The same suite later moved to
+importing the module once for each run instead of in every file, which makes state visible across
+files; the shuffled run is what keeps that trade honest, because a test that passes only after a
+fresh import fails there with a seed to replay.
 
 Document the replay command in the README of the tests, so that whoever reads the failing log knows
 what to do with the number:
@@ -840,7 +846,7 @@ Invoke-Pester -Configuration $configuration
 ```
 
 With the runner script the same replay is
-`./Tests/Invoke-Tests.ps1 -TestType Unit -Shuffle -ShuffleSeed 852659930`.
+`./Tests/Invoke-Tests.ps1 -TestType Unit -ShuffleSeed 852659930`.
 
 ### Global Mocks
 
