@@ -168,7 +168,7 @@ counts as much as one listed here.
 - **DOC-05** Help MUST describe what the code does. Performance figures, compliance claims, and
   behaviour that the code does not have MUST NOT be invented. If a fact is not known, leave it out.
 - **DOC-07** Help MUST NOT contain a version number, a date, or a change history. An author name is
-  added only when the user supplies one.
+  added only when the user supplies one or `.github/powershell-attribution.md` lists one (DOC-18).
 
 ## Function template
 

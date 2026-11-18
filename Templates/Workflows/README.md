@@ -45,6 +45,7 @@ once the file is on the default branch.
 | `.claude/rules/powershell-standards/` | Replaced, when Claude Code is selected. |
 | Skills whose names start with `powershell-` | Replaced, in the skill folder of each selected agent. |
 | `.github/copilot-instructions.md`, `AGENTS.md` | Replaced only if an earlier installation wrote them. A file the project wrote itself is left alone. |
+| `.github/powershell-attribution.md` | Created when it is missing, from the profile of the project's GitHub owner or the empty template. Never changed afterwards. |
 | Instruction and prompt files from versions before 2.0 | Removed. |
 | Everything else, including other instruction files, rules, skills, and workflows | Never touched. |
 

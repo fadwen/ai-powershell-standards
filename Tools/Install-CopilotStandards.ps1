@@ -18,6 +18,11 @@ Files a project may already have are never replaced unless they were installed b
 and the sync workflow. When one is left alone, a warning says how to connect it to the standards.
 The project's CLAUDE.md is never touched: Claude Code loads the standards from its rules folder.
 
+.github/powershell-attribution.md lists the author details that agents write into new code. It is
+created when it is missing and never changed afterwards, not even with -Force, so the project edits
+it freely. Its first content is the profile under standards/attribution/profiles whose name is the
+project's GitHub owner, or the empty template when that owner has no profile.
+
 The core rules are installed once, so that no agent loads them twice. They go into
 .github/copilot-instructions.md, which GitHub Copilot reads and which a Claude Code rule imports.
 GitHub Copilot also reads AGENTS.md, so AGENTS.md is then a short pointer to that file. When the
@@ -43,8 +48,13 @@ Removes the files that versions before 2.0 installed or mirrored: the earlier in
 prompt files and their Claude Code commands, and the mirrored powershell-standards folder. Without
 this switch they are reported in a warning and left in place.
 
+.PARAMETER Owner
+GitHub owner of the project, which chooses the attribution profile. By default it is read from the
+project's origin remote. It only matters when the project has no attribution file yet.
+
 .PARAMETER Force
-Replaces a file the project already has even when this script did not install it.
+Replaces a file the project already has even when this script did not install it. The attribution
+file is never replaced.
 
 .EXAMPLE
 ./Tools/Install-CopilotStandards.ps1 -ProjectPath 'C:\Projects\MyModule'
@@ -61,7 +71,8 @@ None.
 
 .OUTPUTS
 PowerShellStandards.InstalledFile. One object for each file considered, with Path and Status
-properties. Status is Installed, Updated, Unchanged, Skipped, or Removed.
+properties. Status is Installed, Updated, Unchanged, Skipped, or Removed. An attribution file that
+the project already has is reported as Unchanged.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 [OutputType('PowerShellStandards.InstalledFile')]
@@ -81,6 +92,10 @@ param(
 
     [Parameter()]
     [switch]$RemoveLegacyFiles,
+
+    [Parameter()]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9-]{0,38}$')]
+    [string]$Owner,
 
     [Parameter()]
     [switch]$Force
@@ -105,6 +120,7 @@ $generatedMarker = "Generated from $($manifest.Name)"
 
 # Each entry is a file to install: where it comes from, where it goes, and who owns the destination.
 # 'Standards' files are always replaced. 'Project' files are replaced only if this script wrote them.
+# 'Seed' files are written only when they are missing.
 $plan = [System.Collections.Generic.List[hashtable]]::new()
 
 foreach ($rule in $manifest.Rules) {
@@ -201,6 +217,35 @@ if ($IncludeSyncWorkflow) {
         })
 }
 
+# The attribution file starts as the profile of the project's GitHub owner. GitHub owner names are
+# letters, digits, and hyphens, which also keeps the name from reaching outside the profile folder.
+$ownerPattern = '^[A-Za-z0-9][A-Za-z0-9-]{0,38}$'
+$projectOwner = $Owner
+if (-not $projectOwner -and (Get-Command -Name git -CommandType Application -ErrorAction SilentlyContinue)) {
+    # --default makes git exit with 0 and write nothing to stderr when there is no origin remote.
+    $originUrl = @(& git -C $projectRoot config --default '' --get remote.origin.url)
+    if ($LASTEXITCODE -ne 0) {
+        throw "git could not read the origin remote of '$projectRoot'. Exit code $LASTEXITCODE."
+    }
+    if ($originUrl.Count -gt 0 -and $originUrl[0] -match '[:/]([^/:]+)/[^/]+/?$') {
+        $projectOwner = $Matches[1]
+    }
+}
+
+$attributionSource = 'standards/attribution/template.md'
+if ($projectOwner -match $ownerPattern) {
+    $profileFolder = Join-Path -Path $standardsRoot -ChildPath 'standards/attribution/profiles'
+    $ownerProfile = @(
+        Get-ChildItem -LiteralPath $profileFolder -Filter '*.md' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.BaseName -eq $projectOwner }
+    )
+    if ($ownerProfile.Count -gt 0) {
+        $attributionSource = "standards/attribution/profiles/$($ownerProfile[0].Name)"
+    }
+}
+Write-Verbose "Attribution file source: $attributionSource"
+$plan.Add(@{ Source = $attributionSource; Destination = '.github/powershell-attribution.md'; Owner = 'Seed' })
+
 $plannedDestinations = @($plan | ForEach-Object { $_.Destination })
 
 foreach ($entry in $plan) {
@@ -218,7 +263,7 @@ foreach ($entry in $plan) {
         $destinationText = [System.IO.File]::ReadAllText($destinationPath).Replace("`r`n", "`n")
         $installedByThisScript = & $testInstalledText -Text $destinationText
 
-        if ($destinationText -ceq $sourceText) {
+        if ($entry.Owner -eq 'Seed' -or $destinationText -ceq $sourceText) {
             $status = 'Unchanged'
         } elseif ($entry.Owner -eq 'Standards' -or $installedByThisScript -or $Force) {
             $status = 'Updated'

@@ -403,6 +403,113 @@ Describe 'Install-CopilotStandards.ps1' -Tag 'Unit' {
         }
     }
 
+    Context 'The attribution file' {
+        BeforeDiscovery {
+            $hasGit = [bool](Get-Command -Name git -CommandType Application -ErrorAction SilentlyContinue)
+        }
+
+        BeforeAll {
+            $attributionName = '.github/powershell-attribution.md'
+            $attributionFolder = Join-Path -Path $repositoryRoot -ChildPath 'standards/attribution'
+
+            # The text of a file, with line endings that do not depend on how git checked it out.
+            $readText = {
+                param([string]$LiteralPath)
+                [System.IO.File]::ReadAllText($LiteralPath).Replace("`r`n", "`n")
+            }
+            $templateText = & $readText -LiteralPath (Join-Path -Path $attributionFolder -ChildPath 'template.md')
+            $profilePath = Join-Path -Path $attributionFolder -ChildPath 'profiles/fadwen.md'
+            $profileText = & $readText -LiteralPath $profilePath
+
+            # The text of the attribution file in the project folder that the current test uses.
+            $readAttribution = {
+                & $readText -LiteralPath (& $getProjectFile -RelativePath $attributionName)
+            }
+
+            # Makes the project folder a git repository whose origin remote is the given URL.
+            $setOrigin = {
+                param([string]$Url)
+                & git -C $projectPath init -q
+                & git -C $projectPath remote add origin $Url
+            }
+        }
+
+        It 'Installs the empty template when the project has no origin remote' {
+            $files = @(& $installScript -ProjectPath $projectPath)
+
+            & $readAttribution | Should-BeString $templateText
+            & $selectResult -Files $files -Path $attributionName -Status 'Installed' | Should-BeCollection -Count 1
+        }
+
+        It 'Installs the profile of the owner in the origin remote <Url>' -Skip:(-not $hasGit) -ForEach @(
+            @{ Url = 'https://github.com/fadwen/example.git' }
+            @{ Url = 'git@github.com:FADWEN/example' }
+        ) {
+            & $setOrigin -Url $Url
+
+            $null = & $installScript -ProjectPath $projectPath
+
+            & $readAttribution | Should-BeString $profileText
+        }
+
+        It 'Installs the empty template for an owner without a profile' -Skip:(-not $hasGit) {
+            & $setOrigin -Url 'https://github.com/someone-else/example.git'
+
+            $null = & $installScript -ProjectPath $projectPath
+
+            & $readAttribution | Should-BeString $templateText
+        }
+
+        It 'Uses the owner given with -Owner instead of the origin remote' -Skip:(-not $hasGit) {
+            & $setOrigin -Url 'https://github.com/someone-else/example.git'
+
+            $null = & $installScript -ProjectPath $projectPath -Owner 'fadwen'
+
+            & $readAttribution | Should-BeString $profileText
+        }
+
+        It 'Rejects an owner that is not a GitHub name' {
+            { & $installScript -ProjectPath $projectPath -Owner '../profiles' } |
+                Should-Throw -FullyQualifiedErrorId 'ParameterArgumentValidationError,*'
+        }
+
+        It 'Keeps the project''s own attribution file, even with -Force, and does not warn' {
+            $ownPath = & $newProjectFile -RelativePath $attributionName -Content '- Author: Project Author'
+
+            $installParameters = @{
+                ProjectPath = $projectPath
+                Owner = 'fadwen'
+                Force = $true
+                WarningVariable = 'warnings'
+                WarningAction = 'SilentlyContinue'
+            }
+            $files = @(& $installScript @installParameters)
+
+            (Get-Content -LiteralPath $ownPath -Raw).Trim() | Should-BeString '- Author: Project Author'
+            & $selectResult -Files $files -Path $attributionName -Status 'Unchanged' | Should-BeCollection -Count 1
+            @($warnings | Where-Object { $_ -like '*powershell-attribution*' }) | Should-BeCollection -Count 0
+        }
+
+        It 'Keeps an attribution file that an earlier installation wrote and the project then edited' {
+            $null = & $installScript -ProjectPath $projectPath
+            $attributionPath = & $getProjectFile -RelativePath $attributionName
+            Add-Content -LiteralPath $attributionPath -Value '- GitHub: https://github.com/example' -Encoding ascii
+
+            $null = & $installScript -ProjectPath $projectPath -Force
+
+            Get-Content -LiteralPath $attributionPath -Raw |
+                Should-MatchString 'GitHub: https://github\.com/example'
+        }
+
+        It 'Keeps the attribution file when agents are dropped and legacy files are removed' {
+            $null = & $installScript -ProjectPath $projectPath
+            $files = @(& $installScript -ProjectPath $projectPath -Agent Codex -RemoveLegacyFiles)
+
+            & $testProjectFile -RelativePath $attributionName | Should-BeTrue
+            & $selectResult -Files $files -Path $attributionName -Status 'Removed' | Should-BeCollection -Count 0
+        }
+    }
+
     Context 'With the optional files' {
         It 'Installs the analyzer settings when asked' {
             $null = & $installScript -ProjectPath $projectPath -IncludeAnalyzerSettings

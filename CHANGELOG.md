@@ -50,6 +50,11 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   ones that did not hold.
 - A caution that one `CodeCoverage.Path` entry in a folder that does not exist makes Pester 6.2.0
   measure nothing while the result stays `Passed` (TST-40).
+- `.github/powershell-attribution.md`, the author details that agents write into the `.NOTES` of
+  new help and into a new module manifest (DOC-18). The installer creates it when it is missing and
+  never changes it afterwards, not even with `-Force`. It starts from the profile of the project's
+  GitHub owner under `standards/attribution/profiles`, or from an empty template; the new `-Owner`
+  parameter chooses the profile when the `origin` remote does not.
 
 ### Changed
 
