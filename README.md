@@ -77,6 +77,7 @@ This installs the files for all three agents. Run it again at any time to update
 | `-IncludeAnalyzerSettings` | Also installs `PSScriptAnalyzerSettings.psd1`. In an existing project this can report many layout findings. |
 | `-IncludeSyncWorkflow` | Also installs a scheduled workflow that keeps the files up to date. |
 | `-RemoveLegacyFiles` | Removes the files that versions before 2.0 installed or mirrored. |
+| `-Owner` | The GitHub owner whose attribution profile seeds `.github/powershell-attribution.md`. By default it is read from the `origin` remote. |
 | `-Force` | Replaces an `AGENTS.md` or `.github/copilot-instructions.md` that the project wrote itself. |
 
 What each agent receives:
@@ -102,7 +103,19 @@ Things to know:
 - When you change `-Agent`, the files that an earlier installation wrote for an agent you no longer
   list are removed.
 - The installed files are generated. Do not edit them in your project: the next update replaces
-  them.
+  them. The attribution file is the exception, described below.
+
+### Author attribution
+
+The installer also creates `.github/powershell-attribution.md`, a short list of author details:
+name, company, copyright holder, blog, LinkedIn, and Bluesky. Agents write the lines that have a
+value into the `.NOTES` of new help and into the `Author`, `CompanyName`, and `Copyright` keys of a
+new module manifest (DOC-18). A line left empty is left out.
+
+The file is yours. The installer creates it only when it is missing and never changes it afterwards,
+not even with `-Force`, so edit it to put in your own details. Its first content comes from
+[`standards/attribution/`](standards/attribution/README.md): the profile of the project's GitHub
+owner when there is one, and an empty template otherwise.
 
 ### Start a new module from the template
 

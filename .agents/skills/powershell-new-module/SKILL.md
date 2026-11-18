@@ -22,8 +22,9 @@ Read these before writing files, unless they are already loaded:
    if the module defines a class. Do not create empty folders for things the module does not have.
 3. Write the manifest with literal values only. Generate the GUID once with `New-Guid` and paste the
    result. Set `PowerShellVersion` and `CompatiblePSEditions` for the target. List exported functions
-   by name. Take `Author` and the project links from the user or the repository; leave out what you do
-   not know.
+   by name. Take `Author`, `CompanyName`, and the copyright holder from
+   `.github/powershell-attribution.md` when the project has one (DOC-18), and the project links from
+   the user or the repository; leave out what you do not know.
 4. Write the root module exactly as the module rules show it: a `#Requires -Version` line that
    matches the manifest's `PowerShellVersion` (MOD-08), strict mode, then `Classes`, `Private`, and
    `Public` dot-sourced in that order, failing the import if a file fails to load.

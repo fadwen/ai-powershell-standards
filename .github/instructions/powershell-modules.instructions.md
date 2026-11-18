@@ -132,6 +132,11 @@ GUID, and it never changes afterwards. Set `Author`, `CompanyName`, `Copyright`,
 `Tags` from what the user or the repository provides; do not invent them. Write the copyright year
 as a literal: `'(c) $(Get-Date -Format yyyy) ...'` stays that literal text too.
 
+When the project has `.github/powershell-attribution.md` (DOC-18), `Author` is its `Author` line,
+`CompanyName` its `Company` line, and the holder in `Copyright` its `Copyright holder` line. Leave
+out `CompanyName` when that line is empty, and name the author as the holder when the
+`Copyright holder` line is empty.
+
 Leave out `HelpInfoURI` unless the project publishes updatable help at that address: `Update-Help`
 reports an error against a `HelpInfoURI` that has no `HelpInfo.xml` behind it. Shipping compiled
 help in `en-US/` does not need the key. Leave out `IconUri` when there is no icon (MOD-13).

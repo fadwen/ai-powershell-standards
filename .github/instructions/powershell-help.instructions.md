@@ -29,7 +29,7 @@ in `.github/instructions/powershell-platyps.instructions.md`.
 - **DOC-06** `.OUTPUTS` names the same type as `[OutputType()]`. `.INPUTS` names the type that can be
   piped in, or says `None`.
 - **DOC-07** Help MUST NOT contain a version number, a date, or a change history. An author name is
-  added only when the user supplies one.
+  added only when the user supplies one or `.github/powershell-attribution.md` lists one (DOC-18).
 - **DOC-08** Each `.EXAMPLE` starts with a command that runs as written, followed by a blank line and
   a sentence saying what it does. An explanatory line placed before that blank line MUST start with
   `#` and MUST NOT be the first line.
@@ -55,11 +55,16 @@ in `.github/instructions/powershell-platyps.instructions.md`.
   A `DURATION:` line is added only for a time that was measured.
 - **DOC-15** `.NOTES` holds security considerations (permissions and data handling), performance
   characteristics, and known limitations with their workarounds. It holds the author's name, blog,
-  and LinkedIn address only when the user supplies them (DOC-07).
+  LinkedIn address, and other profiles only when the user supplies them or the project's
+  attribution file lists them (DOC-07, DOC-18).
 - **DOC-16** List references with one `.LINK` keyword for each: related commands, the online
   documentation of the command, and Microsoft documentation.
 - **DOC-17** Where they have been measured, help documents typical execution time, memory use, and
   scalability. It states no performance figure that was not measured (DOC-05).
+- **DOC-18** When the project has `.github/powershell-attribution.md`, take the author details from
+  it: the `AUTHOR:` lines of `.NOTES` in new help, and the manifest keys of MOD-03. Use each line
+  that has a value, with its label, in the file's order. A line without a value is left out and
+  MUST NOT be filled in from anywhere else. Existing help is not changed only to add the details.
 
 ### Comments
 
@@ -218,6 +223,39 @@ Test-Connection
 
 Tested on PowerShell 7.6 and Windows PowerShell 5.1: `Get-Help` keeps these lines and the blank
 lines between them, and lists each `.LINK` as one related link.
+
+**DOC-18.** The attribution file is a list of labelled lines that the project fills in:
+
+```markdown
+- Author: Alex Example
+- Company:
+- Copyright holder: Alex Example
+- Blog: https://blog.example.com
+- LinkedIn: https://www.linkedin.com/in/alex-example
+```
+
+New help then ends its `.NOTES` with the lines that have a value. `Company` is empty, so it is left
+out; `Copyright holder` belongs to the manifest only:
+
+```powershell
+<#
+.NOTES
+KNOWN LIMITATIONS:
+- Computers must be reachable through WinRM.
+
+AUTHOR:
+- Author: Alex Example
+- Blog: https://blog.example.com
+- LinkedIn: https://www.linkedin.com/in/alex-example
+#>
+```
+
+Tested on PowerShell 7.6 and Windows PowerShell 5.1: `Get-Help -Full` shows the `AUTHOR:` block as
+written, after the other notes.
+
+The standards installer creates the file when it is missing and never changes it afterwards. It
+starts from the profile of the project's GitHub owner when the standards repository has one, and
+from an empty template otherwise.
 
 **DOC-20.**
 
