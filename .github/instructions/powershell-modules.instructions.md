@@ -215,7 +215,7 @@ A Gallery version is in use from the moment it uploads. It can be unlisted but n
 passed every local check and then shipped the wrong content or failed at the upload.
 
 **MOD-10, MOD-11.** When the repository is the module root, publishing that folder packs the working
-tree. Measured with Microsoft.PowerShell.PSResourceGet 1.2.0: the package contains `.git`, the tests,
+tree. Measured with Microsoft.PowerShell.PSResourceGet 1.2.0 and 1.3.1: the package contains `.git`, the tests,
 and the build scripts. Measured on one module: 313 files and 975 KB, all 213 files of `.git` among
 them, against 46 files and 507 KB for the module itself. A staging folder ships only what the
 allowlist names:
@@ -309,7 +309,7 @@ foreach ($measurement in $measurements) {
 
 A module that exports cmdlets or DSC resources gains further tags of the same kind.
 
-**MOD-13.** `IconUri = ''` is not "no icon". Measured with PSResourceGet 1.2.0, the pack fails with
+**MOD-13.** `IconUri = ''` is not "no icon". Measured with PSResourceGet 1.2.0 and 1.3.1, the pack fails with
 `IconUrl cannot be empty`, and the message names neither the manifest nor the key. `ProjectUri = ''`
 and `LicenseUri = ''` fail the same way. Have the rehearsal check for an empty URI key:
 

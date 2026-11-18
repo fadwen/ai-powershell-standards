@@ -146,14 +146,14 @@ so one helper can take every command of the module with it.
 
 ### Added in PowerShell 7.7
 
-Code that targets 7.6 MUST NOT use these (VER-04). Each is absent from PowerShell 7.6.10 and from
-Windows PowerShell 5.1, which was measured. What each does on 7.7 is taken from the release notes
-and the source of PowerShell 7.7.0, and was not run.
+Code that targets 7.6 MUST NOT use these (VER-04). Each was run on PowerShell 7.7.0 and is absent
+from PowerShell 7.6.10 and Windows PowerShell 5.1. A comparison of every command and parameter that
+7.6.10 and 7.7.0 ship found nothing else added outside PSResourceGet, and nothing removed.
 
 | Feature | Use on 7.6 |
 | --- | --- |
 | `New-TemporaryDirectory` | `[System.IO.Directory]::CreateTempSubdirectory()`. On 5.1, `New-Item -ItemType Directory` with a path made from `[System.IO.Path]::GetTempPath()` and `[System.IO.Path]::GetRandomFileName()`. |
-| `Join-Path -Extension` | `[System.IO.Path]::ChangeExtension()` on the joined path |
+| `Join-Path -Extension` | `[System.IO.Path]::ChangeExtension()` on the joined path. With an empty extension it leaves the dot, as in `file.`, where `-Extension ''` removes the dot too. |
 | `-ExcludeProperty` on `Format-Table`, `Format-List`, `Format-Wide`, and `Format-Custom` | `Select-Object -Property * -ExcludeProperty <names>` before the formatting command |
 | `[WildcardPattern]::ToRegex()` | Match with the pattern's own `IsMatch()` method |
 | `$PSApplicationOutputEncoding`, the encoding used to read the output of a native executable | Set `[Console]::OutputEncoding`, and restore it in `finally` |
@@ -180,10 +180,9 @@ PowerShell 7.7 promotes no feature. `PSLoadAssemblyFromNativeCode`,
 
 Code MUST NOT depend on the older behaviour.
 
-The rows for 7.7 were not run on 7.7. The older behaviour in each was measured on PowerShell 7.6.10
-and Windows PowerShell 5.1, and the new behaviour is taken from the release notes and the source of
-PowerShell 7.7.0. The rows for 7.6.5, 7.6.7, and 7.6.10 are servicing releases of 7.6. They were
-measured on 7.6.10, and the release notes of 7.7.0 list the same changes.
+Each row for 7.7 was measured on PowerShell 7.7.0, and the older behaviour on PowerShell 7.6.10 and
+Windows PowerShell 5.1. The rows for 7.6.5, 7.6.7, and 7.6.10 are servicing releases of 7.6: they
+were measured on 7.6.10, and 7.7.0 behaves the same way.
 
 | Version | Change |
 | --- | --- |
@@ -206,9 +205,8 @@ measured on 7.6.10, and the release notes of 7.7.0 list the same changes.
 | 7.5 | `Select-String` returns `LineNumber` as `[ulong]`. |
 | 7.4 | `Test-Json` accepts only strictly valid JSON and no longer supports Draft 4 schemas. |
 
-**CSV type information.** PowerShell writes `Parameter '<name>' is obsolete` when a call passes a
-parameter that carries the `Obsolete` attribute, which was measured on 7.6.10 and 5.1, and the
-source of 7.7.0 puts that attribute on `-NoTypeInformation`. Code that also runs on Windows
+**CSV type information.** On 7.7.0 each call that passes the switch writes
+`Parameter 'NoTypeInformation' is obsolete`, followed by the reason. Code that also runs on Windows
 PowerShell 5.1 passes the switch only there:
 
 ```powershell
@@ -223,12 +221,12 @@ if ($PSVersionTable.PSVersion -lt [version]'6.0') {
 $rows | Export-Csv @exportParameters
 ```
 
-Run on PowerShell 7.6.10 and Windows PowerShell 5.1: no warning, and the file starts with the header
-line on both.
+Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1: no warning, and the file
+starts with the header line on all three.
 
-**Credentials and followed links.** Measured on PowerShell 7.6.10 against a local server, with the
-header passed in `-Headers` and with `-Authentication Bearer -Token`: the first page received the
-header, and the second and third did not. A function that pages through an authenticated service
+**Credentials and followed links.** Measured on PowerShell 7.6.10 and 7.7.0 against a local server,
+with the header passed in `-Headers` and with `-Authentication Bearer -Token`: the first page
+received the header, and the second and third did not. A function that pages through an authenticated service
 with `-FollowRelLink` therefore asks for every page after the first as an anonymous caller. The
 service refuses, or answers with only what an anonymous caller may see, and then no error is raised.
 `-PreserveAuthorizationOnRedirect` keeps the header on followed links, and it also sends the header
@@ -415,3 +413,6 @@ publisher, as it ships Pester 3.4.0.
 | Microsoft.PowerShell.PSResourceGet | 1.2.0 | Included with PowerShell 7.6. PowerShell 7.6.10 includes 1.2.1, and 7.7.0 includes 1.3.1. |
 | Microsoft.PowerShell.ThreadJob | 2.2.0 | Included with PowerShell 7.6 |
 | PSReadLine | 2.4.5 | Included with PowerShell 7.6 |
+
+PSScriptAnalyzer 1.25.0 and Pester 6.2.0 run on PowerShell 7.7.0 as well: the quality gate of the
+standards repository passes under it.
