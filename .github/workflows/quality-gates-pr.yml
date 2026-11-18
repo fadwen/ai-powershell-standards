@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+# The ruleset for main requires the four checks that these jobs report, by name: the three
+# "PowerShell quality gate" jobs and "Markdown lint". A job that is renamed stops reporting under
+# the required name, and every pull request then waits for a check that never arrives. Change the
+# name in the ruleset in the same step.
 jobs:
   powershell:
     # The Windows job keeps the plain name. It is the one that also runs the tests that start

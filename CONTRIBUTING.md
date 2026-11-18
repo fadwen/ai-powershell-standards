@@ -71,6 +71,10 @@ is checked separately:
 markdownlint-cli2 "**/*.md" "!**/docs/*/*.md"    # uses .markdownlint.json, 120-column lines
 ```
 
+CI runs the gate on Windows, Linux, and macOS, and lints the Markdown. All four checks are required
+for `main`: a pull request cannot be merged until each of them has passed, and the ruleset lets no
+one bypass that.
+
 ## Pull requests
 
 Branches, commit messages, PR titles, and PR bodies follow
