@@ -12,9 +12,20 @@ permissions:
 
 jobs:
   powershell:
-    name: PowerShell quality gate
-    # Windows, so that the tests that start Windows PowerShell 5.1 run as well.
-    runs-on: windows-latest
+    # The Windows job keeps the plain name. It is the one that also runs the tests that start
+    # Windows PowerShell 5.1. The other two show that the tools work where a project may run them.
+    name: PowerShell quality gate${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: ''
+          - os: ubuntu-latest
+            label: ' on Linux'
+          - os: macos-latest
+            label: ' on macOS'
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Check out the repository
