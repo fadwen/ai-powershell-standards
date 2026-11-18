@@ -15,8 +15,8 @@ Read `.github/instructions/powershell-security.instructions.md` first, unless it
    - Secrets and credentials: SEC-01 to SEC-08, and SEC-50 to SEC-53 where the code uses a secret
      vault. Search for literals that look like passwords, tokens, keys, and connection strings,
      including in comments, defaults, and test data.
-   - Web requests that carry a credential: SEC-09. Look for `-FollowRelLink` and
-     `-PreserveAuthorizationOnRedirect`.
+   - Web requests that carry a credential: SEC-09. Look for a request that does not pass
+     `-MaximumRedirection 0`, and for `-FollowRelLink` and `-PreserveAuthorizationOnRedirect`.
    - Command construction: SEC-10. Look for `Invoke-Expression`, `[scriptblock]::Create()`,
      `Start-Process` with a built argument string, and strings passed to `cmd /c` or `pwsh -Command`.
    - Paths: SEC-12. Look for input joined into a path that is then read, written, or deleted.

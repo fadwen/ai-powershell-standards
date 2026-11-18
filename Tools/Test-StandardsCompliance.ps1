@@ -16,8 +16,8 @@ Write-Error -ErrorAction Stop in advanced functions (ERR-11), $Error[0] in catch
 $ErrorActionPreference set in a root module (ERR-02), arrays grown with += in a loop (STY-40),
 ArrayList (STY-41), non-ASCII characters outside strings (STY-06), #requires for a version past its
 end of support (VER-05), commands that exist only in Windows PowerShell (VER-06), retired platyPS
-commands (PLT-01), literal secrets (SEC-01), and a manifest that still has the placeholder GUID
-(MOD-03).
+commands (PLT-01), literal secrets (SEC-01), a web request that carries a credential and follows
+redirects or links (SEC-09), and a manifest that still has the placeholder GUID (MOD-03).
 
 A clean result does not prove that code follows every rule. Many rules need a reader.
 
@@ -284,6 +284,52 @@ foreach ($file in $files) {
             $advice = 'Put the format operator inside the parentheses.'
             $message = "'-f' is passed to $commandName as an argument. $advice"
             $issues.Add(@('STY-23', 'Error', $line, $message, 'Standards'))
+        }
+        if ($commandName -in 'Invoke-RestMethod', 'Invoke-WebRequest', 'irm', 'iwr') {
+            # Only a credential that is passed by name on the call is seen. A splatted call is not.
+            $elements = $command.CommandElements
+            $parameterNames = @($elements |
+                    Where-Object { $_ -is [CommandParameterAst] } |
+                    ForEach-Object { $_.ParameterName })
+            $credentialNames = @($parameterNames |
+                    Where-Object { $_ -in 'Authentication', 'Token', 'Credential', 'UseDefaultCredentials' })
+
+            # The limit is read from the parameter and its value. A search of the call's text would
+            # also find the words inside a string, such as an address.
+            $hasLimit = $false
+            $limitAst = $null
+            for ($index = 0; $index -lt $elements.Count; $index++) {
+                $element = $elements[$index]
+                if ($element -isnot [CommandParameterAst] -or $element.ParameterName -ne 'MaximumRedirection') {
+                    continue
+                }
+                $hasLimit = $true
+                $limitAst = $element.Argument
+                if ($null -eq $limitAst -and $index + 1 -lt $elements.Count) {
+                    $limitAst = $elements[$index + 1]
+                }
+            }
+            $limitIsNumber = $limitAst -is [ConstantExpressionAst] -and $limitAst.Value -is [int]
+            $followsRedirects = -not $hasLimit -or ($limitIsNumber -and $limitAst.Value -gt 0)
+            if ($credentialNames.Count -gt 0 -and $followsRedirects) {
+                $message = "$commandName carries a credential and follows a redirect. Pass -MaximumRedirection 0."
+                $issues.Add(@('SEC-09', 'Error', $line, $message, 'Standards'))
+            } elseif ($credentialNames.Count -gt 0 -and -not $limitIsNumber) {
+                # A limit held in a variable can be 0, so this finding does not fail the check.
+                $advice = 'Confirm that the limit is 0.'
+                $message = "$commandName carries a credential, and its redirect limit is not a number. $advice"
+                $issues.Add(@('SEC-09', 'Information', $line, $message, 'Standards'))
+            }
+            if ($credentialNames.Count -gt 0 -and $parameterNames -contains 'FollowRelLink') {
+                $advice = 'Follow the links in the function.'
+                $message = "$commandName -FollowRelLink asks for later pages without the credential. $advice"
+                $issues.Add(@('SEC-09', 'Error', $line, $message, 'Standards'))
+            }
+            if ($parameterNames -contains 'PreserveAuthorizationOnRedirect') {
+                $advice = 'It sends the credential to any host that a reply names.'
+                $message = "$commandName is called with -PreserveAuthorizationOnRedirect. $advice"
+                $issues.Add(@('SEC-09', 'Error', $line, $message, 'Standards'))
+            }
         }
         if ($commandName -ne 'Write-Error' -or -not (& $isInAdvancedFunction -Node $command)) {
             continue
