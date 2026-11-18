@@ -7,12 +7,25 @@
     Justification = 'The names are test data for mocked calls.')]
 param()
 
+BeforeDiscovery {
+    # The CIM commands that these tests mock exist only on Windows, and a command that does not
+    # exist cannot be mocked.
+    $onWindows = $PSVersionTable.PSVersion.Major -lt 6 -or $IsWindows
+}
+
 BeforeAll {
     $examplesRoot = Split-Path -Path $PSScriptRoot -Parent
     . (Join-Path -Path $examplesRoot -ChildPath 'Basic-Function-Example.ps1')
 }
 
-Describe 'Get-BasicServerInfo' -Tag 'Unit' {
+Describe 'Get-BasicServerInfo on an operating system other than Windows' -Tag 'Unit' -Skip:$onWindows {
+    It 'Ends with an error that names the operating system it needs' {
+        { Get-BasicServerInfo -ComputerName 'SERVER01' } |
+            Should-Throw -FullyQualifiedErrorId 'UnsupportedOperatingSystem,Get-BasicServerInfo'
+    }
+}
+
+Describe 'Get-BasicServerInfo' -Tag 'Unit' -Skip:(-not $onWindows) {
     BeforeAll {
         # The CIM commands reach the network and the clock decides the uptime, so every test replaces
         # them. The stand-in session is not a CimSession. The two commands that receive it are

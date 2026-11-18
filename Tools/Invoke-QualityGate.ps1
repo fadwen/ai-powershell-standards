@@ -99,7 +99,8 @@ $global:LASTEXITCODE = 0
 
 # With no test files, Pester 6 reports an error of its own and returns nothing.
 if ($null -eq $result) {
-    throw "Pester returned no result for '$rootPath'. No tests were run."
+    # The fixed words come first, so that they stay on one line when the console wraps a long path.
+    throw "No tests were run. Pester returned no result for '$rootPath'."
 }
 
 $coverage = 0

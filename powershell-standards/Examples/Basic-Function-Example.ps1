@@ -7,7 +7,8 @@ function Get-BasicServerInfo {
     Opens a CIM session to each computer, reads its operating system and computer system
     information, and emits one object for each computer. A computer that cannot be queried is
     reported as a non-terminating error and the remaining computers are still processed. Each
-    session is closed before the next computer is queried.
+    session is closed before the next computer is queried. The function works on Windows only,
+    and ends with a terminating error on another operating system.
 
     .PARAMETER ComputerName
     One or more computer names, as NetBIOS names or fully qualified domain names. A name starts
@@ -62,6 +63,17 @@ function Get-BasicServerInfo {
     )
 
     begin {
+        # The CIM commands that this function calls exist only on Windows. Windows PowerShell 5.1
+        # has no $IsWindows, and -or does not read it there.
+        $onWindows = $PSVersionTable.PSVersion.Major -lt 6 -or $IsWindows
+        if (-not $onWindows) {
+            $exception = [System.PlatformNotSupportedException]::new('Get-BasicServerInfo requires Windows.')
+            $category = [System.Management.Automation.ErrorCategory]::NotImplemented
+            $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                $exception, 'UnsupportedOperatingSystem', $category, $null)
+            $PSCmdlet.ThrowTerminatingError($errorRecord)
+        }
+
         $sessionParameters = @{
             ErrorAction = 'Stop'
         }
