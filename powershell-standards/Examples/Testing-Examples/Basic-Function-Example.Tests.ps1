@@ -1,5 +1,12 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.2.0' }
 
+# The computer names below are test data for mocked CIM calls, not machines the tests reach.
+# Repositories that install these examples run PSScriptAnalyzer over this file, and the rule
+# would otherwise report every quoted name passed to -ComputerName.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingComputerNameHardcoded', '',
+    Justification = 'The names are test data for mocked calls.')]
+param()
+
 BeforeAll {
     $examplesRoot = Split-Path -Path $PSScriptRoot -Parent
     . (Join-Path -Path $examplesRoot -ChildPath 'Basic-Function-Example.ps1')

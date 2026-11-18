@@ -131,6 +131,9 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   an example of a project's own rules, and links to the documentation. It also acknowledges the
   PowerShell community, the GitHub Copilot team, and enterprise PowerShell users again. The rewrite
   had cut all of these.
+- The example test `Basic-Function-Example.Tests.ps1` no longer fails PSScriptAnalyzer in a project
+  that installs the examples and analyzes its whole repository. It suppresses
+  `PSAvoidUsingComputerNameHardcoded`, because its computer names are test data for mocked calls.
 
 ### Removed
 
