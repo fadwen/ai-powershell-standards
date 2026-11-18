@@ -14,6 +14,8 @@ jobs:
   powershell:
     # The Windows job keeps the plain name. It is the one that also runs the tests that start
     # Windows PowerShell 5.1. The other two show that the tools work where a project may run them.
+    # Tests that need Windows are skipped in those two, so fewer tests run there and the coverage
+    # figure is lower than on Windows.
     name: PowerShell quality gate${{ matrix.label }}
     strategy:
       fail-fast: false
