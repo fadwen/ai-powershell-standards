@@ -14,6 +14,11 @@ permissions:
 # "PowerShell quality gate" jobs and "Markdown lint". A job that is renamed stops reporting under
 # the required name, and every pull request then waits for a check that never arrives. Change the
 # name in the ruleset in the same step.
+#
+# Do not add a paths filter to the pull_request trigger or an if: to a job either. A pull request
+# that the filter leaves out gets no checks and cannot merge. Neither can one whose matrix job is
+# skipped: that job reports one check under its unexpanded name and none of the three required
+# ones. A skipped Markdown job counts as passed, so the pull request merges without the lint.
 jobs:
   powershell:
     # The Windows job keeps the plain name. It is the one that also runs the tests that start
