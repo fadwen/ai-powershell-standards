@@ -37,7 +37,8 @@ These rules apply to every `.ps1` and `.psm1` file.
   (SEC-05).
 - **SEC-09** A request that carries a credential MUST NOT be paged with `-FollowRelLink`. Follow the
   links in the function, and send the credential again only when the next link has the scheme,
-  host, and port of the first request.
+  host, and port of the first request. Pass `-MaximumRedirection 0`, so that a redirect is an error
+  and not a request without the credential.
 
 ### Input and execution
 
@@ -187,11 +188,43 @@ service refuses, or answers with only what an anonymous caller may see, and then
 With `-PreserveAuthorizationOnRedirect`, the credential goes wherever a reply points. Windows
 PowerShell 5.1 has no `-FollowRelLink`, and it treats a redirect as the last row says.
 
-The function follows the links itself. `$Request` holds the parameters of `Invoke-WebRequest`, the
-credential among them:
+A redirect does the same to a single request: the cmdlet follows it without the `Authorization`
+header, to the same host as well, and returns what an anonymous caller is given.
+
+The function below follows the links itself and lets no redirect be followed. `$Request` holds the
+parameters of `Invoke-WebRequest`, the credential among them. The function and its tests are files
+in the standards repository, under `standards/examples`:
 
 ```powershell
 function Get-PagedResponse {
+    <#
+    .SYNOPSIS
+    Gets every page of a paged web request that carries a credential.
+
+    .DESCRIPTION
+    Requests the first page, follows each link that a reply marks as rel="next" in its Link header,
+    and writes the body of each page as text. The credential in the request is sent with every
+    page, and only to the scheme, host, and port of the first request. A next link to another
+    host, a next link to a page that was already requested, a redirect, and a failed request each
+    end the function with a terminating error.
+
+    .PARAMETER Request
+    The parameters of Invoke-WebRequest for the first page, as a hashtable. It must have a Uri key,
+    and it holds the credential, for example in Headers, or in Authentication and Token. The
+    function sets UseBasicParsing, ErrorAction, and MaximumRedirection itself.
+
+    .EXAMPLE
+    Get-PagedResponse -Request @{ Uri = 'https://api.example.com/items'; Headers = $headers } | ConvertFrom-Json
+
+    Gets every page of the item list and converts each one from JSON. $headers holds the
+    Authorization header.
+
+    .INPUTS
+    None.
+
+    .OUTPUTS
+    System.String. The body of each page.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -204,8 +237,13 @@ function Get-PagedResponse {
     $pageRequest = $Request.Clone()
     $pageRequest['UseBasicParsing'] = $true
     $pageRequest['ErrorAction'] = 'Stop'
+    # Invoke-WebRequest follows a redirect without the Authorization header, and the page then
+    # arrives as an anonymous caller sees it. With this value a redirect is an error instead.
+    $pageRequest['MaximumRedirection'] = 0
+    $requestedUris = [System.Collections.Generic.HashSet[string]]::new()
     $pageUri = $firstUri
     while ($null -ne $pageUri) {
+        $null = $requestedUris.Add($pageUri.AbsoluteUri)
         $pageRequest['Uri'] = $pageUri
         try {
             $response = Invoke-WebRequest @pageRequest
@@ -213,7 +251,12 @@ function Get-PagedResponse {
             $PSCmdlet.ThrowTerminatingError($_)
         }
 
-        $response.Content
+        # A body whose content type is not a text type, such as application/vnd.api+json, is bytes.
+        if ($response.Content -is [byte[]]) {
+            [System.Text.Encoding]::UTF8.GetString($response.Content)
+        } else {
+            $response.Content
+        }
 
         # The header value is a string on Windows PowerShell 5.1 and a list of strings on PowerShell 7.
         $linkText = ($response.Headers.GetEnumerator() |
@@ -228,14 +271,27 @@ function Get-PagedResponse {
             }
         }
 
-        $sameOrigin = $null -eq $nextUri -or ($nextUri.Scheme -eq $firstUri.Scheme -and
-            $nextUri.Host -eq $firstUri.Host -and $nextUri.Port -eq $firstUri.Port)
-        if (-not $sameOrigin) {
-            $message = "The next page is on '$($nextUri.Host)', not on '$($firstUri.Host)'. It was not requested."
+        $errorId = $null
+        if ($null -ne $nextUri) {
+            $sameOrigin = ($nextUri.Scheme -eq $firstUri.Scheme -and $nextUri.Host -eq $firstUri.Host -and
+                $nextUri.Port -eq $firstUri.Port)
+            if (-not $sameOrigin) {
+                $errorId = 'NextPageOnAnotherHost'
+                $category = [System.Management.Automation.ErrorCategory]::SecurityError
+                $message = "The next page is on another host, '$($nextUri.Host)'. It was not requested."
+            } elseif ($requestedUris.Contains($nextUri.AbsoluteUri)) {
+                $errorId = 'NextPageAlreadyRequested'
+                $category = [System.Management.Automation.ErrorCategory]::InvalidResult
+                $message = 'The next link names a page that was already requested. It was not requested again.'
+            }
+        }
+
+        if ($null -ne $errorId) {
             $exception = [System.InvalidOperationException]::new($message)
-            $category = [System.Management.Automation.ErrorCategory]::SecurityError
+            # The address is reported without its query string, which can carry a token.
+            $target = $nextUri.GetLeftPart([System.UriPartial]::Path)
             $errorRecord = [System.Management.Automation.ErrorRecord]::new(
-                $exception, 'NextPageOnAnotherHost', $category, $nextUri.Host)
+                $exception, $errorId, $category, $target)
             $PSCmdlet.ThrowTerminatingError($errorRecord)
         }
 
@@ -244,12 +300,12 @@ function Get-PagedResponse {
 }
 ```
 
-Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1 under strict mode. Three pages
-arrived with the credential on each, whether the link was absolute or relative, stood among other
-relations, or came in a header named `link`. A next link on another host ended the function with
-`NextPageOnAnotherHost` after the first page, and the server received no request for that link.
-`Invoke-WebRequest` still follows a redirect, and a key in another header goes with it;
-`-MaximumRedirection 0` stops that, and the redirect becomes an error.
+Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1 under strict mode, against the
+same server. Three pages arrived with the credential on each, whether the link was absolute or
+relative, stood among other relations, or came in a header named `link`. Each of these ended the
+function with an error and without a further request: a next link on another host, a next link
+back to the first page, and a redirect, at the first page or at a later one. A body with the
+content type `application/vnd.api+json` arrived as text, where `Invoke-WebRequest` returns bytes.
 
 **SEC-10.** Arguments passed as an array reach a native executable as separate arguments, so input
 cannot add switches or commands:
