@@ -23,9 +23,10 @@ before it.
 - **PRQ-11** The type is `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `ci`, `build`, or `chore`,
   and a release is `release: X.Y.Z`. The subject is imperative, lower case, has no trailing period,
   and is at most 72 characters.
-- **PRQ-12** Wrap the body at 72 columns and explain why the change was needed. Mark a breaking
-  change with `!` after the type or scope and a `BREAKING CHANGE:` footer that says what a caller
-  must do.
+- **PRQ-12** Wrap the body of a commit message at 72 columns and explain why the change was needed.
+  Mark a breaking change with `!` after the type or scope and a `BREAKING CHANGE:` footer that says
+  what a caller must do. A pull request description or a comment MUST NOT be wrapped that way:
+  write each paragraph and each list item on one line.
 - **PRQ-13** Commits, titles, pull request bodies, and files MUST NOT carry AI tool attribution: no
   `Co-Authored-By` trailer for a tool and no "Generated with" footer.
 
@@ -82,6 +83,13 @@ if ([int]$behind -gt 0) {
 **PRQ-10 to PRQ-12.** The scope is optional and names the area touched, in lower case:
 `feat(graph)`, `fix(release)`, `docs(pester)`. The subject says what the change does, not which
 files it touched.
+
+**PRQ-12.** GitHub renders a line break inside a paragraph or a list item of a pull request
+description or a comment as a line break. It joins the lines of a Markdown file in a repository,
+so text that is wrapped like the repository's files reads as short broken lines once it is posted.
+Measured on 2026-11-18 with GitHub's Markdown API: `gfm` mode, which is how a comment is rendered,
+gave one `<br>` for each wrapped line, and `markdown` mode, which is how a file is rendered, gave
+none. A description wrapped at 100 columns was shown with 67 such breaks.
 
 **PRQ-20, PRQ-21.** Commit messages and pull requests are permanent records. They are read months
 later by reviewers and maintainers who never saw the conversation that produced the change.

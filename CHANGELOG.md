@@ -103,6 +103,9 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   PowerShell sample in them parses.
 - The core rules and the README say that the core rules are a selection from the topic files and
   that rule numbers have gaps, so a number that is skipped is not read as a missing rule.
+- Only the body of a commit message is wrapped at 72 columns (PRQ-12). A pull request description
+  or a comment has one line for each paragraph and list item, because GitHub renders a line break
+  inside one as a line break.
 
 ### Fixed
 
