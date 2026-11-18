@@ -87,6 +87,8 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   working, because the folders it copies are still present.
 - The thirteen Pester guides were rewritten against Pester 6.2.0. The test suite checks that every
   PowerShell sample in them parses.
+- The core rules and the README say that the core rules are a selection from the topic files and
+  that rule numbers have gaps, so a number that is skipped is not read as a missing rule.
 
 ### Fixed
 

@@ -38,6 +38,11 @@ Every rule has an ID, such as `ERR-10`, and says whether it is a requirement (MU
 (SHOULD). The rules are written to be checked against the code in front of the reader, and each
 topic file gives the reason and an example for the rules that need one.
 
+The numbers are not consecutive, and a gap does not mean that a rule is missing. The core rules are
+a selection from the topic files, each under the ID it has there, so the core lists STY-02 and
+STY-03 and then STY-06. Most topic files also start each section at a new ten: the style rules run
+from STY-01 to STY-08 for layout and from STY-10 to STY-16 for naming, so there is no STY-09.
+
 ## Requirements
 
 - To install into a project: PowerShell 7.6, or Windows PowerShell 5.1.
