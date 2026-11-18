@@ -285,19 +285,40 @@ foreach ($file in $files) {
             $message = "'-f' is passed to $commandName as an argument. $advice"
             $issues.Add(@('STY-23', 'Error', $line, $message, 'Standards'))
         }
-        if ($commandName -in 'Invoke-RestMethod', 'Invoke-WebRequest') {
+        if ($commandName -in 'Invoke-RestMethod', 'Invoke-WebRequest', 'irm', 'iwr') {
             # Only a credential that is passed by name on the call is seen. A splatted call is not.
-            $parameterNames = @($command.CommandElements |
+            $elements = $command.CommandElements
+            $parameterNames = @($elements |
                     Where-Object { $_ -is [CommandParameterAst] } |
                     ForEach-Object { $_.ParameterName })
             $credentialNames = @($parameterNames |
-                    Where-Object { $_ -in 'Authentication', 'Token', 'Credential' })
-            $redirectLimit = [regex]::Match($command.Extent.Text, '(?i)-MaximumRedirection[:\s]+(\S+)')
-            $limitText = $redirectLimit.Groups[1].Value
-            $followsRedirects = -not $redirectLimit.Success -or $limitText -match '^[1-9]\d*$'
+                    Where-Object { $_ -in 'Authentication', 'Token', 'Credential', 'UseDefaultCredentials' })
+
+            # The limit is read from the parameter and its value. A search of the call's text would
+            # also find the words inside a string, such as an address.
+            $hasLimit = $false
+            $limitAst = $null
+            for ($index = 0; $index -lt $elements.Count; $index++) {
+                $element = $elements[$index]
+                if ($element -isnot [CommandParameterAst] -or $element.ParameterName -ne 'MaximumRedirection') {
+                    continue
+                }
+                $hasLimit = $true
+                $limitAst = $element.Argument
+                if ($null -eq $limitAst -and $index + 1 -lt $elements.Count) {
+                    $limitAst = $elements[$index + 1]
+                }
+            }
+            $limitIsNumber = $limitAst -is [ConstantExpressionAst] -and $limitAst.Value -is [int]
+            $followsRedirects = -not $hasLimit -or ($limitIsNumber -and $limitAst.Value -gt 0)
             if ($credentialNames.Count -gt 0 -and $followsRedirects) {
                 $message = "$commandName carries a credential and follows a redirect. Pass -MaximumRedirection 0."
                 $issues.Add(@('SEC-09', 'Error', $line, $message, 'Standards'))
+            } elseif ($credentialNames.Count -gt 0 -and -not $limitIsNumber) {
+                # A limit held in a variable can be 0, so this finding does not fail the check.
+                $advice = 'Confirm that the limit is 0.'
+                $message = "$commandName carries a credential, and its redirect limit is not a number. $advice"
+                $issues.Add(@('SEC-09', 'Information', $line, $message, 'Standards'))
             }
             if ($credentialNames.Count -gt 0 -and $parameterNames -contains 'FollowRelLink') {
                 $advice = 'Follow the links in the function.'

@@ -176,6 +176,24 @@ function Get-Thing {
             Code = "Invoke-WebRequest -Uri `$uri -Headers `$headers -PreserveAuthorizationOnRedirect"
         }
         @{
+            RuleId = 'SEC-09'
+            Reason = 'a request with the credential of the current user lets a redirect be followed'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-RestMethod -Uri 'https://intranet.example.com/items' -UseDefaultCredentials"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'the redirect limit of a request with a token is only text inside its address'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-RestMethod -Uri 'https://api.example.com/?q=-MaximumRedirection 0' -Token `$token"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'a request with a token is made through the alias irm'
+            FileName = 'Fixture.ps1'
+            Code = "irm -Uri 'https://api.example.com/items' -Token `$token"
+        }
+        @{
             RuleId = 'MOD-03'
             Reason = 'a manifest still has the placeholder GUID'
             FileName = 'Fixture.psd1'
@@ -300,9 +318,15 @@ function Get-Thing {
         }
         @{
             RuleId = 'SEC-09'
-            Reason = 'the redirect limit of a request with a credential is a variable'
+            Reason = 'the redirect limit of a request with a token is written with a colon'
             FileName = 'Fixture.ps1'
-            Code = "Invoke-RestMethod -Uri 'https://api.example.com' -Token `$token -MaximumRedirection `$limit"
+            Code = "Invoke-RestMethod -Uri 'https://api.example.com' -Token `$token -MaximumRedirection:0"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'a request with the credential of the current user refuses redirects'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-WebRequest -Uri `$uri -UseDefaultCredentials -MaximumRedirection 0"
         }
         @{
             RuleId = 'SEC-09'
@@ -434,6 +458,17 @@ Describe 'Test-StandardsCompliance.ps1' -Tag 'Unit' {
             $findings = @(& $complianceScript -Path $filePath)
 
             $findings.Count | Should-Be 0
+        }
+
+        It 'Reports SEC-09 without failing when the redirect limit of a request with a token is a variable' {
+            $code = "Invoke-RestMethod -Uri 'https://api.example.com' -Token `$token -MaximumRedirection `$limit"
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath | Where-Object { $_.RuleId -eq 'SEC-09' })
+
+            $findings | Should-BeCollection -Count 1
+            $findings[0].Severity | Should-BeString 'Information'
+            $findings[0].Message | Should-MatchString 'not a number'
         }
 
         It 'Checks every PowerShell file under a folder' {

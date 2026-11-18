@@ -192,7 +192,10 @@ A redirect does the same to any request, paged or not: the cmdlet follows it wit
 `Authorization` header, to the same host as well. The caller gets an error where the address needs
 the credential, and the answer for an anonymous caller, with no error, where it does not. A key in
 another header goes with the redirect to any host. A credential passed as `-Credential` alone was
-not sent to the other host, and that request ended with an error.
+not sent to the other host, and that request ended with an error. With `-UseDefaultCredentials`,
+the versions differ. When the other host asked for Windows authentication, PowerShell 7 did not
+answer and ended with an error, and Windows PowerShell 5.1 began to authenticate there as the
+current user. The test server ended that exchange after its first message.
 
 With `-MaximumRedirection 0`, no request reaches the address that the redirect names, on all three
 versions. PowerShell 7 raises the refused redirect as an error whose exception carries the reply,

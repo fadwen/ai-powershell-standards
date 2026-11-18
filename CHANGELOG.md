@@ -65,9 +65,12 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   header, and since PowerShell 7.6.5 a link as well, so the reply can be the one an anonymous
   caller gets, and a key in another header goes to any host that a redirect or a link names. The
   function that follows the links itself, `standards/examples/Get-PagedResponse.ps1`, is a real
-  file with tests. `Tools/Test-StandardsCompliance.ps1` reports the rule for a request that names
-  a credential and follows a redirect, is paged with `-FollowRelLink`, or passes
-  `-PreserveAuthorizationOnRedirect`.
+  file with tests. `Tools/Test-StandardsCompliance.ps1` reports the rule as an error for a request
+  that names a credential (`-Authentication`, `-Token`, `-Credential`, or
+  `-UseDefaultCredentials`) and follows a redirect, is paged with `-FollowRelLink`, or passes
+  `-PreserveAuthorizationOnRedirect`. In a project that runs the check, existing calls of that
+  kind fail it until they pass `-MaximumRedirection 0`. A limit that is not a number, such as a
+  variable, is reported without failing the check.
 
 ### Changed
 
