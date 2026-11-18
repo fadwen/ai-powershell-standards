@@ -40,6 +40,7 @@ that the agents read from them.
   rule file. The core lists rule IDs, and the generator copies their text.
 - **Test a claim before writing it down.** Run a statement about how PowerShell, Pester, or a tool
   behaves on PowerShell 7.6 and Windows PowerShell 5.1 first, and say in the rule what was measured.
+  Run a statement about PowerShell 7.7 on PowerShell 7.7 as well.
 - **Keep samples honest.** Every PowerShell sample in the instruction files and guides must parse
   and be ASCII. The function and test templates are real files with their own tests.
 - **Link only to installed files.** A link from an instruction file or a guide must stay inside
