@@ -76,9 +76,10 @@ When the project declares no target and it is not clear which row applies, ask b
 code. If the question cannot be asked, VER-01 applies: write for 7.6 and say that the target was
 assumed.
 
-Declare 7.7 only when the project needs one of its features and decides where the code runs. Code
-written for 7.6 is also run on 7.7 by anyone who has installed it, so check it against the
-behaviour that 7.7 changed, which is listed below.
+PowerShell 7.7 is opt-in. Use a feature that 7.7 added only when the project declares 7.7, with
+`#requires -Version 7.7` or `PowerShellVersion = '7.7'`; without that declaration the target is 7.6
+(VER-01, VER-04). Code written for 7.6 is also run on 7.7 by anyone who has installed it, so check
+it against the behaviour that 7.7 changed, which is listed below.
 
 `#requires -Version 7.0` is obsolete, because that version is retired. To say "any PowerShell 7",
 name the lowest supported version: 7.6 since 10-Nov-2026, when 7.4 and 7.5 left support.
@@ -187,7 +188,7 @@ were measured on 7.6.10, and 7.7.0 behaves the same way.
 | 7.7 | `Get-Help` prints the `.NOTES` text one blank line below its heading and indented by four spaces, like the other sections. On 7.6 and 5.1 there are two blank lines and eight spaces, so a test that compares help text exactly gets a different result. |
 | 7.6.10 | `New-FileCatalog -CatalogVersion 1`, and `Test-FileCatalog` on a version 1 catalog, write a warning, because version 1 uses SHA-1. Windows PowerShell 5.1 (build 26100) writes one too. |
 | 7.6.7 | `Test-Json` fetches a schema that another schema refers to by URL only when `-FetchExternalReference` is passed. Without it the reference is an error, `UnresolvedJsonSchemaRef`, and the result is `$false` for valid input as well. |
-| 7.6.5 | `Invoke-RestMethod` and `Invoke-WebRequest` send the `Authorization` header with the first request only. A link followed by `-FollowRelLink` is requested without it, as the target of a redirect is, unless `-PreserveAuthorizationOnRedirect` is passed. See the note on credentials and followed links below. |
+| 7.6.5 | `Invoke-RestMethod` and `Invoke-WebRequest` send the `Authorization` header with the first request only. A link followed by `-FollowRelLink` is requested without it, as the target of a redirect is, unless `-PreserveAuthorizationOnRedirect` is passed. A function that sends a credential follows the links itself (SEC-09). |
 | 7.6 | The `ThreadJob` module is now `Microsoft.PowerShell.ThreadJob`. Call `Start-ThreadJob` without a module prefix; `ThreadJob\Start-ThreadJob` and a `RequiredModules` entry for `ThreadJob` no longer resolve. Where a prefix or an entry is needed, write `Microsoft.PowerShell.ThreadJob\Start-ThreadJob` and `@{ ModuleName = 'Microsoft.PowerShell.ThreadJob'; ModuleVersion = '2.2.0' }`. |
 | 7.6 | `Join-Path -ChildPath` accepts an array. An array that used to be joined into one segment is now treated as several segments. |
 | 7.6 | `[WildcardPattern]::Escape()` escapes a lone backtick correctly. Code that escaped twice to work around the old result now escapes too much. |
@@ -215,16 +216,6 @@ $rows | Export-Csv @exportParameters
 
 Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1: no warning, and the file
 starts with the header line on all three.
-
-**Credentials and followed links.** Measured on PowerShell 7.6.10 and 7.7.0 against a local server,
-with the header passed in `-Headers` and with `-Authentication Bearer -Token`: the first page
-received the header, and the second and third did not. A function that pages through an authenticated service
-with `-FollowRelLink` therefore asks for every page after the first as an anonymous caller. The
-service refuses, or answers with only what an anonymous caller may see, and then no error is raised.
-`-PreserveAuthorizationOnRedirect` keeps the header on followed links, and it also sends the header
-to whatever address a link or a redirect names. The alternative is to follow the links in the
-function: read the `Link` header of each reply, and send the header again only when the next address
-is on the host of the first request.
 
 ### Windows PowerShell commands that are not part of PowerShell 7 (VER-06)
 

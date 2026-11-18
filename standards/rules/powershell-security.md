@@ -27,6 +27,9 @@ These rules apply to every `.ps1` and `.psm1` file.
 - **SEC-08** Hold sensitive data in a `SecureString`. A script that a person runs interactively
   reads it with `Read-Host -AsSecureString`; a function or an unattended script does not prompt
   (SEC-05).
+- **SEC-09** A request that carries a credential MUST NOT be paged with `-FollowRelLink`. Follow the
+  links in the function, and send the credential again only when the next link has the scheme,
+  host, and port of the first request.
 
 ### Input and execution
 
@@ -161,6 +164,84 @@ foreach ($key in $context.Keys) {
     }
 }
 ```
+
+**SEC-09.** Measured on PowerShell 7.6.10 and 7.7.0, against a local server that answers as two
+hosts:
+
+| Where the request goes | `Authorization` header | A key in another header, such as `X-Api-Key` |
+| --- | --- | --- |
+| A link followed by `-FollowRelLink` | Not sent, since PowerShell 7.6.5 | Sent, to another host as well |
+| The same with `-PreserveAuthorizationOnRedirect` | Sent, to another host as well | Sent, to another host as well |
+| The target of a redirect | Not sent | Sent, to another host as well |
+
+With `-FollowRelLink` alone, every page after the first is requested as an anonymous caller. The
+service refuses, or answers with only what an anonymous caller may see, and then no error is raised.
+With `-PreserveAuthorizationOnRedirect`, the credential goes wherever a reply points. Windows
+PowerShell 5.1 has no `-FollowRelLink`, and it treats a redirect as the last row says.
+
+The function follows the links itself. `$Request` holds the parameters of `Invoke-WebRequest`, the
+credential among them:
+
+```powershell
+function Get-PagedResponse {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateScript({ $_.ContainsKey('Uri') })]
+        [hashtable]$Request
+    )
+
+    $firstUri = [uri]$Request['Uri']
+    $pageRequest = $Request.Clone()
+    $pageRequest['UseBasicParsing'] = $true
+    $pageRequest['ErrorAction'] = 'Stop'
+    $pageUri = $firstUri
+    while ($null -ne $pageUri) {
+        $pageRequest['Uri'] = $pageUri
+        try {
+            $response = Invoke-WebRequest @pageRequest
+        } catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        $response.Content
+
+        # The header value is a string on Windows PowerShell 5.1 and a list of strings on PowerShell 7.
+        $linkText = ($response.Headers.GetEnumerator() |
+                Where-Object -Property Key -EQ -Value 'Link' |
+                ForEach-Object { $_.Value }) -join ','
+        $nextUri = $null
+        foreach ($link in $linkText -split ',\s*(?=<)') {
+            $match = [regex]::Match($link, '^\s*<([^>]+)>.*\brel="?[^";]*\bnext\b')
+            if ($match.Success) {
+                $nextUri = [uri]::new($pageUri, $match.Groups[1].Value)
+                break
+            }
+        }
+
+        $sameOrigin = $null -eq $nextUri -or ($nextUri.Scheme -eq $firstUri.Scheme -and
+            $nextUri.Host -eq $firstUri.Host -and $nextUri.Port -eq $firstUri.Port)
+        if (-not $sameOrigin) {
+            $message = "The next page is on '$($nextUri.Host)', not on '$($firstUri.Host)'. It was not requested."
+            $exception = [System.InvalidOperationException]::new($message)
+            $category = [System.Management.Automation.ErrorCategory]::SecurityError
+            $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                $exception, 'NextPageOnAnotherHost', $category, $nextUri.Host)
+            $PSCmdlet.ThrowTerminatingError($errorRecord)
+        }
+
+        $pageUri = $nextUri
+    }
+}
+```
+
+Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1 under strict mode. Three pages
+arrived with the credential on each, whether the link was absolute or relative, stood among other
+relations, or came in a header named `link`. A next link on another host ended the function with
+`NextPageOnAnotherHost` after the first page, and the server received no request for that link.
+`Invoke-WebRequest` still follows a redirect, and a key in another header goes with it;
+`-MaximumRedirection 0` stops that, and the redirect becomes an error.
 
 **SEC-10.** Arguments passed as an array reach a native executable as separate arguments, so input
 cannot add switches or commands:
