@@ -374,7 +374,8 @@ The gate runs every test and fails below 80 percent coverage. The tests also che
 generated files match their sources, that every PowerShell sample in the instructions parses, that
 every file the instructions mention exists, and that the repository's own PowerShell passes
 `Test-StandardsCompliance.ps1`. When a rule states how PowerShell or Pester behaves, test the
-statement on PowerShell 7.6 and Windows PowerShell 5.1 before writing it down.
+statement on PowerShell 7.6 and Windows PowerShell 5.1 before writing it down, and on PowerShell
+7.7 as well when the statement is about 7.7.
 
 The worked examples under [powershell-standards/Examples](powershell-standards/Examples/README.md) follow the rules
 and have tests.

@@ -21,7 +21,8 @@ Nothing under `.github/`, `.claude/`, or `.agents/` is edited by hand, apart fro
 - Change a rule in `standards/rules/`, then run `./Tools/Build-AgentInstructions.ps1` and commit the
   sources and the generated files together.
 - Test a claim about PowerShell, Pester, or a tool on PowerShell 7.6 and Windows PowerShell 5.1
-  before writing it into a rule, and say what was measured.
+  before writing it into a rule, and say what was measured. Test a claim about PowerShell 7.7 on
+  PowerShell 7.7 as well.
 - When a rule's wording is ambiguous, match the tested templates under `standards/examples/` and the
   worked examples under `powershell-standards/Examples/`.
 - Run the gate before opening a PR. CI runs the same script from
