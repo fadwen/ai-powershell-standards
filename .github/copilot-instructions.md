@@ -18,8 +18,7 @@ These are the rules for writing and reviewing PowerShell in this repository. **M
 
 ## Topic rules
 
-The rules below are the ones that matter in almost every file. Each topic has a file with the
-complete rules, the reasons, and examples:
+Each topic has a file with the complete rules, the reasons, and examples:
 
 | When the work involves | Read |
 | --- | --- |
@@ -40,6 +39,12 @@ GitHub Copilot and Claude Code load the matching file automatically when you wor
 your tooling does not, you MUST read the matching files before creating or changing the file.
 
 ## Core rules
+
+These are the rules that matter in almost every file. They are a selection from the topic files, and
+each one keeps the ID it has there, so the numbers below are not consecutive: STY-04, for example, is
+in the style file. The topic files have gaps of their own, because most of them start each section
+at a new ten. A gap does not mean that a rule is missing, and a rule that is only in a topic file
+counts as much as one listed here.
 
 ### Version
 
