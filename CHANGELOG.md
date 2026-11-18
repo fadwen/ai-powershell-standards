@@ -55,6 +55,15 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   never changes it afterwards, not even with `-Force`. It starts from the profile of the project's
   GitHub owner under `standards/attribution/profiles`, or from an empty template; the new `-Owner`
   parameter chooses the profile when the `origin` remote does not.
+- PowerShell 7.7 in the version rules: its support dates, the features it adds with what to use on
+  7.6, and the behaviour it changes. PowerShell 7.6 stays the default target. Three changes made by
+  servicing releases of 7.6 are listed as well: the `Authorization` header is not sent to a link
+  followed with `-FollowRelLink` (7.6.5), `Test-Json` needs `-FetchExternalReference` for a schema
+  reference by URL (7.6.7), and a version 1 file catalog writes a warning (7.6.10).
+- A rule for a paged request that carries a credential (SEC-09). With `-FollowRelLink`, every page
+  after the first is requested without the `Authorization` header since PowerShell 7.6.5, and a key
+  in another header goes to any host that a link or a redirect names. The function that follows
+  the links itself, `standards/examples/Get-PagedResponse.ps1`, is a real file with tests.
 
 ### Changed
 

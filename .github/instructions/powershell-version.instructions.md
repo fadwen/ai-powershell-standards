@@ -11,9 +11,10 @@ description: "PowerShell target version, support lifecycle, and version-dependen
 These rules apply to every `.ps1`, `.psm1`, and `.psd1` file. They say which PowerShell version to
 write for and which features that version has.
 
-The dates and version numbers on this page were checked against Microsoft's documentation on
-2026-11-15. A version is supported until its end-of-support date; compare that date with today's
-date instead of relying on the wording here.
+The dates and version numbers on this page were checked against Microsoft's documentation, the
+PowerShell releases on GitHub, and the .NET release index on 2026-11-17. A version is supported
+until its end-of-support date; compare that date with today's date instead of relying on the
+wording here.
 
 ## Rules
 
@@ -49,10 +50,16 @@ date instead of relying on the wording here.
 
 | Version | Type | Released | End of support | Runtime |
 | --- | --- | --- | --- | --- |
+| 7.7 | Stable | 10-Nov-2026 | 14-Nov-2028 | .NET 11 |
 | 7.6 | LTS | 18-Mar-2026 | 14-Nov-2028 | .NET 10 |
 | 7.5 | Stable | 23-Jan-2025 | 10-Nov-2026 | .NET 9 |
 | 7.4 | LTS | 16-Nov-2023 | 10-Nov-2026 | .NET 8 |
 | 5.1 | Windows component | Aug-2016 | Follows the Windows lifecycle | .NET Framework 4.x |
+
+PowerShell 7.7 is a Stable release, so the default target stays 7.6, the LTS release (VER-01). Both
+end support on the same day. Microsoft's lifecycle page did not yet list 7.7 on 2026-11-17: its
+release date here is that of the release on GitHub, and its end of support is the date that the
+.NET release index gives for .NET 11, which the lifecycle of PowerShell follows.
 
 Versions 6.x and 7.0 to 7.3 ended support earlier. Windows PowerShell 5.1 ships with Windows and is
 still supported, but it receives no new features: treat it as a compatibility target, never as the
@@ -67,6 +74,7 @@ moving to the current LTS. Do not silently change the project's declared target.
 | --- | --- | --- |
 | New automation, CI, containers | 7.6 | `PowerShellVersion = '7.6'`, `CompatiblePSEditions = @('Core')` |
 | Module for machines that may not have PowerShell 7 | 5.1 | `PowerShellVersion = '5.1'`, `CompatiblePSEditions = @('Desktop', 'Core')` |
+| Code that needs a feature added in 7.7 | 7.7 | `PowerShellVersion = '7.7'`, `CompatiblePSEditions = @('Core')` |
 
 ```powershell
 #requires -Version 7.6
@@ -75,6 +83,11 @@ moving to the current LTS. Do not silently change the project's declared target.
 When the project declares no target and it is not clear which row applies, ask before generating
 code. If the question cannot be asked, VER-01 applies: write for 7.6 and say that the target was
 assumed.
+
+PowerShell 7.7 is opt-in. Use a feature that 7.7 added only when the project declares 7.7, with
+`#requires -Version 7.7` or `PowerShellVersion = '7.7'`; without that declaration the target is 7.6
+(VER-01, VER-04). Code written for 7.6 is also run on 7.7 by anyone who has installed it, so check
+it against the behaviour that 7.7 changed, which is listed below.
 
 `#requires -Version 7.0` is obsolete, because that version is retired. To say "any PowerShell 7",
 name the lowest supported version: 7.6 since 10-Nov-2026, when 7.4 and 7.5 left support.
@@ -132,6 +145,23 @@ so one helper can take every command of the module with it.
 | Redirection to a variable | `Get-Item -LiteralPath $path 2>&1 > variable:itemResult` |
 | `PipelineStopToken` on `Cmdlet` | For binary cmdlets: a `CancellationToken` that is signalled when the pipeline stops |
 
+### Added in PowerShell 7.7
+
+Code that targets 7.6 MUST NOT use these (VER-04). Each was run on PowerShell 7.7.0 and is absent
+from PowerShell 7.6.10 and Windows PowerShell 5.1. A comparison of every command and parameter that
+7.6.10 and 7.7.0 ship found nothing else added outside PSResourceGet, and nothing removed.
+
+| Feature | Use on 7.6 |
+| --- | --- |
+| `New-TemporaryDirectory` | `[System.IO.Directory]::CreateTempSubdirectory()`. On 5.1, `New-Item -ItemType Directory` with a path made from `[System.IO.Path]::GetTempPath()` and `[System.IO.Path]::GetRandomFileName()`. |
+| `Join-Path -Extension` | `[System.IO.Path]::ChangeExtension()` on the joined path. With an empty extension it leaves the dot, as in `file.`, where `-Extension ''` removes the dot too. |
+| `-ExcludeProperty` on `Format-Table`, `Format-List`, `Format-Wide`, and `Format-Custom` | `Select-Object -Property * -ExcludeProperty <names>` before the formatting command |
+| `[WildcardPattern]::ToRegex()` | Match with the pattern's own `IsMatch()` method |
+| `$PSApplicationOutputEncoding`, the encoding used to read the output of a native executable | Set `[Console]::OutputEncoding`, and restore it in `finally` |
+
+Assigning `$PSApplicationOutputEncoding` on 7.6 raises no error and changes nothing: it creates an
+ordinary variable, and the output is still read with `[Console]::OutputEncoding`.
+
 ### Promoted from experimental
 
 These features are always on from the version shown. Do not tell users to enable them with
@@ -144,12 +174,29 @@ These features are always on from the version shown. Do not tell users to enable
 
 `PSRedirectToVariable` is the redirection to a variable in the table above.
 
+PowerShell 7.7 promotes no feature. `PSLoadAssemblyFromNativeCode`,
+`PSSerializeJSONLongEnumAsNumber`, and `PSProfileDSCResource` are still experimental in it.
+
 ### Behaviour that changed
 
 Code MUST NOT depend on the older behaviour.
 
+Each row for 7.7 was measured on PowerShell 7.7.0, and the older behaviour on PowerShell 7.6.10 and
+Windows PowerShell 5.1. The rows for 7.6.5, 7.6.7, and 7.6.10 are servicing releases of 7.6: they
+were measured on 7.6.10, and 7.7.0 behaves the same way.
+
 | Version | Change |
 | --- | --- |
+| 7.7 | `New-Guid` returns a version 7 UUID, which begins with the time it was created. Earlier versions return a random version 4 UUID. Where the kind matters, call `[guid]::NewGuid()` for version 4, or `[guid]::CreateVersion7()` for version 7, which Windows PowerShell 5.1 does not have. A GUID identifies something; it is not a secret, and from 7.7 part of it can be worked out from the time. |
+| 7.7 | `-NoTypeInformation` on `Export-Csv` and `ConvertTo-Csv` is obsolete: it has no effect, and it writes a warning each time it is passed. Windows PowerShell 5.1 still writes a `#TYPE` line without it. See the note on CSV type information below. |
+| 7.7 | `Export-Csv -Append -NoHeader` is a terminating error. On 7.6 the pair is accepted and writes the rows without a header. |
+| 7.7 | `Format-Table`, `Format-List`, and `Format-Custom` reject `-Property $null` and an empty array. Earlier versions accept `$null` and show every property. Add the parameter to a splat only when it has a value. |
+| 7.7 | `Get-ChildItem -Path '*.md' -Recurse -Name` also returns the matches in subfolders. On 7.6 and 5.1 it returns only those in the starting folder, while `-Filter '*.md'` recurses on every version (STY-43). |
+| 7.7 | `Resolve-Path -Relative` writes `.\.config\app.json` for a name that starts with a dot. On 7.6 and 5.1 it writes `.config\app.json`. |
+| 7.7 | `Get-Help` prints the `.NOTES` text one blank line below its heading and indented by four spaces, like the other sections. On 7.6 and 5.1 there are two blank lines and eight spaces, so a test that compares help text exactly gets a different result. |
+| 7.6.10 | `New-FileCatalog -CatalogVersion 1`, and `Test-FileCatalog` on a version 1 catalog, write a warning, because version 1 uses SHA-1. Windows PowerShell 5.1 (build 26100) writes one too. |
+| 7.6.7 | `Test-Json` fetches a schema that another schema refers to by URL only when `-FetchExternalReference` is passed. Without it the reference is an error, `UnresolvedJsonSchemaRef`, and the result is `$false` for valid input as well. |
+| 7.6.5 | `Invoke-RestMethod` and `Invoke-WebRequest` send the `Authorization` header with the first request only. A link followed by `-FollowRelLink` is requested without it, as the target of a redirect is, unless `-PreserveAuthorizationOnRedirect` is passed. A function that sends a credential follows the links itself (SEC-09). |
 | 7.6 | The `ThreadJob` module is now `Microsoft.PowerShell.ThreadJob`. Call `Start-ThreadJob` without a module prefix; `ThreadJob\Start-ThreadJob` and a `RequiredModules` entry for `ThreadJob` no longer resolve. Where a prefix or an entry is needed, write `Microsoft.PowerShell.ThreadJob\Start-ThreadJob` and `@{ ModuleName = 'Microsoft.PowerShell.ThreadJob'; ModuleVersion = '2.2.0' }`. |
 | 7.6 | `Join-Path -ChildPath` accepts an array. An array that used to be joined into one segment is now treated as several segments. |
 | 7.6 | `[WildcardPattern]::Escape()` escapes a lone backtick correctly. Code that escaped twice to work around the old result now escapes too much. |
@@ -158,6 +205,25 @@ Code MUST NOT depend on the older behaviour.
 | 7.5 | `New-FileCatalog -CatalogVersion` defaults to 2. Pass `-CatalogVersion 1` when a downstream validator still requires version 1. |
 | 7.5 | `Select-String` returns `LineNumber` as `[ulong]`. |
 | 7.4 | `Test-Json` accepts only strictly valid JSON and no longer supports Draft 4 schemas. |
+
+**CSV type information.** On 7.7.0 each call that passes the switch writes
+`Parameter 'NoTypeInformation' is obsolete`, followed by the reason. Code that also runs on Windows
+PowerShell 5.1 passes the switch only there:
+
+```powershell
+$exportParameters = @{
+    LiteralPath = $csvPath
+    Encoding = 'utf8'
+}
+if ($PSVersionTable.PSVersion -lt [version]'6.0') {
+    # Windows PowerShell 5.1 writes a #TYPE line unless this switch is passed.
+    $exportParameters['NoTypeInformation'] = $true
+}
+$rows | Export-Csv @exportParameters
+```
+
+Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1: no warning, and the file
+starts with the header line on all three.
 
 ### Windows PowerShell commands that are not part of PowerShell 7 (VER-06)
 
@@ -335,6 +401,9 @@ publisher, as it ships Pester 3.4.0.
 | PSScriptAnalyzer | 1.25.0 | |
 | Pester | 6.2.0 | See `.github/instructions/powershell-pester.instructions.md` |
 | Microsoft.PowerShell.PlatyPS | 1.0.3 | See `.github/instructions/powershell-platyps.instructions.md` |
-| Microsoft.PowerShell.PSResourceGet | 1.2.0 | Included with PowerShell 7.6 |
+| Microsoft.PowerShell.PSResourceGet | 1.2.0 | Included with PowerShell 7.6. PowerShell 7.6.10 includes 1.2.1, and 7.7.0 includes 1.3.1. |
 | Microsoft.PowerShell.ThreadJob | 2.2.0 | Included with PowerShell 7.6 |
 | PSReadLine | 2.4.5 | Included with PowerShell 7.6 |
+
+PSScriptAnalyzer 1.25.0 and Pester 6.2.0 run on PowerShell 7.7.0 as well: the quality gate of the
+standards repository passes under it.

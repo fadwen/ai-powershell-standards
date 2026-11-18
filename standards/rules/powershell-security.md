@@ -27,6 +27,10 @@ These rules apply to every `.ps1` and `.psm1` file.
 - **SEC-08** Hold sensitive data in a `SecureString`. A script that a person runs interactively
   reads it with `Read-Host -AsSecureString`; a function or an unattended script does not prompt
   (SEC-05).
+- **SEC-09** A request that carries a credential MUST NOT be paged with `-FollowRelLink`. Follow the
+  links in the function, and send the credential again only when the next link has the scheme,
+  host, and port of the first request. Pass `-MaximumRedirection 0`, so that a redirect is an error
+  and not a request without the credential.
 
 ### Input and execution
 
@@ -161,6 +165,38 @@ foreach ($key in $context.Keys) {
     }
 }
 ```
+
+**SEC-09.** Measured on PowerShell 7.6.10 and 7.7.0, against a local server that answers as two
+hosts:
+
+| Where the request goes | `Authorization` header | A key in another header, such as `X-Api-Key` |
+| --- | --- | --- |
+| A link followed by `-FollowRelLink` | Not sent, since PowerShell 7.6.5 | Sent, to another host as well |
+| The same with `-PreserveAuthorizationOnRedirect` | Sent, to another host as well | Sent, to another host as well |
+| The target of a redirect | Not sent | Sent, to another host as well |
+
+With `-FollowRelLink` alone, every page after the first is requested as an anonymous caller. The
+service refuses, or answers with only what an anonymous caller may see, and then no error is raised.
+With `-PreserveAuthorizationOnRedirect`, the credential goes wherever a reply points. Windows
+PowerShell 5.1 has no `-FollowRelLink`, and it treats a redirect as the last row says.
+
+A redirect does the same to a single request: the cmdlet follows it without the `Authorization`
+header, to the same host as well, and returns what an anonymous caller is given.
+
+The function below follows the links itself and lets no redirect be followed. `$Request` holds the
+parameters of `Invoke-WebRequest`, the credential among them. The function and its tests are files
+in the standards repository, under `standards/examples`:
+
+<!-- include: standards/examples/Get-PagedResponse.ps1 -->
+
+Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1 under strict mode, against the
+same server. Three pages arrived with the credential on each, whether the link was absolute or
+relative, stood among other relations, or came in a header named `link`. Each of these ended the
+function with an error and without a further request: a next link on another host, a next link
+back to the first page, and a redirect, at the first page or at a later one. The function reports
+the redirect as `PageRedirected` on all three versions, where the errors of the cmdlet differ. A
+body with the content type `application/vnd.api+json` arrived as text, where `Invoke-WebRequest`
+returns bytes.
 
 **SEC-10.** Arguments passed as an array reach a native executable as separate arguments, so input
 cannot add switches or commands:
