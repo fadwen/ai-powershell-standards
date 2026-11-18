@@ -176,6 +176,37 @@ Describe 'Get-PagedResponse' -Tag 'Unit', 'Public' {
             Should-Invoke -CommandName Invoke-WebRequest -Times 2 -Exactly
         }
 
+        It 'Reports a redirect that <Description> as PageRedirected' -ForEach @(
+            @{ Description = 'PowerShell 7 refuses'; Status = 302; ErrorId = 'WebCmdletWebResponseException' }
+            @{ Description = 'Windows PowerShell 5.1 refuses'; Status = 0; ErrorId = 'MaximumRedirectExceeded' }
+        ) {
+            Mock -CommandName Invoke-WebRequest -ParameterFilter { $Uri.AbsoluteUri -eq $itemsUri } -MockWith {
+                $failure = [System.InvalidOperationException]::new('The redirect was refused.')
+                if ($Status -ne 0) {
+                    $reply = [PSCustomObject]@{ StatusCode = $Status }
+                    $failure | Add-Member -NotePropertyName 'Response' -NotePropertyValue $reply
+                }
+                $failureCategory = [System.Management.Automation.ErrorCategory]::InvalidOperation
+                throw [System.Management.Automation.ErrorRecord]::new($failure, $ErrorId, $failureCategory, $null)
+            }
+
+            { Get-PagedResponse -Request @{ Uri = $itemsUri; Headers = $headers } } |
+                Should-Throw -FullyQualifiedErrorId 'PageRedirected,Get-PagedResponse'
+            Should-Invoke -CommandName Invoke-WebRequest -Times 1 -Exactly
+        }
+
+        It 'Passes on a failed reply that is not a redirect' {
+            Mock -CommandName Invoke-WebRequest -ParameterFilter { $Uri.AbsoluteUri -eq $itemsUri } -MockWith {
+                $failure = [System.InvalidOperationException]::new('The service answered 500.')
+                $reply = [PSCustomObject]@{ StatusCode = 500 }
+                $failure | Add-Member -NotePropertyName 'Response' -NotePropertyValue $reply
+                throw $failure
+            }
+
+            { Get-PagedResponse -Request @{ Uri = $itemsUri; Headers = $headers } } |
+                Should-Throw -ExceptionMessage '*answered 500*'
+        }
+
         It 'Passes on the error of a request that fails' {
             Mock -CommandName Invoke-WebRequest -ParameterFilter { $Uri.AbsoluteUri -eq $itemsUri } -MockWith {
                 throw [System.Net.WebException]::new('The request was refused.')

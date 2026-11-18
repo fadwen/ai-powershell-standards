@@ -50,7 +50,27 @@ function Get-PagedResponse {
         try {
             $response = Invoke-WebRequest @pageRequest
         } catch {
-            $PSCmdlet.ThrowTerminatingError($_)
+            # PowerShell 7 puts the refused reply on the exception. Windows PowerShell 5.1 has no
+            # reply there and names the error instead.
+            $status = 0
+            $reply = $_.Exception.PSObject.Properties['Response']
+            if ($null -ne $reply -and $null -ne $reply.Value) {
+                $status = [int]$reply.Value.StatusCode
+            }
+            $isRedirect = ($status -in 301, 302, 303, 307, 308 -or
+                $_.FullyQualifiedErrorId -like 'MaximumRedirectExceeded*')
+            if (-not $isRedirect) {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            # The address is reported without its query string, which can carry a token.
+            $target = $pageUri.GetLeftPart([System.UriPartial]::Path)
+            $message = "The request for '$target' was answered with a redirect. It was not followed."
+            $exception = [System.InvalidOperationException]::new($message, $_.Exception)
+            $category = [System.Management.Automation.ErrorCategory]::InvalidResult
+            $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                $exception, 'PageRedirected', $category, $target)
+            $PSCmdlet.ThrowTerminatingError($errorRecord)
         }
 
         # A body whose content type is not a text type, such as application/vnd.api+json, is bytes.
@@ -90,7 +110,6 @@ function Get-PagedResponse {
 
         if ($null -ne $errorId) {
             $exception = [System.InvalidOperationException]::new($message)
-            # The address is reported without its query string, which can carry a token.
             $target = $nextUri.GetLeftPart([System.UriPartial]::Path)
             $errorRecord = [System.Management.Automation.ErrorRecord]::new(
                 $exception, $errorId, $category, $target)

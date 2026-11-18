@@ -193,8 +193,10 @@ Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1 under str
 same server. Three pages arrived with the credential on each, whether the link was absolute or
 relative, stood among other relations, or came in a header named `link`. Each of these ended the
 function with an error and without a further request: a next link on another host, a next link
-back to the first page, and a redirect, at the first page or at a later one. A body with the
-content type `application/vnd.api+json` arrived as text, where `Invoke-WebRequest` returns bytes.
+back to the first page, and a redirect, at the first page or at a later one. The function reports
+the redirect as `PageRedirected` on all three versions, where the errors of the cmdlet differ. A
+body with the content type `application/vnd.api+json` arrived as text, where `Invoke-WebRequest`
+returns bytes.
 
 **SEC-10.** Arguments passed as an array reach a native executable as separate arguments, so input
 cannot add switches or commands:

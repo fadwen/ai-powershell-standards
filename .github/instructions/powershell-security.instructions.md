@@ -248,7 +248,27 @@ function Get-PagedResponse {
         try {
             $response = Invoke-WebRequest @pageRequest
         } catch {
-            $PSCmdlet.ThrowTerminatingError($_)
+            # PowerShell 7 puts the refused reply on the exception. Windows PowerShell 5.1 has no
+            # reply there and names the error instead.
+            $status = 0
+            $reply = $_.Exception.PSObject.Properties['Response']
+            if ($null -ne $reply -and $null -ne $reply.Value) {
+                $status = [int]$reply.Value.StatusCode
+            }
+            $isRedirect = ($status -in 301, 302, 303, 307, 308 -or
+                $_.FullyQualifiedErrorId -like 'MaximumRedirectExceeded*')
+            if (-not $isRedirect) {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            # The address is reported without its query string, which can carry a token.
+            $target = $pageUri.GetLeftPart([System.UriPartial]::Path)
+            $message = "The request for '$target' was answered with a redirect. It was not followed."
+            $exception = [System.InvalidOperationException]::new($message, $_.Exception)
+            $category = [System.Management.Automation.ErrorCategory]::InvalidResult
+            $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                $exception, 'PageRedirected', $category, $target)
+            $PSCmdlet.ThrowTerminatingError($errorRecord)
         }
 
         # A body whose content type is not a text type, such as application/vnd.api+json, is bytes.
@@ -288,7 +308,6 @@ function Get-PagedResponse {
 
         if ($null -ne $errorId) {
             $exception = [System.InvalidOperationException]::new($message)
-            # The address is reported without its query string, which can carry a token.
             $target = $nextUri.GetLeftPart([System.UriPartial]::Path)
             $errorRecord = [System.Management.Automation.ErrorRecord]::new(
                 $exception, $errorId, $category, $target)
@@ -304,8 +323,10 @@ Run on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1 under str
 same server. Three pages arrived with the credential on each, whether the link was absolute or
 relative, stood among other relations, or came in a header named `link`. Each of these ended the
 function with an error and without a further request: a next link on another host, a next link
-back to the first page, and a redirect, at the first page or at a later one. A body with the
-content type `application/vnd.api+json` arrived as text, where `Invoke-WebRequest` returns bytes.
+back to the first page, and a redirect, at the first page or at a later one. The function reports
+the redirect as `PageRedirected` on all three versions, where the errors of the cmdlet differ. A
+body with the content type `application/vnd.api+json` arrived as text, where `Invoke-WebRequest`
+returns bytes.
 
 **SEC-10.** Arguments passed as an array reach a native executable as separate arguments, so input
 cannot add switches or commands:
