@@ -152,6 +152,30 @@ function Get-Thing {
             Code = "`$settings = @{`n    Password = 'hunter22'`n}`n`$settings"
         }
         @{
+            RuleId = 'SEC-09'
+            Reason = 'a request with a token lets a redirect be followed'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-RestMethod -Uri 'https://api.example.com/items' -Authentication Bearer -Token `$token"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'a request with a credential allows three redirects'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-WebRequest -Uri `$uri -Credential `$credential -MaximumRedirection 3"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'a request with a credential is paged with -FollowRelLink'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-RestMethod -Uri 'https://api.example.com' -Credential `$credential -FollowRelLink"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'the Authorization header is kept on a redirect'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-WebRequest -Uri `$uri -Headers `$headers -PreserveAuthorizationOnRedirect"
+        }
+        @{
             RuleId = 'MOD-03'
             Reason = 'a manifest still has the placeholder GUID'
             FileName = 'Fixture.psd1'
@@ -267,6 +291,24 @@ function Get-Thing {
             Reason = 'the secret comes from the environment'
             FileName = 'Fixture.ps1'
             Code = "`$apiToken = `$env:API_TOKEN`n`$apiToken"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'a request with a token refuses redirects'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-RestMethod -Uri 'https://api.example.com' -Token `$token -MaximumRedirection 0"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'the redirect limit of a request with a credential is a variable'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-RestMethod -Uri 'https://api.example.com' -Token `$token -MaximumRedirection `$limit"
+        }
+        @{
+            RuleId = 'SEC-09'
+            Reason = 'a request without a credential is paged with -FollowRelLink'
+            FileName = 'Fixture.ps1'
+            Code = "Invoke-RestMethod -Uri 'https://api.example.com/items' -FollowRelLink"
         }
         @{
             RuleId = 'ERR-02'

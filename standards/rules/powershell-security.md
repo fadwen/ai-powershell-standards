@@ -27,10 +27,10 @@ These rules apply to every `.ps1` and `.psm1` file.
 - **SEC-08** Hold sensitive data in a `SecureString`. A script that a person runs interactively
   reads it with `Read-Host -AsSecureString`; a function or an unattended script does not prompt
   (SEC-05).
-- **SEC-09** A request that carries a credential MUST NOT be paged with `-FollowRelLink`. Follow the
-  links in the function, and send the credential again only when the next link has the scheme,
-  host, and port of the first request. Pass `-MaximumRedirection 0`, so that a redirect is an error
-  and not a request without the credential.
+- **SEC-09** A web request that carries a credential MUST pass `-MaximumRedirection 0`, so that a
+  redirect is an error, and MUST NOT be paged with `-FollowRelLink`. Follow a redirect or a link in
+  the function, and send the credential again only when the address has the scheme, host, and port
+  of the first request.
 
 ### Input and execution
 
@@ -180,8 +180,19 @@ service refuses, or answers with only what an anonymous caller may see, and then
 With `-PreserveAuthorizationOnRedirect`, the credential goes wherever a reply points. Windows
 PowerShell 5.1 has no `-FollowRelLink`, and it treats a redirect as the last row says.
 
-A redirect does the same to a single request: the cmdlet follows it without the `Authorization`
-header, to the same host as well, and returns what an anonymous caller is given.
+A redirect does the same to any request, paged or not: the cmdlet follows it without the
+`Authorization` header, to the same host as well. The caller gets an error where the address needs
+the credential, and the answer for an anonymous caller, with no error, where it does not. A key in
+another header goes with the redirect to any host. A credential passed as `-Credential` alone was
+not sent to the other host, and that request ended with an error.
+
+With `-MaximumRedirection 0`, no request reaches the address that the redirect names, on all three
+versions. PowerShell 7 raises the refused redirect as an error whose exception carries the reply,
+with the address in `Response.Headers.Location`. Windows PowerShell 5.1, and PowerShell 7 with
+`-SkipHttpErrorCheck`, return the reply, with the address in `Headers['Location']`, and write a
+non-terminating error, so `-ErrorAction Stop` loses the address. A service that redirects by
+design, such as a download that answers with a signed address on another host, is followed in the
+function, and the credential goes with it only to the scheme, host, and port of the first request.
 
 The function below follows the links itself and lets no redirect be followed. `$Request` holds the
 parameters of `Invoke-WebRequest`, the credential among them. The function and its tests are files

@@ -277,9 +277,9 @@ function Invoke-ModuleWebRequest {
 
     try {
         if ($script:canSkipHttpErrorCheck) {
-            $response = Invoke-WebRequest @Request -SkipHttpErrorCheck -ErrorAction Stop
+            $response = Invoke-WebRequest @Request -SkipHttpErrorCheck -MaximumRedirection 0 -ErrorAction Stop
         } else {
-            $response = Invoke-WebRequest @Request -UseBasicParsing -ErrorAction Stop
+            $response = Invoke-WebRequest @Request -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop
         }
         $status = [int]$response.StatusCode
         $body = $response.Content
@@ -323,6 +323,9 @@ function Invoke-ModuleWebRequest {
 The message names the status and the request URI. The URI is written without its query string,
 which can carry a token, and the body goes into the exception's `Data`, not into the message,
 because a reply can carry personal data (SEC-06).
+
+Both calls pass `-MaximumRedirection 0`, which SEC-09 requires of a request that carries a
+credential. A redirect then ends the function with the error of the cmdlet, on both versions.
 
 ## Detecting the version and operating system (VER-07, VER-10)
 

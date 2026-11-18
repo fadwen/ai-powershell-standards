@@ -16,8 +16,8 @@ Write-Error -ErrorAction Stop in advanced functions (ERR-11), $Error[0] in catch
 $ErrorActionPreference set in a root module (ERR-02), arrays grown with += in a loop (STY-40),
 ArrayList (STY-41), non-ASCII characters outside strings (STY-06), #requires for a version past its
 end of support (VER-05), commands that exist only in Windows PowerShell (VER-06), retired platyPS
-commands (PLT-01), literal secrets (SEC-01), and a manifest that still has the placeholder GUID
-(MOD-03).
+commands (PLT-01), literal secrets (SEC-01), a web request that carries a credential and follows
+redirects or links (SEC-09), and a manifest that still has the placeholder GUID (MOD-03).
 
 A clean result does not prove that code follows every rule. Many rules need a reader.
 
@@ -284,6 +284,31 @@ foreach ($file in $files) {
             $advice = 'Put the format operator inside the parentheses.'
             $message = "'-f' is passed to $commandName as an argument. $advice"
             $issues.Add(@('STY-23', 'Error', $line, $message, 'Standards'))
+        }
+        if ($commandName -in 'Invoke-RestMethod', 'Invoke-WebRequest') {
+            # Only a credential that is passed by name on the call is seen. A splatted call is not.
+            $parameterNames = @($command.CommandElements |
+                    Where-Object { $_ -is [CommandParameterAst] } |
+                    ForEach-Object { $_.ParameterName })
+            $credentialNames = @($parameterNames |
+                    Where-Object { $_ -in 'Authentication', 'Token', 'Credential' })
+            $redirectLimit = [regex]::Match($command.Extent.Text, '(?i)-MaximumRedirection[:\s]+(\S+)')
+            $limitText = $redirectLimit.Groups[1].Value
+            $followsRedirects = -not $redirectLimit.Success -or $limitText -match '^[1-9]\d*$'
+            if ($credentialNames.Count -gt 0 -and $followsRedirects) {
+                $message = "$commandName carries a credential and follows a redirect. Pass -MaximumRedirection 0."
+                $issues.Add(@('SEC-09', 'Error', $line, $message, 'Standards'))
+            }
+            if ($credentialNames.Count -gt 0 -and $parameterNames -contains 'FollowRelLink') {
+                $advice = 'Follow the links in the function.'
+                $message = "$commandName -FollowRelLink asks for later pages without the credential. $advice"
+                $issues.Add(@('SEC-09', 'Error', $line, $message, 'Standards'))
+            }
+            if ($parameterNames -contains 'PreserveAuthorizationOnRedirect') {
+                $advice = 'It sends the credential to any host that a reply names.'
+                $message = "$commandName is called with -PreserveAuthorizationOnRedirect. $advice"
+                $issues.Add(@('SEC-09', 'Error', $line, $message, 'Standards'))
+            }
         }
         if ($commandName -ne 'Write-Error' -or -not (& $isInAdvancedFunction -Node $command)) {
             continue
