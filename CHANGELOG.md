@@ -116,6 +116,11 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 
 ### Fixed
 
+- The worked example `Get-BasicServerInfo` ends with an error that names Windows on another
+  operating system (VER-10), and its tests are skipped there. Before, its 22 tests failed on Linux
+  and macOS, because the CIM commands that they mock do not exist there.
+- The quality gate runs on Linux and macOS in CI as well as on Windows. Its message for a project
+  without tests starts with "No tests were run", so that a long path cannot break the words apart.
 - `Test-Json` takes `-Options IgnoreComments, AllowTrailingCommas`. The earlier text named switches
   that do not exist.
 - `Join-Path` with several child paths has worked since PowerShell 6. It was described as new in 7.6.
