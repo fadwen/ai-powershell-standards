@@ -388,6 +388,10 @@ the deployment only for the main branch and the publish only for a version tag.
 The matrix lists the operating systems that the project declares. Windows PowerShell 5.1 is one more
 job (CIC-03). PowerShell 7.4 and 7.5 are past end of support and stay out of every matrix (CIC-04).
 
+GitHub's hosted runners carry PowerShell 7.6, the LTS release, so `shell: pwsh` runs 7.6 there and
+a job that tests on PowerShell 7.7 has to install it first. That was the state of the Ubuntu 24.04,
+Windows Server 2025, and macOS 15 images on 2026-11-17.
+
 ### Release, signing, and deployment (CIC-18 to CIC-20)
 
 - Versioning: the next semantic version is derived from the commit messages (PRQ-10 to PRQ-12), a
