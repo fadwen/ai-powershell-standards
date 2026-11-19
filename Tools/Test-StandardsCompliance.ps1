@@ -19,6 +19,15 @@ end of support (VER-05), commands that exist only in Windows PowerShell (VER-06)
 commands (PLT-01), literal secrets (SEC-01), a web request that carries a credential and follows
 redirects or links (SEC-09), and a manifest that still has the placeholder GUID (MOD-03).
 
+A comment of the form "# Exception to ERR-11: reason", directly above a line or at the end of it,
+records a deliberate departure from a rule (DOC-22). A finding of the additional checks for that
+rule on that line is then reported with the severity Information, with the reason in its message,
+and does not fail the script. Such a comment is itself a finding when it gives no reason, when it
+is not in that form, or when it names a rule that this script checks and excuses nothing. A
+comment that names a security rule (SEC) excuses nothing: the finding keeps its severity and the
+comment is a finding as well. A finding of PSScriptAnalyzer is not excused by the comment;
+suppress it with PSScriptAnalyzer's own attribute.
+
 A clean result does not prove that code follows every rule. Many rules need a reader.
 
 .PARAMETER Path
@@ -130,6 +139,16 @@ $secretNamePattern = '(?i)(password|passwd|pwd|secret|apikey|api_key|token|conne
 # A quoted string of three or more characters with no variable in it.
 $literalStringPattern = '^(''[^'']{3,}''|"[^"$]{3,}")$'
 $stringTokenKinds = @('StringLiteral', 'StringExpandable', 'HereStringLiteral', 'HereStringExpandable')
+# The rules that the checks of this script report, as opposed to those of PSScriptAnalyzer. An
+# exception comment for one of them is itself a finding when it excuses nothing. A comment for
+# any other rule cannot be checked here and is left to a reader.
+$rulesThisScriptChecks = @(
+    'DOC-01', 'DOC-07', 'ERR-02', 'ERR-11', 'ERR-21', 'FUN-01', 'FUN-10', 'MOD-03', 'PLT-01'
+    'SEC-01', 'SEC-09', 'STY-06', 'STY-07', 'STY-23', 'STY-40', 'STY-41', 'VER-05', 'VER-06'
+)
+$exceptionPattern = '(?i)^#\s*exception\s+to\s+(?<id>[a-z]{3}-\d{2})\s*:(?<reason>.*)$'
+# A comment that begins as an exception does, whether or not it goes on in that form.
+$exceptionStartPattern = '(?i)^#\s*exception\s+to\s+[a-z]{3}-?\d{2}(?![\w-])'
 $terminatingAdvice = 'Use $PSCmdlet.ThrowTerminatingError().'
 $listAdvice = 'ArrayList is used. Use [System.Collections.Generic.List[T]].'
 
@@ -526,6 +545,78 @@ foreach ($file in $files) {
         if ($requiredVersion.Major -eq 6 -or ($isSeven -and $requiredVersion.Minor -lt 6)) {
             $message = "#requires -Version $requiredVersion names a version that is past its end of support."
             $issues.Add(@('VER-05', 'Error', 1, $message, 'Standards'))
+        }
+    }
+
+    # Recorded exceptions (DOC-22). A comment that stands alone belongs to the first line after the
+    # comment lines that follow it, so the reason can run over several lines. A comment at the
+    # end of a line belongs to that line.
+    $standaloneComments = @{}
+    $lineComments = [System.Collections.Generic.List[object]]::new()
+    foreach ($token in $tokens) {
+        if ($token.Kind -ne [TokenKind]::Comment -or -not $token.Text.StartsWith('#')) {
+            continue
+        }
+        $commentLine = $token.Extent.StartLineNumber
+        $textBefore = $sourceLines[$commentLine - 1].Substring(0, $token.Extent.StartColumnNumber - 1)
+        $isStandalone = [string]::IsNullOrWhiteSpace($textBefore)
+        if ($isStandalone) {
+            $standaloneComments[$commentLine] = $token.Text
+        }
+        $lineComments.Add(@{ Line = $commentLine; Text = $token.Text; IsStandalone = $isStandalone })
+    }
+
+    foreach ($comment in $lineComments) {
+        $marker = [regex]::Match($comment.Text, $exceptionPattern)
+        if (-not $marker.Success) {
+            if ([regex]::IsMatch($comment.Text, $exceptionStartPattern)) {
+                $form = '# Exception to <rule ID>: <reason>'
+                $message = "The comment begins as an exception does but is not in the form '$form'."
+                $issues.Add(@('DOC-22', 'Warning', $comment.Line, "$message It excuses nothing.", 'Standards'))
+            }
+            continue
+        }
+        $exceptedRuleId = $marker.Groups['id'].Value.ToUpperInvariant()
+        if ($exceptedRuleId -like 'SEC-*') {
+            # A comment is what an agent with a failing check is tempted to add, and here it would
+            # let a literal secret pass. A security finding therefore keeps its severity.
+            $message = "A comment cannot excuse a security rule. A finding of $exceptedRuleId stays as it is."
+            $issues.Add(@('DOC-22', 'Error', $comment.Line, $message, 'Standards'))
+            continue
+        }
+        $reason = $marker.Groups['reason'].Value.Trim()
+        $targetLine = $comment.Line
+        if ($comment.IsStandalone) {
+            $targetLine++
+            while ($standaloneComments.ContainsKey($targetLine)) {
+                $continuation = $standaloneComments[$targetLine]
+                if (-not [regex]::IsMatch($continuation, $exceptionPattern)) {
+                    $reason = ($reason + ' ' + $continuation.TrimStart('#').Trim()).Trim()
+                }
+                $targetLine++
+            }
+        }
+
+        if (-not $reason) {
+            $message = "The exception to $exceptedRuleId gives no reason."
+            $issues.Add(@('DOC-22', 'Error', $comment.Line, $message, 'Standards'))
+            continue
+        }
+
+        $isUsed = $false
+        foreach ($issue in $issues) {
+            $isExcused = ($issue[4] -eq 'Standards' -and $issue[0] -eq $exceptedRuleId -and
+                $issue[2] -eq $targetLine -and $issue[1] -ne 'Information')
+            if ($isExcused) {
+                $issue[1] = 'Information'
+                $issue[3] = "Recorded exception: $reason | $($issue[3])"
+                $isUsed = $true
+            }
+        }
+        if (-not $isUsed -and $rulesThisScriptChecks -contains $exceptedRuleId) {
+            $advice = 'Remove the comment, or put it directly above the line it is for.'
+            $message = "The exception to $exceptedRuleId excuses nothing on line $targetLine. $advice"
+            $issues.Add(@('DOC-22', 'Warning', $comment.Line, $message, 'Standards'))
         }
     }
 
