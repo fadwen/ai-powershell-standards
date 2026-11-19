@@ -224,9 +224,13 @@ carries.
 
 Each statement below was verified on PowerShell 7.6 and Windows PowerShell 5.1.
 
-- `throw` is suppressed when any caller up the call stack passed `-ErrorAction SilentlyContinue` or
-  `-ErrorAction Ignore`. Execution then continues with the statement after the `throw`, and the
-  function returns as if it had succeeded.
+- `throw` is suppressed when any caller up the call stack passed `-ErrorAction SilentlyContinue`, or
+  `-ErrorAction Ignore` on PowerShell 7. Execution then continues with the statement after the
+  `throw`, and the function returns as if it had succeeded. A bare `throw` that passes on an error
+  raised with `-ErrorAction Stop` is the exception, described under the table below. On Windows
+  PowerShell 5.1, `-ErrorAction Ignore` does not suppress a `throw`: the command that was given the
+  parameter ends with another error,
+  `The value Ignore is not supported for an ActionPreference variable`.
 - `Write-Error -ErrorAction Stop` ignores the caller's `-ErrorAction`, and unless `-ErrorRecord` is
   passed it replaces the original exception with a `WriteErrorException`.
 - `$PSCmdlet.ThrowTerminatingError()` always ends the function, and the caller's `-ErrorAction` does
@@ -248,7 +252,7 @@ Each statement below was verified on PowerShell 7.6 and Windows PowerShell 5.1.
 A module function fails in its `begin` block, in one of three ways, and the script that calls it is
 started with `-File`. Measured on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1:
 
-| The calling script | `$PSCmdlet.ThrowTerminatingError()` | `throw` | `Write-Error -ErrorRecord $_ -ErrorAction Stop` |
+| The calling script | `$PSCmdlet.ThrowTerminatingError()` | `throw $_` | `Write-Error -ErrorRecord $_ -ErrorAction Stop` |
 | --- | --- | --- | --- |
 | Has no `try` and sets no preference | Goes on, exit code 0 | Ends, exit code 1 | Ends, exit code 1 |
 | Passes `-ErrorAction Stop` | Goes on, exit code 0 | Ends, exit code 1 | Ends, exit code 1 |
@@ -256,6 +260,11 @@ started with `-File`. Measured on PowerShell 7.7.0, PowerShell 7.6.10, and Windo
 | Sets `$ErrorActionPreference = 'Stop'` | Ends, exit code 1 | Ends, exit code 1 | Ends, exit code 1 |
 | Makes the call inside `try` | `catch` runs | `catch` runs | `catch` runs |
 | Makes the call twice in a loop | Both calls run | Ends at the first | Ends at the first |
+
+`throw` with text or with an exception object behaves as `throw $_` does, and so does a bare `throw`
+in `catch`, with one exception. A bare `throw` that passes on an error raised with
+`-ErrorAction Stop` behaves as the last column does, and so does such an error that no `catch`
+handles: the script ends under `-ErrorAction SilentlyContinue` as well.
 
 A compiled cmdlet that raises a terminating error, as `ConvertFrom-Json` does for invalid text,
 behaves as the first column does.

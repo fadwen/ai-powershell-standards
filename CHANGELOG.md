@@ -120,7 +120,9 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   `Write-Error -ErrorRecord $_ -ErrorAction Stop`. With the first, which ERR-10 requires, a script
   without the preference goes on after the failed command and ends with exit code 0. Text that
   tells a caller to pass `-ErrorAction Stop` so that a failure fails a job step is wrong for such
-  a command; an unattended example sets the preference (RDM-13).
+  a command; an unattended example sets the preference (RDM-13). The note on `throw` names the two
+  cases in which `-ErrorAction` does not suppress it: a bare `throw` that passes on an error raised
+  with `-ErrorAction Stop`, and `-ErrorAction Ignore` on Windows PowerShell 5.1.
 
 ### Fixed
 
