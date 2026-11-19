@@ -284,8 +284,9 @@ fields in the release script and in a test:
 ```powershell
 $manifest = Import-PowerShellDataFile -LiteralPath $manifestPath
 $measurements = @(
-    @{ Field = 'Description'; Text = $manifest.Description; Limit = 4000 }
-    @{ Field = 'ReleaseNotes'; Text = $manifest.PrivateData.PSData.ReleaseNotes; Limit = 10600 }
+    # The index reads a key that the manifest lacks as $null. Member access is a strict mode error.
+    @{ Field = 'Description'; Text = $manifest['Description']; Limit = 4000 }
+    @{ Field = 'ReleaseNotes'; Text = $manifest.PrivateData.PSData['ReleaseNotes']; Limit = 10600 }
 )
 foreach ($measurement in $measurements) {
     # A line break is counted as two characters, the larger of the two possible counts.
