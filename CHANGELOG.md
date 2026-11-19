@@ -190,6 +190,12 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 - The example test `Basic-Function-Example.Tests.ps1` no longer fails PSScriptAnalyzer in a project
   that installs the examples and analyzes its whole repository. It suppresses
   `PSAvoidUsingComputerNameHardcoded`, because its computer names are test data for mocked calls.
+- MOD-12 no longer asks a release to measure its tags. The rules gave the PowerShell Gallery a limit
+  of 4,000 characters for a tag list that counts two tags for every command. The Gallery adds those
+  tags itself and does not hold that list to a limit: it accepted a module with 100 functions. A
+  release script that copied the earlier sample refuses such a module, and can drop the
+  measurement. The limits for the release notes and the description stay, and the sample now counts
+  a line break as two characters.
 
 ### Removed
 
