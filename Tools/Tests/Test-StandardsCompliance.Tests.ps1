@@ -389,6 +389,49 @@ BeforeAll {
 
     # A line that breaks VER-06, for tests that only need some finding.
     $eventLogCode = 'Get-EventLog -LogName Application -Newest 1'
+
+    # Returns the code of a function that breaks ERR-11 in its catch block and nothing else. The
+    # lines given are written directly above the statement that breaks the rule, and the suffix
+    # at the end of that statement's line.
+    $newExceptionCode = {
+        param([string[]]$LinesAbove = @(), [string]$Suffix = '')
+        $before = @(
+            'function Get-Thing {'
+            '    <#'
+            '    .SYNOPSIS'
+            '    Gets the thing.'
+            ''
+            '    .DESCRIPTION'
+            '    Gets the thing, and ends the calling script when that fails.'
+            ''
+            '    .EXAMPLE'
+            '    Get-Thing'
+            ''
+            '    Gets the thing.'
+            ''
+            '    .INPUTS'
+            '    None.'
+            ''
+            '    .OUTPUTS'
+            '    System.IO.DirectoryInfo.'
+            '    #>'
+            '    [CmdletBinding()]'
+            '    [OutputType([System.IO.DirectoryInfo])]'
+            '    param()'
+            ''
+            '    try {'
+            '        $item = Get-Item -LiteralPath $PSHOME -ErrorAction Stop'
+            '    } catch {'
+        )
+        $after = @(
+            "        Write-Error -ErrorRecord `$_ -ErrorAction Stop$Suffix"
+            '    }'
+            ''
+            '    $item'
+            '}'
+        )
+        @($before + $LinesAbove + $after) -join "`n"
+    }
 }
 
 Describe 'Test-StandardsCompliance.ps1' -Tag 'Unit' {
@@ -442,6 +485,118 @@ Describe 'Test-StandardsCompliance.ps1' -Tag 'Unit' {
             $findings = @(& $complianceScript -Path $templatePath -PassThru)
 
             $findings.Count | Should-Be 0
+        }
+    }
+
+    Context 'When a comment records an exception' {
+        It 'Reports the finding as a recorded exception with its reason, and does not fail' {
+            $comment = '        # Exception to ERR-11: a scheduled script must end here.'
+            $code = & $newExceptionCode -LinesAbove $comment
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath)
+
+            $findings | Should-BeCollection -Count 1
+            $findings[0].RuleId | Should-BeString 'ERR-11'
+            $findings[0].Severity | Should-BeString 'Information'
+            $findings[0].Message | Should-BeLikeString 'Recorded exception: a scheduled script must end here. | *'
+        }
+
+        It 'Reads a reason that runs over several comment lines' {
+            $comments = @(
+                '        # Exception to ERR-11: a scheduled script must end here,'
+                '        # which the form of ERR-10 does not do.'
+            )
+            $code = & $newExceptionCode -LinesAbove $comments
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath -PassThru)
+
+            $findings | Should-BeCollection -Count 1
+            $findings[0].Severity | Should-BeString 'Information'
+            $findings[0].Message | Should-BeLikeString '*must end here, which the form of ERR-10 does not do. | *'
+        }
+
+        It 'Accepts the comment at the end of the line' {
+            $code = & $newExceptionCode -Suffix ' # Exception to ERR-11: a scheduled script must end here.'
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath -PassThru)
+
+            $findings | Should-BeCollection -Count 1
+            $findings[0].Severity | Should-BeString 'Information'
+        }
+
+        It 'Keeps the finding and reports DOC-22 when the comment gives no reason' {
+            $code = & $newExceptionCode -LinesAbove '        # Exception to ERR-11:'
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath -PassThru)
+            $errors = @($findings | Where-Object { $_.Severity -eq 'Error' } | ForEach-Object { $_.RuleId })
+
+            $errors | Should-BeCollection -Count 2
+            $errors -contains 'ERR-11' | Should-BeTrue
+            $errors -contains 'DOC-22' | Should-BeTrue
+            { & $complianceScript -Path $filePath } | Should-Throw -ExceptionMessage '*finding(s) with severity*'
+        }
+
+        It 'Keeps the finding and reports DOC-22 when <Reason>' -ForEach @(
+            @{
+                Reason = 'a blank line separates the comment from the statement'
+                LinesAbove = @('        # Exception to ERR-11: a scheduled script must end here.', '')
+            }
+            @{
+                Reason = 'the comment names another rule that the script checks'
+                LinesAbove = @('        # Exception to ERR-21: the reason does not matter here.')
+            }
+        ) {
+            $code = & $newExceptionCode -LinesAbove $LinesAbove
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath -PassThru)
+            $kept = @($findings | Where-Object { $_.RuleId -eq 'ERR-11' })
+            $unused = @($findings | Where-Object { $_.RuleId -eq 'DOC-22' })
+
+            $kept | Should-BeCollection -Count 1
+            $kept[0].Severity | Should-BeString 'Error'
+            $unused | Should-BeCollection -Count 1
+            $unused[0].Severity | Should-BeString 'Warning'
+            $unused[0].Message | Should-BeLikeString '*excuses nothing*'
+        }
+
+        It 'Leaves a comment for a rule that the script cannot check to a reader' {
+            $code = "# Exception to FUN-11: the caller needs the whole list at once.`n'text'"
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath)
+
+            $findings.Count | Should-Be 0
+        }
+
+        It 'Does not excuse a finding of PSScriptAnalyzer' {
+            $code = "# Exception to VER-06: the report needs the old class.`nGet-WmiObject -Class Win32_Bios"
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath -PassThru | Where-Object { $_.RuleId -eq 'VER-06' })
+
+            $findings | Should-BeCollection -Count 1
+            $findings[0].Source | Should-BeString 'PSScriptAnalyzer'
+            $findings[0].Severity | Should-NotBe 'Information'
+        }
+
+        It 'Lists every rule that its own checks report as one whose exception it can check' {
+            $scriptText = [System.IO.File]::ReadAllText($complianceScript)
+            $reported = [regex]::Matches($scriptText, "issues\.Add\(@\('(?<id>[A-Z]{3}-\d{2})'") |
+                ForEach-Object { $_.Groups['id'].Value } |
+                Where-Object { $_ -ne 'DOC-22' } |
+                Sort-Object -Unique
+            $listPattern = '(?s)\$rulesThisScriptChecks = @\((?<list>.*?)\r?\n\)'
+            $listText = [regex]::Match($scriptText, $listPattern).Groups['list'].Value
+            $listed = [regex]::Matches($listText, "'(?<id>[A-Z]{3}-\d{2})'") |
+                ForEach-Object { $_.Groups['id'].Value } |
+                Sort-Object -Unique
+
+            ($listed -join ',') | Should-BeString ($reported -join ',')
         }
     }
 

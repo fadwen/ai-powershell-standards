@@ -10,7 +10,8 @@ These are the rules for writing and reviewing PowerShell in this repository. **M
 
 - Apply them to code you write or change. Do not reformat or rewrite code the task does not touch.
 - An explicit instruction from the user takes precedence. If following it breaks a MUST, say which
-  one.
+  one. A departure that is meant to stay is recorded in the code (DOC-22). Leave a recorded
+  departure as it is, and do not record one that the user has not decided.
 - Do not invent facts: no made-up module names, version numbers, measurements, links, or authors. Ask,
   or leave it out.
 - When you can run commands, run PSScriptAnalyzer and the tests before you report the work as done,

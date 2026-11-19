@@ -72,6 +72,10 @@ in `.github/instructions/powershell-platyps.instructions.md`.
   code does, and commented-out code MUST NOT be left in a file.
 - **DOC-21** A comment MUST stay true when read on its own. References to a conversation, a review, or
   an earlier version of the code MUST NOT be written into a file.
+- **DOC-22** A deliberate departure from a rule is recorded where the code is, in a comment directly
+  above the statement or at the end of its line: `# Exception to <rule ID>: <reason>`. One comment
+  names one rule, and the reason says why the rule does not fit there. The user decides an
+  exception. Such a comment MUST NOT be added to make a check pass or to settle a review finding.
 
 ## Notes and examples
 
@@ -267,4 +271,44 @@ $pageSize = 100
 # Non-compliant: restates the code
 # Set page size to 100
 $pageSize = 100
+```
+
+**DOC-22.** The comment keeps the decision with the code, where every agent and every reviewer reads
+it. A note in a project file that only one tool loads does not do that.
+
+```powershell
+function Get-StaleRecord {
+    [CmdletBinding()]
+    [OutputType('Contoso.StaleRecord')]
+    param()
+
+    try {
+        $session = Connect-RecordStore -ErrorAction Stop
+    } catch {
+        # Exception to ERR-11: the scheduled cleanup that calls this command sets no error
+        # preference, and it must end when the store cannot be reached.
+        Write-Error -ErrorRecord $_ -ErrorAction Stop
+    }
+
+    Get-RecordStoreItem -Session $session -Stale
+}
+```
+
+The reason can run over several comment lines. A blank line between the comment and the statement
+separates the two, and the comment then excuses nothing.
+
+A review lists a recorded exception with its reason, apart from the findings, and reports one whose
+reason is missing or is no longer true (DOC-21). The compliance check of the standards repository,
+`Test-StandardsCompliance.ps1`, reports the excused finding with the severity Information and does
+not fail on it. It reports the comment itself when the reason is missing, and when the comment names
+a rule that the check covers and excuses nothing.
+
+The comment does not silence PSScriptAnalyzer. Suppress one of its findings with its own attribute
+on the function, and give the attribute a justification:
+
+```powershell
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+    'PSAvoidUsingWriteHost', '', Justification = 'The menu needs colour.')]
+[CmdletBinding()]
+param()
 ```

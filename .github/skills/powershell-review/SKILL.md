@@ -26,10 +26,13 @@ loaded. Every rule has an ID such as `ERR-10`; cite it.
 4. Confirm each finding before reporting it. Read the surrounding code, and where behaviour is in
    doubt, run a small test. Do not report a rule violation in code that the change did not touch,
    unless it is a defect.
+5. A comment of the form `# Exception to ERR-11: reason` records a decision of the project (DOC-22).
+   Do not report the code under it as a finding of that rule. Do report the comment when its reason
+   is missing or no longer matches the code. Do not propose such a comment as the fix for a finding.
 
 ## Report
 
 List findings with the most serious first. For each one give the file and line, the rule ID or the
 word "defect", what is wrong, and the corrected code. Separate requirements (MUST) from
-recommendations (SHOULD). State what you ran and what you did not check. If nothing is wrong, say so;
-do not invent findings.
+recommendations (SHOULD). List the recorded exceptions with their reasons, apart from the findings.
+State what you ran and what you did not check. If nothing is wrong, say so; do not invent findings.

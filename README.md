@@ -287,6 +287,10 @@ The script runs PSScriptAnalyzer with the settings file and adds checks that PSS
 not have, such as `throw` in an advanced function. Each finding names the rule it breaks. A clean
 result does not prove that code follows every rule; many rules need a reader.
 
+A project that departs from a rule on purpose records that in a comment directly above the
+statement, `# Exception to ERR-11: <reason>` (DOC-22). The script then reports the finding with the
+severity Information and does not fail on it.
+
 ## Upgrading from a version before 2.0
 
 Version 2.0 replaced the instruction files and the prompt files. Run the installer with
