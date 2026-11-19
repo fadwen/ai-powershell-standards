@@ -37,7 +37,9 @@ BeforeAll {
 Describe 'Get-FolderSize with the PSFramework module' -Tag 'Integration' -Skip:(-not $frameworkLoads) {
     BeforeAll {
         # A message written here would otherwise go to PSFramework's own log, in the profile of the
-        # account that runs the tests.
+        # account that runs the tests. The provider belongs to the whole process, so AfterAll gives
+        # it back the state it had.
+        $ownLogWasEnabled = (Get-PSFLoggingProvider -Name filesystem).Enabled
         Set-PSFLoggingProvider -Name filesystem -Enabled $false -Wait
 
         . (Join-Path -Path $PSScriptRoot -ChildPath 'Get-FolderSize.ps1')
@@ -47,6 +49,12 @@ Describe 'Get-FolderSize with the PSFramework module' -Tag 'Integration' -Skip:(
         $null = New-Item -Path $reportFolder -ItemType Directory
         $firstFile = Join-Path -Path $reportFolder -ChildPath 'first.txt'
         Set-Content -LiteralPath $firstFile -Value 'abc' -NoNewline -Encoding ascii
+    }
+
+    AfterAll {
+        if ($ownLogWasEnabled) {
+            Set-PSFLoggingProvider -Name filesystem -Enabled $true -Wait
+        }
     }
 
     It 'Gives the caller nothing for a failure under -ErrorAction SilentlyContinue' {
@@ -73,8 +81,10 @@ Describe 'Get-FolderSize with the PSFramework module' -Tag 'Integration' -Skip:(
 
 Describe 'Invoke-FolderSizeReport.ps1' -Tag 'Integration' -Skip:(-not $canRun) {
     BeforeAll {
-        # A message written before the script has run would otherwise go to PSFramework's own log,
-        # in the profile of the account that runs the tests.
+        # A message that a test writes itself would otherwise go to PSFramework's own log, in the
+        # profile of the account that runs the tests. The provider belongs to the whole process, so
+        # AfterAll gives it back the state it had.
+        $ownLogWasEnabled = (Get-PSFLoggingProvider -Name filesystem).Enabled
         Set-PSFLoggingProvider -Name filesystem -Enabled $false -Wait
 
         $reportFolder = Join-Path -Path $TestDrive -ChildPath 'reports'
@@ -83,6 +93,12 @@ Describe 'Invoke-FolderSizeReport.ps1' -Tag 'Integration' -Skip:(-not $canRun) {
         $null = New-Item -Path $reportFolder, $emptyFolder -ItemType Directory
         $firstFile = Join-Path -Path $reportFolder -ChildPath 'first.txt'
         Set-Content -LiteralPath $firstFile -Value 'abc' -NoNewline -Encoding ascii
+    }
+
+    AfterAll {
+        if ($ownLogWasEnabled) {
+            Set-PSFLoggingProvider -Name filesystem -Enabled $true -Wait
+        }
     }
 
     Context 'When every folder can be measured' {
@@ -139,6 +155,10 @@ Describe 'Invoke-FolderSizeReport.ps1' -Tag 'Integration' -Skip:(-not $canRun) {
             $own[0].Tags | Should-Be 'start'
         }
 
+        It 'Leaves PSFramework''s own log off when it was off' {
+            (Get-PSFLoggingProvider -Name filesystem).Enabled | Should-BeFalse
+        }
+
         It 'Turns its log file off when it ends' {
             Write-PSFMessage -Level Verbose -Message 'Written after the script ended.'
             Wait-PSFMessage
@@ -180,6 +200,35 @@ Describe 'Invoke-FolderSizeReport.ps1' -Tag 'Integration' -Skip:(-not $canRun) {
             $later = @($failedRows | Where-Object { $_.TargetObject -eq $reportFolder })
 
             $later.Count | Should-Be 0
+        }
+    }
+
+    Context 'When PSFramework''s own log is on' {
+        BeforeAll {
+            $ownLogFolder = Join-Path -Path $TestDrive -ChildPath 'own-log-on'
+            Set-PSFLoggingProvider -Name filesystem -Enabled $true -Wait
+            try {
+                $null = & $scriptPath -LiteralPath $reportFolder -LogDirectory $ownLogFolder
+                $enabledAfterRun = (Get-PSFLoggingProvider -Name filesystem).Enabled
+
+                try {
+                    $null = & $scriptPath -LiteralPath $missingFolder -LogDirectory $ownLogFolder
+                } catch [System.Management.Automation.ItemNotFoundException] {
+                    # The script is meant to fail here. The test is about the state it leaves.
+                    $enabledAfterFailure = (Get-PSFLoggingProvider -Name filesystem).Enabled
+                }
+            } finally {
+                # Back to the state that this Describe block keeps while its tests run.
+                Set-PSFLoggingProvider -Name filesystem -Enabled $false -Wait
+            }
+        }
+
+        It 'Turns it on again after a run' {
+            $enabledAfterRun | Should-BeTrue
+        }
+
+        It 'Turns it on again after a run that failed' {
+            $enabledAfterFailure | Should-BeTrue
         }
     }
 

@@ -171,12 +171,17 @@ function Get-FolderSize {
 
 ## The script that runs the code
 
-- Turn off the provider named `filesystem` first. It is on by default. On PowerShell 7 it writes
-  every message, shown or not, to the profile of the account, with the computer name, the path of
-  the script, and the target. On PowerShell 7 and on Windows PowerShell 5.1 it writes each error
-  there as an XML file, with the computer name and the script stack trace (SEC-06).
+- Turn off the provider named `filesystem` for the run. It is on by default. On PowerShell 7 it
+  writes every message, shown or not, to the profile of the account, with the computer name, the
+  path of the script, and the target. On PowerShell 7 and on Windows PowerShell 5.1 it writes each
+  error there as an XML file, with the computer name and the script stack trace (SEC-06).
+- Put it back. The provider belongs to the whole process, and other code in the same session may
+  use it. Read `(Get-PSFLoggingProvider -Name filesystem).Enabled` before turning it off, and in
+  `finally` enable it again when it was enabled. The messages of the run did not reach it
+  afterwards. PowerShell 7 creates an empty file in the profile when the provider is enabled again.
 - Enable one instance of the `logfile` provider, with these settings:
-  - A full path (STY-31). `%Date%` in the file name gives one file for each day.
+  - A full path (STY-31). `%Date%` in the file name gives one file for each day. It is the local
+    date, with `-UTC` as well, so a file can hold timestamps of two UTC dates.
   - `-FileType Json` with `-JsonCompress` and `-JsonNoComma`, so that every line is one JSON
     object, and `-JsonString`, so that the level is a word. Without them the file starts with a
     comma and the level is a number.
@@ -187,8 +192,9 @@ function Get-FolderSize {
   - `-LogRotatePath`, `-LogRetentionTime`, and `-LogRotateFilter`, to remove old log files. Set
     the filter to the names of the project's log files. With the default filter, every file in
     that folder that is older than the retention time is removed.
-- Call `Wait-PSFMessage` in `finally`, then disable the instance. Without the wait, the last
-  message was missing from the file after the process had ended, on a Windows 11 virtual machine.
+- Call `Wait-PSFMessage` in `finally`, then disable the instance, then put `filesystem` back.
+  Without the wait, the last message was missing from the file after the process had ended, on a
+  Windows 11 virtual machine.
 - A message that the script writes itself has the module name `<Unknown>` and the name of the
   script file as its function name. `-IncludeModules` limits an instance to the named modules, and
   leaves those messages out.
@@ -208,7 +214,8 @@ Measures folders and writes what happened to a log file.
 .DESCRIPTION
 Turns on a PSFramework log file, measures each folder with Get-FolderSize, and writes the results
 to the pipeline. The log is a file of JSON lines in the log folder, one file for each day, with
-timestamps in UTC. Log files of this script that are older than 30 days are removed.
+timestamps in UTC. Log files of this script that are older than 30 days are removed. PSFramework's
+own log is off while the script runs and has its earlier state again when the script ends.
 
 The script stops at the first folder that cannot be measured. The failure is in the log file.
 
@@ -248,8 +255,9 @@ $logFolder = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($LogDirectory)
 $null = New-Item -Path $logFolder -ItemType Directory -Force
 
 # PSFramework's own log is on by default. It records every message, shown or not, in the profile
-# of the account, with the computer name and the path of the script.
-Set-PSFLoggingProvider -Name filesystem -Enabled $false -Wait
+# of the account, with the computer name and the path of the script. It is off while this script
+# runs. The setting belongs to the whole process, so it gets its state back at the end.
+$ownLogWasEnabled = (Get-PSFLoggingProvider -Name filesystem).Enabled
 
 $logFile = @{
     Name = 'logfile'
@@ -272,33 +280,41 @@ $logFile = @{
     Enabled = $true
     Wait = $true
 }
-Set-PSFLoggingProvider @logFile
 
 try {
+    Set-PSFLoggingProvider -Name filesystem -Enabled $false -Wait
+    Set-PSFLoggingProvider @logFile
     Write-PSFMessage -Level Verbose -Message "Measuring $($LiteralPath.Count) folder(s)." -Tag 'start'
     Get-FolderSize -LiteralPath $LiteralPath
 } finally {
     # The last message can be missing from the file when the process ends without this call.
     Wait-PSFMessage
     Set-PSFLoggingProvider -Name logfile -InstanceName 'FolderSizeReport' -Enabled $false -Wait
+    if ($ownLogWasEnabled) {
+        Set-PSFLoggingProvider -Name filesystem -Enabled $true -Wait
+    }
 }
 ```
 
 ## The tests
 
-- A unit test replaces `Write-PSFMessage` with a mock that names the module, and asserts the
-  messages that matter with `Should-Invoke -ParameterFilter`, by `$Level`, `$Message`, `$Target`,
-  and `$Tag` (TST-21). That mock takes the place of the mocks of `Write-Verbose` and
-  `Write-Information` that TST-20 asks for.
+- A unit test replaces `Write-PSFMessage` with a mock, and asserts the messages that matter with
+  `Should-Invoke -ParameterFilter`, by `$Level`, `$Message`, `$Target`, and `$Tag`. The mock names
+  the module when the function is in a module (TST-21), and not when the test dot-sources the
+  function file. It takes the place of the mocks of `Write-Verbose` and `Write-Information` that
+  TST-20 asks for.
 - Assert a failure twice: the message with the level `Error`, and the error that the caller gets
   (TST-17).
 - An integration test runs the script with a log folder under `$TestDrive` and reads the file back
-  line by line with `ConvertFrom-Json`. A test that writes a message without running the script
-  disables the `filesystem` provider first.
+  line by line with `ConvertFrom-Json`. It also asserts that the `filesystem` provider has the
+  state after the script that it had before. A test that writes a message without running the
+  script disables that provider first, and puts its state back in `AfterAll`.
 
 ## Report
 
 Say which mode applied and what step 2 found. List the files changed, the logging that was
 replaced or removed, and where the log files go. Give the results of PSScriptAnalyzer and the
-tests, and quote one line of the log file that the script wrote. Say plainly when PSFramework could
-not be loaded and the code is therefore untested.
+tests, and quote one line of the log file that the script wrote. Say that the project now depends
+on PSFramework and that its assembly is not signed, because some organizations approve such a
+dependency before it is used. Say plainly when PSFramework could not be loaded and the code is
+therefore untested.

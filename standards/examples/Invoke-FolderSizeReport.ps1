@@ -8,7 +8,8 @@ Measures folders and writes what happened to a log file.
 .DESCRIPTION
 Turns on a PSFramework log file, measures each folder with Get-FolderSize, and writes the results
 to the pipeline. The log is a file of JSON lines in the log folder, one file for each day, with
-timestamps in UTC. Log files of this script that are older than 30 days are removed.
+timestamps in UTC. Log files of this script that are older than 30 days are removed. PSFramework's
+own log is off while the script runs and has its earlier state again when the script ends.
 
 The script stops at the first folder that cannot be measured. The failure is in the log file.
 
@@ -48,8 +49,9 @@ $logFolder = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($LogDirectory)
 $null = New-Item -Path $logFolder -ItemType Directory -Force
 
 # PSFramework's own log is on by default. It records every message, shown or not, in the profile
-# of the account, with the computer name and the path of the script.
-Set-PSFLoggingProvider -Name filesystem -Enabled $false -Wait
+# of the account, with the computer name and the path of the script. It is off while this script
+# runs. The setting belongs to the whole process, so it gets its state back at the end.
+$ownLogWasEnabled = (Get-PSFLoggingProvider -Name filesystem).Enabled
 
 $logFile = @{
     Name = 'logfile'
@@ -72,13 +74,17 @@ $logFile = @{
     Enabled = $true
     Wait = $true
 }
-Set-PSFLoggingProvider @logFile
 
 try {
+    Set-PSFLoggingProvider -Name filesystem -Enabled $false -Wait
+    Set-PSFLoggingProvider @logFile
     Write-PSFMessage -Level Verbose -Message "Measuring $($LiteralPath.Count) folder(s)." -Tag 'start'
     Get-FolderSize -LiteralPath $LiteralPath
 } finally {
     # The last message can be missing from the file when the process ends without this call.
     Wait-PSFMessage
     Set-PSFLoggingProvider -Name logfile -InstanceName 'FolderSizeReport' -Enabled $false -Wait
+    if ($ownLogWasEnabled) {
+        Set-PSFLoggingProvider -Name filesystem -Enabled $true -Wait
+    }
 }
