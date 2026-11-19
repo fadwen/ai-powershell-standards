@@ -122,6 +122,16 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 - Only the body of a commit message is wrapped at 72 columns (PRQ-12). A pull request description
   or a comment has one line for each paragraph and list item, because GitHub renders a line break
   inside one as a line break.
+- ERR-24 says that `-ErrorAction Stop` on a call does not make a terminating error of that command
+  end the script, so a script sets `$ErrorActionPreference = 'Stop'` as well. The error-handling
+  rules now compare what a calling script sees when a function fails with
+  `$PSCmdlet.ThrowTerminatingError()`, with `throw`, and with
+  `Write-Error -ErrorRecord $_ -ErrorAction Stop`. With the first, which ERR-10 requires, a script
+  without the preference goes on after the failed command and ends with exit code 0. Text that
+  tells a caller to pass `-ErrorAction Stop` so that a failure fails a job step is wrong for such
+  a command; an unattended example sets the preference (RDM-13). The note on `throw` names the two
+  cases in which `-ErrorAction` does not suppress it: a bare `throw` that passes on an error raised
+  with `-ErrorAction Stop`, and `-ErrorAction Ignore` on Windows PowerShell 5.1.
 
 ### Fixed
 

@@ -53,6 +53,8 @@ run directly, and a function, which a caller invokes and which must leave the ca
   error. A non-zero exit code does not raise a PowerShell error by default.
 - **ERR-24** In a script, pass `-ErrorAction Stop` to a module command whose non-terminating errors
   must stop the script. The script's own `$ErrorActionPreference` does not reach module functions.
+  Set the preference as well (ERR-01): `-ErrorAction Stop` on a call does not make a terminating
+  error of that command end the script.
 
 ### Streams
 
@@ -222,9 +224,13 @@ carries.
 
 Each statement below was verified on PowerShell 7.6 and Windows PowerShell 5.1.
 
-- `throw` is suppressed when any caller up the call stack passed `-ErrorAction SilentlyContinue` or
-  `-ErrorAction Ignore`. Execution then continues with the statement after the `throw`, and the
-  function returns as if it had succeeded.
+- `throw` is suppressed when any caller up the call stack passed `-ErrorAction SilentlyContinue`, or
+  `-ErrorAction Ignore` on PowerShell 7. Execution then continues with the statement after the
+  `throw`, and the function returns as if it had succeeded. A bare `throw` that passes on an error
+  raised with `-ErrorAction Stop` is the exception, described under the table below. On Windows
+  PowerShell 5.1, `-ErrorAction Ignore` does not suppress a `throw`: the command that was given the
+  parameter ends with another error,
+  `The value Ignore is not supported for an ActionPreference variable`.
 - `Write-Error -ErrorAction Stop` ignores the caller's `-ErrorAction`, and unless `-ErrorRecord` is
   passed it replaces the original exception with a `WriteErrorException`.
 - `$PSCmdlet.ThrowTerminatingError()` always ends the function, and the caller's `-ErrorAction` does
@@ -240,6 +246,41 @@ Each statement below was verified on PowerShell 7.6 and Windows PowerShell 5.1.
   failure.
 - Under `$ErrorActionPreference = 'Stop'`, `Write-Error` terminates. Statements that follow it in the
   same block do not run.
+
+### What a calling script sees (ERR-01, ERR-10, ERR-11, ERR-24)
+
+A module function fails in its `begin` block, in one of three ways, and the script that calls it is
+started with `-File`. Measured on PowerShell 7.7.0, PowerShell 7.6.10, and Windows PowerShell 5.1:
+
+| The calling script | `$PSCmdlet.ThrowTerminatingError()` | `throw $_` | `Write-Error -ErrorRecord $_ -ErrorAction Stop` |
+| --- | --- | --- | --- |
+| Has no `try` and sets no preference | Goes on, exit code 0 | Ends, exit code 1 | Ends, exit code 1 |
+| Passes `-ErrorAction Stop` | Goes on, exit code 0 | Ends, exit code 1 | Ends, exit code 1 |
+| Passes `-ErrorAction SilentlyContinue` | Goes on, exit code 0 | Goes on, and so does the function | Ends, exit code 1 |
+| Sets `$ErrorActionPreference = 'Stop'` | Ends, exit code 1 | Ends, exit code 1 | Ends, exit code 1 |
+| Makes the call inside `try` | `catch` runs | `catch` runs | `catch` runs |
+| Makes the call twice in a loop | Both calls run | Ends at the first | Ends at the first |
+
+`throw` with text or with an exception object behaves as `throw $_` does, and so does a bare `throw`
+in `catch`, with one exception. A bare `throw` that passes on an error raised with
+`-ErrorAction Stop` behaves as the last column does, and so does such an error that no `catch`
+handles: the script ends under `-ErrorAction SilentlyContinue` as well.
+
+A compiled cmdlet that raises a terminating error, as `ConvertFrom-Json` does for invalid text,
+behaves as the first column does.
+
+ERR-10 chooses the first column: the function fails as a cmdlet does, and the caller decides whether
+the script stops. The last column ends the calling script whatever the caller asked for. `-ErrorAction`
+no longer works for the caller, and a loop ends at its first failure, which is why ERR-11 rules that
+form out even with `-ErrorRecord`.
+
+The first two rows are the price of that choice. A script that does not set
+`$ErrorActionPreference = 'Stop'` goes on after the failure and ends with exit code 0, and
+`-ErrorAction Stop` on the call does not change that. A script therefore needs both: the preference
+for a terminating error (ERR-01), and `-ErrorAction Stop` for a non-terminating error of a module
+command (ERR-24). Text for callers, such as a README, a runbook, or a help example, says the same.
+It does not offer `-ErrorAction Stop` as the way to make a failed command end a script or fail a job
+step.
 
 ### Strict mode (ERR-02, ERR-03)
 

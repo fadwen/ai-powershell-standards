@@ -205,3 +205,8 @@ measured or when a dependency declares it; leave the row out otherwise (RDM-04).
 **RDM-11.** For an organization's own deployment system, show the command that system really uses.
 The verification step can be `Get-Module -Name ModuleName -ListAvailable`, and for a manual
 download `Get-AuthenticodeSignature`.
+
+**RDM-13.** An example that runs the commands unattended starts with
+`$ErrorActionPreference = 'Stop'`. `-ErrorAction Stop` on a call does not end the script when the
+command raises a terminating error; the measurements are under ERR-24 in
+`.github/instructions/powershell-error-handling.instructions.md`.
