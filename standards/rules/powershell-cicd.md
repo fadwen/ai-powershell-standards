@@ -116,9 +116,11 @@ The runner and the Pester settings files are kept in the `Tests` folder. A `buil
 `Tests` is the alternative; both are one level below the repository root, so the scripts are the
 same in either.
 
-**CIC-02.** The pin also avoids a known failure: Pester 6.0 and 6.1 do not import on PowerShell
-7.4.0 to 7.4.5 (`Cannot convert "PesterConfigurationDeserializer" from String to Type`), which
-bites self-hosted agents and pinned container images. Pester 6.2 fixed it.
+**CIC-02.** The pin also avoids a known failure: Pester 6.0.0, 6.0.1, and 6.1.0 do not import on
+PowerShell 7.4.0 to 7.4.4, which bites self-hosted agents and pinned container images. The error is
+`Cannot convert the "PesterConfigurationDeserializer" value of type "System.String" to type "System.Type"`.
+Pester 6.2.0 imports on every 7.4 release. Measured on Linux, macOS, and Windows with PowerShell
+7.4.0 to 7.4.7 and 7.4.22.
 
 A commit ID is the stricter choice for CIC-09, because a tag can be moved. Write the tag after it in a
 comment, as in `actions/checkout@<commit ID> # v7.0.1`, and look the ID up; do not invent one.
