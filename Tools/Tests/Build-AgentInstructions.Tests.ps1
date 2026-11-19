@@ -79,7 +79,7 @@ BeforeAll {
 
     # Builds a minimal standards tree under a folder, for tests of the script's own behaviour.
     $newFixtureRepository = {
-        param([string]$Root, [string]$RuleText, [string]$CoreText)
+        param([string]$Root, [string]$RuleText, [string]$CoreText, [string]$SkillText)
 
         $null = New-Item -Path (Join-Path -Path $Root -ChildPath 'standards/rules') -ItemType Directory -Force
         $manifestText = @'
@@ -106,6 +106,13 @@ BeforeAll {
             'standards/rules/powershell-sample.md' = $RuleText
             'standards/core.md' = $CoreText
             'standards/pointer.md' = "# Pointer`n`nRead the core file.`n"
+        }
+        if ($SkillText) {
+            $skillFolder = Join-Path -Path $Root -ChildPath 'standards/skills/powershell-sample-skill'
+            $null = New-Item -Path $skillFolder -ItemType Directory -Force
+            $listedSkill = "Skills = @('powershell-sample-skill')"
+            $fixtureFiles['standards/manifest.psd1'] = $manifestText.Replace('Skills = @()', $listedSkill)
+            $fixtureFiles['standards/skills/powershell-sample-skill/SKILL.md'] = $SkillText
         }
         foreach ($relativePath in $fixtureFiles.Keys) {
             $fullPath = Join-Path -Path $Root -ChildPath $relativePath
@@ -433,6 +440,28 @@ Describe 'Build-AgentInstructions.ps1' -Tag 'Unit' {
         $rule = & $readFile -Root $fixtureRoot -RelativePath $rulePath
 
         $rule | Should-MatchString '(?s)```powershell\n''included text''\n```'
+    }
+
+    It 'Expands an include directive in a skill, in the copy for every agent' {
+        $includedPath = Join-Path -Path $fixtureRoot -ChildPath 'sample.ps1'
+        Set-Content -LiteralPath $includedPath -Value "'included text'" -Encoding ascii
+        $skillText = "---`nname: powershell-sample-skill`n---`n`n# Sample`n`n<!-- include: sample.ps1 -->`n"
+        $fixture = @{
+            Root = $fixtureRoot
+            RuleText = $sampleRuleText
+            CoreText = $sampleCoreText
+            SkillText = $skillText
+        }
+        & $newFixtureRepository @fixture
+
+        $null = & $buildScript -RepositoryRoot $fixtureRoot
+        $copies = foreach ($folder in '.github/skills', '.claude/skills', '.agents/skills') {
+            & $readFile -Root $fixtureRoot -RelativePath "$folder/powershell-sample-skill/SKILL.md"
+        }
+
+        $copies | Should-BeCollection -Count 3
+        $copies | Should-All { $_ -match '(?s)```powershell\n''included text''\n```' }
+        $copies | Should-All { $_ -notmatch '<!-- include:' }
     }
 
     It 'Fails when an included file does not exist' {

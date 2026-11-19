@@ -320,6 +320,14 @@ non-zero exit code raise an error that follows `$ErrorActionPreference`. It does
 PowerShell 5.1, and some tools use non-zero exit codes for success (`robocopy` returns values up to 7
 for normal outcomes), so an explicit `$LASTEXITCODE` test is the portable form.
 
+### Log files (ERR-30)
+
+These rules send messages to the streams and add no logging module. A project that also wants log
+files adds them with the `powershell-logging` skill, which uses the PSFramework module. Its code
+calls `Write-PSFMessage` where these rules name `Write-Verbose`, `Write-Debug`, and `Write-Warning`,
+and the message still reaches the stream. A project that requires PSFramework, in its manifest or
+in a `#requires -Modules` line, has made that choice: do not turn those calls back.
+
 ### Messages in a loop (ERR-32)
 
 PowerShell builds the message before `Write-Verbose` decides whether to show it. Measured with

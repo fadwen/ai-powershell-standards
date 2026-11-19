@@ -90,8 +90,9 @@
         }
     )
 
-    # Skills. Each folder under standards/skills is copied to .github/skills, .claude/skills, and
-    # .agents/skills, the folders that GitHub Copilot, Claude Code, and Codex read.
+    # Skills. The SKILL.md of each folder under standards/skills is written to .github/skills,
+    # .claude/skills, and .agents/skills, the folders that GitHub Copilot, Claude Code, and Codex
+    # read. An include directive in it is replaced by the file that it names.
     Skills = @(
         'powershell-new-function'
         'powershell-new-module'
@@ -101,6 +102,7 @@
         'powershell-performance-review'
         'powershell-ci-pipeline'
         'powershell-module-help'
+        'powershell-logging'
     )
 
     # Files that ship unchanged because rule files refer to them.

@@ -27,7 +27,7 @@ the features that differ between versions, and the changes in behaviour.
 | --- | --- |
 | Core rules | A short file that every agent always loads: how to apply the rules, the rules that matter in almost every file, and a function template that is tested code. |
 | Topic rules | Twelve files, each loaded when an agent works on a matching file: style, functions, error handling, security, help, versions, modules, Pester, PlatyPS, CI, README files, and pull requests. |
-| Skills | Eight procedures for common tasks, such as writing a function with its tests or reviewing code. |
+| Skills | Nine procedures for common tasks, such as writing a function with its tests or reviewing code. |
 | Pester guides | Thirteen longer reference guides that the Pester rules point to. |
 | Templates | A module to copy that has working code and tests, two reference layouts, and a workflow that keeps a project's copy of the standards up to date. |
 | Worked examples | A function, a module with compiled help, and their tests, all passing every check. |
@@ -192,6 +192,7 @@ computer, with tests." Most agents also let you name the skill directly, for exa
 | `powershell-performance-review` | Performance problems found by measuring, and their fixes |
 | `powershell-ci-pipeline` | A CI workflow that runs PSScriptAnalyzer and Pester with a coverage gate |
 | `powershell-module-help` | Module help written as Markdown and built with Microsoft.PowerShell.PlatyPS |
+| `powershell-logging` | Log files for a module or script with PSFramework, or one standard form for the logging it already has |
 
 ## Keep a project up to date
 
@@ -352,7 +353,7 @@ standards/
     core.md            the always-loaded core
     rules/             one file for each topic
     skills/            one folder for each skill
-    examples/          the function template and its tests
+    examples/          the function template and the samples that rules and skills include, with tests
 Tools/
     Build-AgentInstructions.ps1    generates the files below from standards/
     Install-CopilotStandards.ps1   installs the generated files into a project

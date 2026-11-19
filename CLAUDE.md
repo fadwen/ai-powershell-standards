@@ -11,7 +11,7 @@ Nothing under `.github/`, `.claude/`, or `.agents/` is edited by hand, apart fro
   `applyTo`. A topic whose glob is `**` becomes a rule with no `paths`.
 - Pull requests: branch, commit, and PR conventions are in
   `.github/instructions/powershell-pull-requests.instructions.md` and load in every session.
-- Skills: `.claude/skills/powershell-*` are copies of `standards/skills/`.
+- Skills: `.claude/skills/powershell-*` are generated from `standards/skills/`.
 - `AGENTS.md` points Codex to the core. GitHub Copilot reads it too, which is why it does not repeat
   the rules.
 
