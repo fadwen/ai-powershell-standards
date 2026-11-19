@@ -32,8 +32,7 @@ These rules apply to `.psm1` and `.psd1` files and to the function files a modul
 - **MOD-11** Before the upload, import the staged copy in a new process and compare what it exports
   with the manifest.
 - **MOD-12** `ReleaseNotes` in the manifest covers the current release and points to `CHANGELOG.md`.
-  Measure `ReleaseNotes`, `Description`, and the full tag list against the Gallery's limits before
-  the release.
+  Measure `ReleaseNotes` and `Description` against the Gallery's limits before the release.
 - **MOD-13** Leave a URI key such as `IconUri` or `HelpInfoURI` out of the manifest until it has a
   value. An empty string MUST NOT be assigned to it, and the release rehearsal checks for one.
 - **MOD-14** In a release script, only the publish step is guarded by `$PSCmdlet.ShouldProcess()`.
@@ -177,9 +176,11 @@ InModuleScope ModuleName {
 
 ### Releasing to the PowerShell Gallery (MOD-10 to MOD-15)
 
-A Gallery version is in use from the moment it uploads. It can be unlisted but not deleted, and the
-`.nupkg` stays downloadable at its direct URL afterwards. Each rule here answers a release that
-passed every local check and then shipped the wrong content or failed at the upload.
+A Gallery version is in use from the moment it uploads. Its owner can unlist it but cannot delete
+it, and the `.nupkg` stays downloadable at its direct URL afterwards: on 2026-11-19 four unlisted
+versions each downloaded from that address. Only the Gallery's administrators delete a package, on
+request, for a reason such as sensitive data in it. Each rule here answers a release that passed
+every local check and then shipped the wrong content or failed at the upload.
 
 **MOD-10, MOD-11.** When the repository is the module root, publishing that folder packs the working
 tree. Measured with Microsoft.PowerShell.PSResourceGet 1.2.0 and 1.3.1: the package contains `.git`, the tests,
@@ -225,56 +226,60 @@ if ($PSCmdlet.ShouldProcess($stagePath, 'Publish to the PowerShell Gallery')) {
 The script declares `[CmdletBinding(SupportsShouldProcess)]`, keeps `out/` in `.gitignore`, and takes
 the API key from an environment variable that the CI secret store fills (CIC-06).
 
-**MOD-12.** Three manifest fields have limits that are enforced only at upload, so every local check
-passes until the publish step is refused. The limits below were met in real releases; the release
-notes limit is stated in the Gallery's error response.
+**MOD-12.** Two manifest fields have limits that are enforced only at upload, so every local check
+passes until the publish step is refused.
 
 | Field | Limit |
 | --- | --- |
 | `ReleaseNotes` | 10,600 characters |
 | `Description` | 4,000 characters |
-| Tags | 4,000 characters for the whole list |
 
-The tag list that the Gallery stores is the manifest's `Tags` plus the tags the publish adds:
-`PSModule`, `PSEdition_<edition>` for each compatible edition, `PSIncludes_Function`, and
-`PSFunction_<name>` and `PSCommand_<name>` for every exported function. A module with 27 commands
-carries 61 tags and about 1,900 characters, so each new command costs about twice its name. A module
-that keeps adding commands therefore reaches the limit without its `Tags` key changing, and
-`ReleaseNotes` grows the same way when every release adds a paragraph and none removes one. Two
-modules built to these standards were refused at 11,319 and 12,699 characters, each after every
-other check had passed and the tag had been pushed. Measure all three in the release script and in a
-test:
+The Gallery states the first limit when it refuses an upload:
+`A package's ReleaseNotes property extracted from the PowerShell manifest may not be more than 10600 characters long.`
+Two modules built to these standards were refused with it, each after every other check had passed
+and the tag had been pushed. Their release notes had 11,190 and 12,523 characters with LF line
+endings, and 11,319 and 12,699 with CRLF. `ReleaseNotes` grows that far when every release adds a
+paragraph and none removes one. The limit is the Gallery's to change: in April 2023 the same
+refusal named 10,000 characters.
+
+The description limit was not met in a release. Both limits agree with the Gallery's feed as it was
+on 2026-11-19. Of 776,860 package versions, none published after January 2016 has release notes of
+more than 10,600 characters, and one has exactly 10,600. No description is longer than 4,000
+characters when a line break is counted as one character, and one has exactly 4,000. Measure both
+fields in the release script and in a test:
 
 ```powershell
 $manifest = Import-PowerShellDataFile -LiteralPath $manifestPath
-$psData = $manifest.PrivateData.PSData
-$publishTags = @(
-    $psData.Tags
-    'PSModule'
-    'PSIncludes_Function'
-    foreach ($edition in $manifest.CompatiblePSEditions) {
-        "PSEdition_$edition"
-    }
-    foreach ($functionName in $manifest.FunctionsToExport) {
-        "PSFunction_$functionName"
-        "PSCommand_$functionName"
-    }
-)
-
 $measurements = @(
-    @{ Field = 'Description'; Length = $manifest.Description.Length; Limit = 4000 }
-    @{ Field = 'Tags'; Length = ($publishTags -join ' ').Length; Limit = 4000 }
-    @{ Field = 'ReleaseNotes'; Length = $psData.ReleaseNotes.Length; Limit = 10600 }
+    # The index reads a key that the manifest lacks as $null. Member access is a strict mode error.
+    @{ Field = 'Description'; Text = $manifest['Description']; Limit = 4000 }
+    @{ Field = 'ReleaseNotes'; Text = $manifest.PrivateData.PSData['ReleaseNotes']; Limit = 10600 }
 )
 foreach ($measurement in $measurements) {
-    if ($measurement.Length -gt $measurement.Limit) {
-        $problem = "The manifest's $($measurement.Field) is $($measurement.Length) characters."
+    # A line break is counted as two characters, the larger of the two possible counts.
+    $length = ([string]$measurement.Text).Replace("`r`n", "`n").Replace("`n", "`r`n").Length
+    if ($length -gt $measurement.Limit) {
+        $problem = "The manifest's $($measurement.Field) is $length characters."
         throw "$problem The PowerShell Gallery accepts at most $($measurement.Limit)."
     }
 }
 ```
 
-A module that exports cmdlets or DSC resources gains further tags of the same kind.
+The count depends on the line endings, and which text the Gallery counts was not determined.
+PSResourceGet writes the release notes into the `.nuspec` of the package with the line endings of
+the system that publishes, CRLF on Windows and LF on Linux and macOS, whatever the manifest has.
+The manifest in the package keeps its own. Measured with PSResourceGet 1.2.1 and 1.3.1 on Windows,
+1.2.1 on Linux, and 1.2.0 on macOS.
+
+Tags need no measurement. Those versions of PSResourceGet write the manifest's `Tags` and
+`PSModule` into the package, and nothing for the commands. The rest of the list that
+`Find-PSResource` shows is added by the Gallery: `PSEdition_<edition>` for each compatible edition,
+`PSIncludes_Function`, and `PSFunction_<name>` and `PSCommand_<name>` for every exported function.
+A module that exports cmdlets or DSC resources gains further tags of the same kind. That list is
+not limited to 4,000 characters: a module with 100 functions, for which it has 6,709, was accepted,
+and on 2026-11-19 the Gallery served a list of 9,031 characters for a package whose own tags have
+92. A limit on the manifest's own `Tags` was not found either: no version published since 2025 has
+more than 2,500 characters of them.
 
 **MOD-13.** `IconUri = ''` is not "no icon". Measured with PSResourceGet 1.2.0 and 1.3.1, the pack fails with
 `IconUrl cannot be empty`, and the message names neither the manifest nor the key. `ProjectUri = ''`
@@ -299,7 +304,8 @@ if ($emptyKeys.Count -gt 0) {
 ```
 
 Setting `IconUri` has no visible effect on the Gallery in any case: the package page renders the
-default PowerShell logo and does not fetch the icon.
+Gallery's default icon and does not refer to the address in the key. That was the state of the
+pages of two modules that set the key, on 2026-11-19.
 
 **MOD-14.** `-WhatIf` sets `$WhatIfPreference`, and every cmdlet and script that the release script
 calls inherits it (FUN-33). Unless the other steps are pinned, a rehearsal copies nothing and builds
@@ -323,7 +329,9 @@ folder left by an earlier run hides a step that now produces nothing.
 Run the release from a version tag. The workflow runs every check again, refuses a tag that differs
 from the manifest's `ModuleVersion`, stages, verifies, and publishes (CIC-08, CIC-10). When the
 upload fails for a reason the rehearsal did not measure, nothing has been consumed: fix the
-manifest, move the tag to the new merge commit, and release under the same number.
+manifest, move the tag to the new merge commit, and release under the same number. Both modules
+that were refused for their release notes went out that way, under the number of the refused
+upload.
 
 ### Module data and state (MOD-20 to MOD-22)
 
