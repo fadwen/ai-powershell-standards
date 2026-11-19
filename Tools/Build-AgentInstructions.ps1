@@ -16,7 +16,8 @@ skills under standards/skills. From them it writes the files that each coding ag
 - .claude/rules/powershell-standards/<Id>.md is the Claude Code rule for each topic. It carries the
   same globs and imports the Copilot file, so no rule text is written twice. The rule named
   copilot-instructions.md in that folder imports the core.
-- .github/skills, .claude/skills, and .agents/skills each receive a copy of every skill.
+- .github/skills, .claude/skills, and .agents/skills each receive every skill, with each include
+  directive in it replaced by the file that it names.
 
 A file that is no longer produced is removed from those locations when its name starts with
 'powershell-'.
@@ -342,6 +343,7 @@ foreach ($skill in $manifest.Skills) {
 
     $skillPath = Join-Path -Path $RepositoryRoot -ChildPath "standards/skills/$skill/SKILL.md"
     $skillText = ConvertTo-LfText -Text ([System.IO.File]::ReadAllText($skillPath))
+    $skillText = Expand-IncludeDirective -Text $skillText -RootPath $RepositoryRoot
     foreach ($skillFolder in $skillFolders) {
         $generated["$skillFolder/$skill/SKILL.md"] = $skillText
     }

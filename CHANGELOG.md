@@ -71,6 +71,15 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   `-PreserveAuthorizationOnRedirect`. In a project that runs the check, existing calls of that
   kind fail it until they pass `-MaximumRedirection 0`. A limit that is not a number, such as a
   variable, is reported without failing the check.
+- The skill `powershell-logging`. It adds log files to a module or a script with the PSFramework
+  module, or brings the logging that a project already has into one form. The streams stay the
+  default (ERR-30), and the skill is for a project that asks for log files. Module code only
+  writes messages, with the levels Verbose, Debug, Warning, and Error; the script that runs it
+  turns off PSFramework's own log and writes JSON lines with UTC timestamps and chosen columns.
+  The function and the script that the skill shows, `standards/examples/Get-FolderSize.ps1` and
+  `standards/examples/Invoke-FolderSizeReport.ps1`, are real files with tests. PSFramework's
+  assembly is not signed, so Windows Smart App Control refuses to load it; the skill checks for
+  that first.
 
 ### Changed
 

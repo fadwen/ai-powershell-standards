@@ -55,6 +55,8 @@ jobs:
         run: |
           Install-PSResource -Name PSScriptAnalyzer -Version 1.25.0 -TrustRepository
           Install-PSResource -Name Pester -Version 6.2.0 -TrustRepository
+          # The logging examples write through the real module. Without it their tests are skipped.
+          Install-PSResource -Name PSFramework -Version 1.15.479 -TrustRepository
 
       # The tests cover three things besides the tools' own behaviour: generated instruction
       # files match their sources, every code sample in them parses, and the repository's own

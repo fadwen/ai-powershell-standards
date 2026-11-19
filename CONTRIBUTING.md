@@ -25,7 +25,7 @@ that the agents read from them.
 | `.github/instructions/pester-supporting-docs/` | Hand-written Pester guides that the rules point to | Yes |
 | `.claude/rules/powershell-standards/` | Generated: one Claude Code rule for each instruction file, importing it | Yes |
 | `AGENTS.md` | Generated: points Codex to the core | Yes |
-| `.github/skills/`, `.claude/skills/`, `.agents/skills/` | Generated copies of each skill | Yes |
+| `.github/skills/`, `.claude/skills/`, `.agents/skills/` | Generated: each skill, with the tested files that it includes | Yes |
 | `powershell-standards/Examples/` | Worked examples that pass every check | No |
 | `Documentation/`, `Templates/`, `Tools/` | The anti-pattern example, scaffolding, and tooling | No |
 
@@ -64,8 +64,10 @@ PowerShell 7.6, PSScriptAnalyzer 1.25.0, and Pester 6.2.0:
 ```
 
 It runs every test, including the comparison of the generated files with their sources and the
-compliance check of this repository's own PowerShell, and fails below 80 percent coverage. Markdown
-is checked separately:
+compliance check of this repository's own PowerShell, and fails below 80 percent coverage. The
+tests of the logging examples that write a real log file also need PSFramework 1.15.479. They are
+skipped where it is not installed or is not allowed to load, as under Windows Smart App Control,
+and CI runs them. Markdown is checked separately:
 
 ```bash
 markdownlint-cli2 "**/*.md" "!**/docs/*/*.md"    # uses .markdownlint.json, 120-column lines
