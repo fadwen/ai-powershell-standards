@@ -143,6 +143,9 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 
 ### Fixed
 
+- Pester 6.0.0, 6.0.1, and 6.1.0 fail to import on PowerShell 7.4.0 to 7.4.4. The note under CIC-02
+  and the Pester guides said 7.4.0 to 7.4.5, from a statement that had not been run. The range and
+  the error text are now the ones measured on Linux, macOS, and Windows.
 - The worked example `Get-BasicServerInfo` ends with an error that names Windows on another
   operating system (VER-10), and its tests are skipped there. Before, its 22 tests failed on Linux
   and macOS, because the CIM commands that they mock do not exist there.

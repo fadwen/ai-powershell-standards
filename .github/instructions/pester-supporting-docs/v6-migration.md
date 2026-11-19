@@ -437,10 +437,13 @@ Describe 'Get-User' -Tag 'Unit' {
   reproducible, which was not checked for this guide.
 - `IO exception during a TestRegistry operation, retrying.` is a debug message. In 6.1 it was a
   warning, shown when the retry recovered. This was read from the source of both versions.
-- Pester imports again on PowerShell 7.4.0 to 7.4.5. 6.0 and 6.1 failed there with
-  `Cannot convert "PesterConfigurationDeserializer" from String to Type`, because the `net8.0`
-  assembly referenced a newer `System.Management.Automation` than those releases carry. Those
-  PowerShell versions were not available, so this was not run for this guide.
+- Pester imports again on PowerShell 7.4.0 to 7.4.4. 6.0.0, 6.0.1, and 6.1.0 fail there, because
+  their `net8.0` assembly refers to `System.Management.Automation` 7.4.5.0, which those releases do
+  not carry. The error is
+  `Cannot convert the "PesterConfigurationDeserializer" value of type "System.String" to type "System.Type"`.
+  The assembly of 6.2.0 refers to 7.4.0.0. Run for this guide on Linux, macOS, and Windows: the
+  three earlier versions failed on 7.4.0 to 7.4.4 and imported on 7.4.5, 7.4.6, 7.4.7, and 7.4.22,
+  and 6.2.0 imported and ran a test on all nine releases.
 
 ### Verifying the Upgrade to 6.2
 

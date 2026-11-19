@@ -43,11 +43,14 @@ Three more facts shape the jobs:
    without coverage for feedback, and a separate sequential job with the profiler for the gate.
 2. A file that fails discovery adds nothing to `FailedCount`. Every gate checks `Result`, and a
    cheap discovery-only job runs first.
-3. Pester 6.0 and 6.1 do not import on PowerShell 7.4.0 to 7.4.5. Their `net8.0` assembly referred
-   to a newer `System.Management.Automation` than those releases carry, so `Import-Module` failed
-   with `Cannot convert "PesterConfigurationDeserializer" from String to Type`. Pester 6.2 fixed it.
-   Hosted runners carry the latest patch release, so this bites self-hosted agents and pinned
-   container images; the pin on Pester 6.2.0 (CIC-02) avoids it.
+3. Pester 6.0.0, 6.0.1, and 6.1.0 do not import on PowerShell 7.4.0 to 7.4.4. Their `net8.0`
+   assembly refers to `System.Management.Automation` 7.4.5.0, which those releases do not carry, so
+   `Import-Module` fails where the module registers its type converter. The error is
+   `Cannot convert the "PesterConfigurationDeserializer" value of type "System.String" to type "System.Type"`.
+   The three versions import on 7.4.5 and later. The assembly of Pester 6.2.0 refers to 7.4.0.0,
+   and that version imports on every 7.4 release. Measured on Linux, macOS, and Windows with
+   PowerShell 7.4.0 to 7.4.7 and 7.4.22. Hosted runners carry the latest patch release, so this
+   bites self-hosted agents and pinned container images; the pin on Pester 6.2.0 (CIC-02) avoids it.
 
 ```text
 validate (discovery only, fast)
