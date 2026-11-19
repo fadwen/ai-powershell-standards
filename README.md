@@ -289,7 +289,8 @@ result does not prove that code follows every rule; many rules need a reader.
 
 A project that departs from a rule on purpose records that in a comment directly above the
 statement, `# Exception to ERR-11: <reason>` (DOC-22). The script then reports the finding with the
-severity Information and does not fail on it.
+severity Information and does not fail on it. A security rule (SEC) cannot be excused this way: the
+finding keeps its severity, and the comment is reported as well.
 
 ## Upgrading from a version before 2.0
 

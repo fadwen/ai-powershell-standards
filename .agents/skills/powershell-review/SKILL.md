@@ -28,7 +28,9 @@ loaded. Every rule has an ID such as `ERR-10`; cite it.
    unless it is a defect.
 5. A comment of the form `# Exception to ERR-11: reason` records a decision of the project (DOC-22).
    Do not report the code under it as a finding of that rule. Do report the comment when its reason
-   is missing or no longer matches the code. Do not propose such a comment as the fix for a finding.
+   is missing or no longer matches the code. A comment that names a security rule (SEC) excuses
+   nothing: report the finding, and the comment. Do not propose such a comment as the fix for a
+   finding.
 
 ## Report
 

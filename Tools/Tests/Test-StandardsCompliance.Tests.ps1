@@ -564,6 +564,72 @@ Describe 'Test-StandardsCompliance.ps1' -Tag 'Unit' {
             $unused[0].Message | Should-BeLikeString '*excuses nothing*'
         }
 
+        It 'Accepts a rule ID and a marker written in lower case' {
+            $comment = '        # exception to err-11: a scheduled script must end here.'
+            $code = & $newExceptionCode -LinesAbove $comment
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath)
+
+            $findings | Should-BeCollection -Count 1
+            $findings[0].RuleId | Should-BeString 'ERR-11'
+            $findings[0].Severity | Should-BeString 'Information'
+        }
+
+        It 'Keeps the finding and reports DOC-22 when the comment has <Reason>' -ForEach @(
+            @{ Reason = 'no colon'; Comment = '# Exception to ERR-11 the script must end here.' }
+            @{ Reason = 'no hyphen in the rule ID'; Comment = '# Exception to ERR11: the script must end here.' }
+        ) {
+            $code = & $newExceptionCode -LinesAbove "        $Comment"
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath -PassThru)
+            $kept = @($findings | Where-Object { $_.RuleId -eq 'ERR-11' })
+            $malformed = @($findings | Where-Object { $_.RuleId -eq 'DOC-22' })
+
+            $kept | Should-BeCollection -Count 1
+            $kept[0].Severity | Should-BeString 'Error'
+            $malformed | Should-BeCollection -Count 1
+            $malformed[0].Severity | Should-BeString 'Warning'
+            $malformed[0].Message | Should-BeLikeString '*is not in the form*'
+        }
+
+        It 'Does not let a comment excuse <RuleId>, and reports the comment' -ForEach @(
+            @{
+                RuleId = 'SEC-01'
+                Code = "# Exception to SEC-01: test data.`n`$apiToken = 'abc123def456'`n`$apiToken"
+            }
+            @{
+                RuleId = 'SEC-09'
+                Code = "# Exception to SEC-09: an internal service.`nInvoke-RestMethod -Uri `$uri -Token `$token"
+            }
+        ) {
+            $filePath = & $newFixtureFile -Code $Code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath -PassThru)
+            $kept = @($findings | Where-Object { $_.RuleId -eq $RuleId })
+            $refused = @($findings | Where-Object { $_.RuleId -eq 'DOC-22' })
+
+            $kept | Should-BeCollection -Count 1
+            $kept[0].Severity | Should-BeString 'Error'
+            $kept[0].Message | Should-NotBeLikeString 'Recorded exception*'
+            $refused | Should-BeCollection -Count 1
+            $refused[0].Severity | Should-BeString 'Error'
+            $refused[0].Message | Should-BeLikeString "*cannot excuse a security rule*$RuleId*"
+            { & $complianceScript -Path $filePath } | Should-Throw -ExceptionMessage '*finding(s) with severity*'
+        }
+
+        It 'Reports a comment for a security rule that the script does not check' {
+            $code = "# Exception to SEC-14: the device has a self-signed certificate.`n'text'"
+            $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'
+
+            $findings = @(& $complianceScript -Path $filePath -PassThru)
+
+            $findings | Should-BeCollection -Count 1
+            $findings[0].RuleId | Should-BeString 'DOC-22'
+            $findings[0].Severity | Should-BeString 'Error'
+        }
+
         It 'Leaves a comment for a rule that the script cannot check to a reader' {
             $code = "# Exception to FUN-11: the caller needs the whole list at once.`n'text'"
             $filePath = & $newFixtureFile -Code $code -FileName 'Fixture.ps1'

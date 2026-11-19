@@ -75,7 +75,8 @@ in `.github/instructions/powershell-platyps.instructions.md`.
 - **DOC-22** A deliberate departure from a rule is recorded where the code is, in a comment directly
   above the statement or at the end of its line: `# Exception to <rule ID>: <reason>`. One comment
   names one rule, and the reason says why the rule does not fit there. The user decides an
-  exception. Such a comment MUST NOT be added to make a check pass or to settle a review finding.
+  exception. Such a comment MUST NOT be added to make a check pass or to settle a review finding,
+  and MUST NOT name a security rule (SEC): a security finding is always reported.
 
 ## Notes and examples
 
@@ -300,8 +301,13 @@ separates the two, and the comment then excuses nothing.
 A review lists a recorded exception with its reason, apart from the findings, and reports one whose
 reason is missing or is no longer true (DOC-21). The compliance check of the standards repository,
 `Test-StandardsCompliance.ps1`, reports the excused finding with the severity Information and does
-not fail on it. It reports the comment itself when the reason is missing, and when the comment names
-a rule that the check covers and excuses nothing.
+not fail on it. It reports the comment itself when the reason is missing, when the comment is not
+in this form, and when it names a rule that the check covers and excuses nothing.
+
+A security rule is not excused this way. Under `# Exception to SEC-01: test data` a literal
+password would pass the check, and that comment is what an agent with a failing check is tempted to
+add. The check keeps a security finding at its severity and reports the comment as well. An
+ordinary comment can still say why the code is as it is (DOC-20).
 
 The comment does not silence PSScriptAnalyzer. Suppress one of its findings with its own attribute
 on the function, and give the attribute a justification:

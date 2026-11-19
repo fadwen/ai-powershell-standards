@@ -22,9 +22,11 @@ redirects or links (SEC-09), and a manifest that still has the placeholder GUID 
 A comment of the form "# Exception to ERR-11: reason", directly above a line or at the end of it,
 records a deliberate departure from a rule (DOC-22). A finding of the additional checks for that
 rule on that line is then reported with the severity Information, with the reason in its message,
-and does not fail the script. Such a comment is itself a finding when it gives no reason, or when
-it names a rule that this script checks and excuses nothing. A finding of PSScriptAnalyzer is not
-excused by the comment; suppress it with PSScriptAnalyzer's own attribute.
+and does not fail the script. Such a comment is itself a finding when it gives no reason, when it
+is not in that form, or when it names a rule that this script checks and excuses nothing. A
+comment that names a security rule (SEC) excuses nothing: the finding keeps its severity and the
+comment is a finding as well. A finding of PSScriptAnalyzer is not excused by the comment;
+suppress it with PSScriptAnalyzer's own attribute.
 
 A clean result does not prove that code follows every rule. Many rules need a reader.
 
@@ -144,7 +146,9 @@ $rulesThisScriptChecks = @(
     'DOC-01', 'DOC-07', 'ERR-02', 'ERR-11', 'ERR-21', 'FUN-01', 'FUN-10', 'MOD-03', 'PLT-01'
     'SEC-01', 'SEC-09', 'STY-06', 'STY-07', 'STY-23', 'STY-40', 'STY-41', 'VER-05', 'VER-06'
 )
-$exceptionPattern = '^#\s*(?i:Exception to) (?<id>[A-Z]{3}-\d{2}):(?<reason>.*)$'
+$exceptionPattern = '(?i)^#\s*exception\s+to\s+(?<id>[a-z]{3}-\d{2})\s*:(?<reason>.*)$'
+# A comment that begins as an exception does, whether or not it goes on in that form.
+$exceptionStartPattern = '(?i)^#\s*exception\s+to\s+[a-z]{3}-?\d{2}(?![\w-])'
 $terminatingAdvice = 'Use $PSCmdlet.ThrowTerminatingError().'
 $listAdvice = 'ArrayList is used. Use [System.Collections.Generic.List[T]].'
 
@@ -565,9 +569,21 @@ foreach ($file in $files) {
     foreach ($comment in $lineComments) {
         $marker = [regex]::Match($comment.Text, $exceptionPattern)
         if (-not $marker.Success) {
+            if ([regex]::IsMatch($comment.Text, $exceptionStartPattern)) {
+                $form = '# Exception to <rule ID>: <reason>'
+                $message = "The comment begins as an exception does but is not in the form '$form'."
+                $issues.Add(@('DOC-22', 'Warning', $comment.Line, "$message It excuses nothing.", 'Standards'))
+            }
             continue
         }
-        $exceptedRuleId = $marker.Groups['id'].Value
+        $exceptedRuleId = $marker.Groups['id'].Value.ToUpperInvariant()
+        if ($exceptedRuleId -like 'SEC-*') {
+            # A comment is what an agent with a failing check is tempted to add, and here it would
+            # let a literal secret pass. A security finding therefore keeps its severity.
+            $message = "A comment cannot excuse a security rule. A finding of $exceptedRuleId stays as it is."
+            $issues.Add(@('DOC-22', 'Error', $comment.Line, $message, 'Standards'))
+            continue
+        }
         $reason = $marker.Groups['reason'].Value.Trim()
         $targetLine = $comment.Line
         if ($comment.IsStandalone) {

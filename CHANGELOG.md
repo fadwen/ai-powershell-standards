@@ -15,9 +15,10 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   statement, `# Exception to ERR-11: <reason>`. The user decides an exception, and an agent leaves
   a recorded one as it is. `Tools/Test-StandardsCompliance.ps1` reports the excused finding with
   the severity Information and does not fail on it. It reports the comment itself when the reason
-  is missing, and when the comment names a rule that the script checks and excuses nothing. The
-  review skill lists recorded exceptions apart from its findings. A finding of PSScriptAnalyzer is
-  still suppressed with its own attribute.
+  is missing, when the comment is not in that form, and when it names a rule that the script checks
+  and excuses nothing. A security rule (SEC) cannot be excused: its finding keeps its severity and
+  the comment is reported as well. The review skill lists recorded exceptions apart from its
+  findings. A finding of PSScriptAnalyzer is still suppressed with its own attribute.
 - `standards/` holds the sources, and `Tools/Build-AgentInstructions.ps1` generates the agent files
   from them. With `-Check` it fails when they do not match.
 - Codex support: `AGENTS.md` and the skills under `.agents/skills`.
