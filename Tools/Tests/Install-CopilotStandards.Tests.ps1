@@ -586,9 +586,9 @@ Describe 'Install-CopilotStandards.ps1' -Tag 'Unit' {
             $actions = @([regex]::Matches($workflowText, '(?m)^\s*uses:\s*(?<action>\S+)') |
                     ForEach-Object { $_.Groups['action'].Value })
 
-            $workflowText | Should-MatchString "(?m)^  CREDENTIAL_SCANNER: '$Scanner'$"
-            $workflowText | Should-MatchString "(?m)^  CREDENTIAL_SCANNER_VERSION: '\d+\.\d+\.\d+'$"
-            $workflowText | Should-MatchString "(?m)^  CREDENTIAL_SCANNER_SHA256: '[0-9a-f]{64}'$"
+            $workflowText | Should-MatchString "(?m)^  SCANNER: '$Scanner'$"
+            $workflowText | Should-MatchString "(?m)^  SCANNER_VERSION: '\d+\.\d+\.\d+'$"
+            $workflowText | Should-MatchString "(?m)^  SCANNER_SHA256: '[0-9a-f]{64}'$"
             $workflowText | Should-NotMatchString '\{\{'
             $workflowText | Should-MatchString 'fetch-depth: 0'
             $workflowText | Should-MatchString '\./\.github/scripts/Invoke-CredentialScan\.ps1 @scan'

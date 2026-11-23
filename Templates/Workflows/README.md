@@ -82,9 +82,9 @@ the exception: it belongs to the standards, and every later installation or sync
 
 | Value | Meaning |
 | --- | --- |
-| `CREDENTIAL_SCANNER` | The scanner: `betterleaks`, `gitleaks`, or `trufflehog`. |
-| `CREDENTIAL_SCANNER_VERSION` | The version to download. The installer writes the one that the scan script was tested with. |
-| `CREDENTIAL_SCANNER_SHA256` | The SHA-256 of the release archive of that version for the runner, as the checksum file of the release gives it. |
+| `SCANNER` | The scanner: `betterleaks`, `gitleaks`, or `trufflehog`. |
+| `SCANNER_VERSION` | The version to download. The installer writes the one that the scan script was tested with. |
+| `SCANNER_SHA256` | The SHA-256 of the release archive of that version for the runner, as the checksum file of the release gives it. |
 
 Change the version and the hash together, and read what the new version reports in the same change:
 the built-in rules of a scanner belong to its version. The script supports betterleaks 1.x,

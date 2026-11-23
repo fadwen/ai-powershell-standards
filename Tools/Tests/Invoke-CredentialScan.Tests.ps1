@@ -788,8 +788,8 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
             $null = & $installScript -ProjectPath $project -IncludeCredentialScan $Scanner
             $workflowPath = Join-Path -Path $project -ChildPath '.github/workflows/credential-scan.yml'
             $workflowText = Get-Content -LiteralPath $workflowPath -Raw
-            $versionMatch = [regex]::Match($workflowText, "CREDENTIAL_SCANNER_VERSION: '(?<value>[^']+)'")
-            $hashMatch = [regex]::Match($workflowText, "CREDENTIAL_SCANNER_SHA256: '(?<value>[^']+)'")
+            $versionMatch = [regex]::Match($workflowText, "SCANNER_VERSION: '(?<value>[^']+)'")
+            $hashMatch = [regex]::Match($workflowText, "SCANNER_SHA256: '(?<value>[^']+)'")
             $parameters = @{
                 Scanner = $Scanner
                 RepositoryPath = & $newRepository
@@ -800,6 +800,29 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
             $result = & $invokeScan -Parameters $parameters
 
             $result.Problem | Should-BeNull
+        }
+    }
+
+    Context 'What the installer writes' {
+        It 'Holds nothing that <Scanner> reports, the workflow with its pin included' -ForEach @(
+            @{ Scanner = 'betterleaks' }
+            @{ Scanner = 'gitleaks' }
+            @{ Scanner = 'trufflehog' }
+        ) {
+            # The project gets the rules, the skills, the script, the workflow, and the
+            # configuration. A finding in one of them would fail the first scan of every project.
+            $project = & $newRepository
+            $installScript = Join-Path -Path $repositoryRoot -ChildPath 'Tools/Install-CopilotStandards.ps1'
+            $null = & $installScript -ProjectPath $project -IncludeCredentialScan $Scanner
+            & $invokeGit -Path $project -Arguments 'add', '-A'
+            & $invokeGit -Path $project -Arguments 'commit', '--quiet', '-m', 'install the standards'
+            $workflowPath = Join-Path -Path $project -ChildPath '.github/workflows/credential-scan.yml'
+
+            $result = & $invokeRealScan -Scanner $Scanner -Repository $project
+
+            Get-Content -LiteralPath $workflowPath -Raw | Should-MatchString "SCANNER_SHA256: '[0-9a-f]{64}'"
+            $result.Problem | Should-BeNull
+            $result.Findings.Count | Should-Be 0
         }
     }
 
