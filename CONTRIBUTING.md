@@ -79,6 +79,14 @@ CI runs the gate on Windows, Linux, and macOS, and lints the Markdown. All four 
 for `main`: a pull request cannot be merged until each of them has passed, and the ruleset lets no
 one bypass that.
 
+CI also scans the repository for credentials with the script that it ships,
+`Tools/Invoke-CredentialScan.ps1`: with betterleaks on every pull request and every push to `main`,
+and with trufflehog once a month. Both read the history of every branch and tag. That check is not
+one of the required four. A finding names a place and never a value. Read it as the
+`powershell-credential-scan` skill says: a real credential is revoked first, and a fingerprint goes
+into `.betterleaksignore` or `.trufflehogignore` only for a value that was read and is not a
+credential, under a comment that says what it is.
+
 ## Pull requests
 
 Branches, commit messages, PR titles, and PR bodies follow

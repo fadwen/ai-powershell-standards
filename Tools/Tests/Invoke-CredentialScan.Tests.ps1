@@ -949,3 +949,54 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
         }
     }
 }
+
+Describe 'The credential scan of this repository' -Tag 'Unit' {
+    BeforeDiscovery {
+        $workflowCases = @(
+            @{ Workflow = 'credential-scan.yml'; Scanner = 'betterleaks'; HashKey = 'linux_x64' }
+            @{ Workflow = 'credential-scan-monthly.yml'; Scanner = 'trufflehog'; HashKey = 'linux_amd64' }
+        )
+    }
+
+    BeforeAll {
+        $workflowFolder = Join-Path -Path $repositoryRoot -ChildPath '.github/workflows'
+        $scriptText = Get-Content -LiteralPath $scanScript -Raw
+    }
+
+    It 'Pins every action of <Workflow> to a commit and checks out the whole history' -ForEach $workflowCases {
+        $workflowText = Get-Content -LiteralPath (Join-Path -Path $workflowFolder -ChildPath $Workflow) -Raw
+        $actions = @([regex]::Matches($workflowText, '(?m)^\s*uses:\s*(?<action>\S+)') |
+                ForEach-Object { $_.Groups['action'].Value })
+
+        $actions.Count | Should-BeGreaterThan 0
+        $actions | Should-All { $_ -match '@[0-9a-f]{40}$' }
+        $workflowText | Should-MatchString 'fetch-depth: 0'
+    }
+
+    It 'Pins <Scanner> in <Workflow> to the version and the hash that the script holds' -ForEach $workflowCases {
+        $workflowText = Get-Content -LiteralPath (Join-Path -Path $workflowFolder -ChildPath $Workflow) -Raw
+        $block = [regex]::Match($scriptText, "(?s)\n    $Scanner = @\{.*?\n    \}").Value
+        $heldVersion = [regex]::Match($block, "Version = '(?<value>[^']+)'").Groups['value'].Value
+        $heldHash = [regex]::Match($block, "'$HashKey' = '(?<value>[0-9a-f]{64})'").Groups['value'].Value
+        $versionMatch = [regex]::Match($workflowText, "SCANNER_VERSION: '(?<value>[^']+)'")
+        $hashMatch = [regex]::Match($workflowText, "SCANNER_SHA256: '(?<value>[^']+)'")
+
+        $heldVersion | Should-MatchString '^\d+\.\d+\.\d+$'
+        $versionMatch.Groups['value'].Value | Should-Be $heldVersion
+        $hashMatch.Groups['value'].Value | Should-Be $heldHash
+        $workflowText | Should-MatchString "Scanner = '$Scanner'"
+    }
+
+    It 'Lists only fingerprints of a commit, each under a comment, in <IgnoreFile>' -ForEach @(
+        @{ IgnoreFile = '.betterleaksignore' }
+        @{ IgnoreFile = '.trufflehogignore' }
+    ) {
+        $lines = @(Get-Content -LiteralPath (Join-Path -Path $repositoryRoot -ChildPath $IgnoreFile))
+        $entries = @($lines | Where-Object { $_.Trim() -and -not $_.StartsWith('#') })
+        $commentCount = @($lines | Where-Object { $_.StartsWith('#') }).Count
+
+        $entries.Count | Should-BeGreaterThan 0
+        $entries | Should-All { $_ -match '^[0-9a-f]{40}:[^:]+:[A-Za-z-]+:\d+$' }
+        $commentCount | Should-BeGreaterThan 0
+    }
+}
