@@ -481,6 +481,39 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
         }
     }
 
+    Context 'The exception for PowerShell in the default configuration of betterleaks' {
+        BeforeAll {
+            # The first pattern of the template excepts an unquoted value in a PowerShell file. It is
+            # tried here on the text that betterleaks 1.10.1 gives as the match of its rule.
+            $templatePath = Join-Path -Path $repositoryRoot -ChildPath 'Templates/CredentialScan/betterleaks.toml'
+            $templateText = Get-Content -LiteralPath $templatePath -Raw
+            $patternMatches = [regex]::Matches($templateText, "regexes = \['''(?<pattern>.*?)'''\]")
+            $patterns = @($patternMatches | ForEach-Object { $_.Groups['pattern'].Value })
+        }
+
+        It 'Holds two patterns' {
+            $patterns | Should-BeCollection -Count 2
+        }
+
+        It 'Excepts <Text>, which is an expression' -ForEach @(
+            @{ Text = 'password = [System.Security.SecureString]::new()' }
+            @{ Text = 'Password = $plainText' }
+            @{ Text = 'password=Get-Secret' }
+        ) {
+            [regex]::IsMatch($Text, $patterns[0]) | Should-BeTrue
+        }
+
+        It 'Does not except <Text>, which is a string literal' -ForEach @(
+            @{ Text = "password = 'qwerty'" }
+            @{ Text = 'password = "qwerty"' }
+            @{ Text = "Password = 'Summer2026!'" }
+            @{ Text = "password='Summer2026!'" }
+            @{ Text = "password =  'Summer2026!'" }
+        ) {
+            [regex]::IsMatch($Text, $patterns[0]) | Should-BeFalse
+        }
+    }
+
     Context 'The version of the scanner' {
         It 'Fails when <Given> is given without the other' -ForEach @(
             @{ Given = 'Version'; Value = '8.30.1' }

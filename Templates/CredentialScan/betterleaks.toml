@@ -28,7 +28,7 @@ targetRules = ['generic-password']
 condition = 'AND'
 paths = ['''(?i)\.(?:ps1|psm1|psd1)$''']
 regexTarget = 'match'
-regexes = ['''^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]''']
+regexes = ['''^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]''']
 
 # PowerShell in a code block of a Markdown file has no file extension to go by. A static member
 # of a .NET type is recognized by its form in any file.
