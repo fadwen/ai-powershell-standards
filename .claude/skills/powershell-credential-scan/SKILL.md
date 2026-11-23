@@ -52,7 +52,24 @@ trufflehog 3.99.9 on Linux, macOS, and Windows.
    `credential-scan.yml` into that workflow with its three `env` values and remove the separate
    file, so that a release cannot go out past the scan. Keep `fetch-depth: 0`: the script refuses
    a clone that does not hold the whole history.
-5. Run the scan. On a computer where the scanner may run:
+5. Say that the ignore file, the configuration, the scan script, and the workflow decide what the
+   scan reports, and that a pull request runs its own copies of them, so a change can leave out
+   the finding that it adds. When the project has more than one maintainer, offer to require a
+   review for those paths with entries in its CODEOWNERS file, here for gitleaks:
+
+   ```text
+   /.gitleaks.toml @owner
+   /.gitleaksignore @owner
+   /.github/scripts/Invoke-CredentialScan.ps1 @owner
+   /.github/workflows/credential-scan.yml @owner
+   ```
+
+   Put them after the other lines, because the last pattern that matches a file decides, and say
+   that the entries require nothing until the branch rule "Require review from Code Owners" is
+   on. Do not turn that rule on unasked. When the project has one maintainer, say that no such
+   rule binds the author of a change, and that the warning which the scan writes in every run,
+   "Left out of this scan", is the check to read.
+6. Run the scan. On a computer where the scanner may run:
 
    ```powershell
    ./.github/scripts/Invoke-CredentialScan.ps1 -Scanner gitleaks
@@ -61,7 +78,7 @@ trufflehog 3.99.9 on Linux, macOS, and Windows.
    The script downloads the scanner, and an application control policy can refuse to start a
    downloaded program. Do not look for a way around the policy: push the branch and read the
    result of the workflow instead.
-6. Read every finding, as the next section says, until the scan passes. Then report.
+7. Read every finding, as the next section says, until the scan passes. Then report.
 
 ## Reading a finding
 
@@ -98,5 +115,6 @@ script supports betterleaks 1.x, gitleaks 8.x, and trufflehog 3.x.
 
 Say which scanner the user chose and which files were added or changed. List every finding of the
 first run with its place and what was done about it: revoked, changed, or left out, with the
-reason. Say whether the scan was run on this computer or only in the workflow, and what its last
+reason. Quote the "Left out of this scan" warning of the last run, so that the user sees how much
+the scan does not report. Say whether the scan was run on this computer or only in the workflow, and what its last
 run reported. If a real credential was found, say so first.

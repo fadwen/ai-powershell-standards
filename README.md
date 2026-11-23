@@ -226,7 +226,7 @@ default:
 
 | File | What it is | Who owns it |
 | --- | --- | --- |
-| `.github/scripts/Invoke-CredentialScan.ps1` | The scan. It downloads the scanner at a fixed version, checks the SHA-256 of the download, finds a planted value first, and then scans the history of every branch and tag and the files. It never writes a value that it finds. | The standards. A later installation or sync replaces it. |
+| `.github/scripts/Invoke-CredentialScan.ps1` | The scan. It downloads the scanner at a fixed version, checks the SHA-256 of the download, finds a planted value first, and then scans the history of every branch and tag and the files. It never writes a value that it finds, and it says in every run how much the ignore file and the configuration leave out. | The standards. A later installation or sync replaces it. |
 | `.github/workflows/credential-scan.yml` | Runs the scan on every pull request and every push to `main`. It names the version of the scanner and the hash of its archive, so the project decides when the scanner changes. | The project. It is never replaced. |
 | `.betterleaks.toml`, `.gitleaks.toml`, or `.trufflehog-exclude.txt` | The configuration of the chosen scanner. The one for betterleaks keeps PowerShell expressions such as `$password = [System.Security.SecureString]::new()` from being reported. | The project. It is never replaced. |
 

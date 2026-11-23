@@ -264,6 +264,18 @@ betterleaks and trufflehog can check a value against the service that it seems t
 `--validation` and by default. The scan switches that off, with `--no-verification` for
 trufflehog. What such a check sends was not measured.
 
+The scan reads its ignore file, its configuration, and its own script from the commit that it
+scans, which on a pull request is the pull request's own copy. A change can therefore leave out
+the finding that it adds. The scan guards against an accident, not against an author who means to
+get past it. Two things keep what is left out in view. The scan says in every run how much the
+ignore file and the configuration leave out. And a change to one of those files, or to the
+workflow, is reviewed as a change to what the scan reports: where a project has a second reader,
+it requires one for those paths, for example with CODEOWNERS entries and the branch rule "Require
+review from Code Owners". GitHub's documentation says that an entry requires nothing without that
+rule, that the code owners are taken from the base branch, and that an author cannot approve
+their own pull request. In a repository with one maintainer no rule binds the author, and the
+line that the scan writes is the check to read.
+
 The standards ship a scan that does all of this, for whichever of the three scanners the project
 chooses. It is installed only on request, because its workflow uses the project's CI time:
 `Install-CopilotStandards.ps1 -IncludeCredentialScan <scanner>` writes

@@ -37,6 +37,11 @@ leave out. trufflehog has no ignore file of its own: this script reads .truffleh
 leaves out a finding whose fingerprint is listed there. A fingerprint has the form that the other
 two scanners use, commit:file:rule:line for the history and file:rule:line for the files.
 
+Both files come from the commit that is scanned, so a change can leave out the finding that it
+adds. The scan guards against an accident, not against an author who means to get past it. To
+keep what is left out in view, every run writes a warning that says how much the ignore file and
+the configuration leave out.
+
 .PARAMETER Scanner
 The scanner to run: betterleaks, gitleaks, or trufflehog.
 
@@ -399,6 +404,7 @@ try {
 
         $findings = [System.Collections.Generic.List[object]]::new()
         $failure = $null
+        $ignoredCount = 0
         if ($isLeaksFamily) {
             $reportPath = Join-Path -Path $workPath -ChildPath "report-$([guid]::NewGuid().ToString('N')).json"
             $command = if ($Source -eq 'History') { 'git' } else { 'dir' }
@@ -437,6 +443,13 @@ try {
                         })
                 }
             }
+
+            # The scanner applies the ignore file itself, so exit code 3 means that a finding is
+            # left. A report that holds none then was not written or not read, and the scan must
+            # not pass for that.
+            if (-not $failure -and $run.ExitCode -eq 3 -and $findings.Count -eq 0) {
+                $failure = 'The scanner ended with the exit code for a finding, and its report holds none.'
+            }
         } else {
             # --fail gives exit code 183 for a finding. --fail-on-scan-errors gives 1 for a source
             # that cannot be read, which is exit code 0 without it.
@@ -457,10 +470,12 @@ try {
             if ($run.ExitCode -notin 0, 183) {
                 $failure = "Exit code $($run.ExitCode). $(& $getFailureText -Lines $run.Lines)"
             } else {
+                $readCount = 0
                 foreach ($line in $run.Lines) {
                     if ($line -notlike '{*"DetectorName"*') {
                         continue
                     }
+                    $readCount++
                     $item = $line | ConvertFrom-Json
                     $data = $item.SourceMetadata.Data
                     $place = if ($data.PSObject.Properties['Git']) { $data.Git } else { $data.Filesystem }
@@ -475,6 +490,7 @@ try {
                         $fingerprint = "$($commit):$fingerprint"
                     }
                     if ($ignoredFingerprints.Contains($fingerprint)) {
+                        $ignoredCount++
                         continue
                     }
                     $findings.Add([PSCustomObject]@{
@@ -488,10 +504,16 @@ try {
                             Fingerprint = $fingerprint
                         })
                 }
+
+                # This script applies the ignore list, so exit code 183 with no finding in the
+                # output means that the output was not read.
+                if ($run.ExitCode -eq 183 -and $readCount -eq 0) {
+                    $failure = 'The scanner ended with the exit code for a finding, and its output holds none.'
+                }
             }
         }
 
-        @{ Findings = $findings; Failure = $failure }
+        @{ Findings = $findings; Failure = $failure; IgnoredCount = $ignoredCount }
     }
 
     # --- The probe -----------------------------------------------------------------------------
@@ -511,7 +533,7 @@ try {
 
     $probe = & $invokeScan -Source 'Files' -WorkingDirectory $probePath -Target '.'
     if ($probe.Failure) {
-        throw "The scan of the probe could not run. $($probe.Failure)"
+        throw "The scan of the probe failed. $($probe.Failure)"
     }
     $probeRules = @($probe.Findings | ForEach-Object { $_.Rule } | Sort-Object -Unique)
     $missingRules = @($definition.ProbeRules | Where-Object { $_ -notin $probeRules })
@@ -528,17 +550,63 @@ try {
     # Both scans run, so that one run shows everything there is to see.
     $problems = [System.Collections.Generic.List[string]]::new()
     $allFindings = [System.Collections.Generic.List[object]]::new()
+    $ignoredTotal = 0
     $historyTarget = if ($isLeaksFamily) { '.' } else { 'file://' + $repositoryRoot.Replace('\', '/') }
     foreach ($scan in @{ Source = 'History'; Target = $historyTarget }, @{ Source = 'Files'; Target = '.' }) {
         Write-Verbose "$Scanner, $($scan.Source)"
         $result = & $invokeScan -Source $scan.Source -WorkingDirectory $repositoryRoot -Target $scan.Target
         if ($result.Failure) {
-            $problems.Add("The scan of the $($scan.Source.ToLowerInvariant()) could not run. $($result.Failure)")
+            $problems.Add("The scan of the $($scan.Source.ToLowerInvariant()) failed. $($result.Failure)")
         }
         $allFindings.AddRange($result.Findings)
+        $ignoredTotal += $result.IgnoredCount
+    }
+
+    # --- What the project leaves out -----------------------------------------------------------
+
+    # The ignore file and the configuration come from the commit that is scanned, so a change can
+    # leave out the finding that it adds. Every run says how much is left out, so that a list
+    # that grows shows in the log of the run.
+    $leftOut = [System.Collections.Generic.List[string]]::new()
+    $countEntries = {
+        param([string]$Path)
+
+        $entries = Get-Content -LiteralPath $Path |
+            Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') }
+        @($entries).Count
+    }
+    if ($ignoreFile) {
+        $ignoreName = Split-Path -Path $ignoreFile -Leaf
+        if ($isLeaksFamily) {
+            $entryCount = & $countEntries -Path $ignoreFile
+            if ($entryCount -gt 0) {
+                $leftOut.Add("the findings that the $entryCount fingerprint(s) in $ignoreName name")
+            }
+        } elseif ($ignoredTotal -gt 0) {
+            $leftOut.Add("$ignoredTotal finding(s) whose fingerprint is in $ignoreName")
+        }
+    }
+    if ($configFile) {
+        $configName = Split-Path -Path $configFile -Leaf
+        if ($isLeaksFamily) {
+            $configText = Get-Content -LiteralPath $configFile -Raw
+            $exceptionCount = [regex]::Matches($configText, '(?m)^\s*\[\[?(?:rules\.)?allowlists?\]\]?').Count
+            if ($exceptionCount -gt 0) {
+                $leftOut.Add("what the $exceptionCount exception(s) in $configName match")
+            }
+        } else {
+            $patternCount = & $countEntries -Path $configFile
+            if ($patternCount -gt 0) {
+                $leftOut.Add("the paths that the $patternCount pattern(s) in $configName match")
+            }
+        }
     }
 } finally {
     Remove-Item -LiteralPath $workPath -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+if ($leftOut.Count -gt 0) {
+    Write-Warning "Left out of this scan: $($leftOut -join '; ')."
 }
 
 $allFindings

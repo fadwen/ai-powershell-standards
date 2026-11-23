@@ -16,7 +16,8 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   It installs `.github/scripts/Invoke-CredentialScan.ps1`, a workflow that runs it, and a
   configuration for the scanner. The scan reads the history of every branch and tag and the files,
   pins the scanner by version and by the SHA-256 of its archive, finds a planted value before it
-  trusts a result, and never writes a value that it finds (CIC-23). Nothing of it is installed
+  trusts a result, never writes a value that it finds, and says in every run how much its ignore
+  file and its configuration leave out (CIC-23). Nothing of it is installed
   without the parameter, and a workflow or configuration that the project already has is never
   replaced. The `powershell-credential-scan` skill installs it and reads its first findings.
 - A way to record a deliberate departure from a rule (DOC-22): a comment directly above the

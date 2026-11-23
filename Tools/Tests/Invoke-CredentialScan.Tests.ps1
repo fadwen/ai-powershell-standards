@@ -161,13 +161,19 @@ exit $(if ($items.Count -gt 0) { 183 } else { 0 })
 
         $findings = [System.Collections.Generic.List[object]]::new()
         $problem = $null
+        $scanWarnings = $null
         try {
-            & $scanScript @Parameters | ForEach-Object { $findings.Add($_) }
+            & $scanScript @Parameters -WarningVariable scanWarnings -WarningAction SilentlyContinue |
+                ForEach-Object { $findings.Add($_) }
         } catch {
             $problem = $_
         }
 
-        @{ Findings = $findings.ToArray(); Problem = $problem }
+        @{
+            Findings = $findings.ToArray()
+            Problem = $problem
+            Warnings = @($scanWarnings | ForEach-Object { "$_" })
+        }
     }
 
     # Runs the scan of a repository with a stand-in for the scanner.
@@ -332,7 +338,7 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
 
             $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
 
-            $expected = "*scan of the $($Source.ToLowerInvariant()) could not run. Exit code 1*"
+            $expected = "*scan of the $($Source.ToLowerInvariant()) failed. Exit code 1*"
             $result.Problem.Exception.Message | Should-BeLikeString $expected
             (& $getCalls -StandInPath $standIn) | Should-BeCollection -Count 3
         }
@@ -345,8 +351,26 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
 
             $result = & $invokeStandInScan -Scanner 'gitleaks' -Repository $repository -StandIn $standIn
 
-            $expected = '*scan of the probe could not run. Exit code 1*'
+            $expected = '*scan of the probe failed. Exit code 1*'
             $result.Problem.Exception.Message | Should-BeLikeString $expected
+        }
+
+        It 'Fails when <Scanner> ends as for a finding and none can be read in its <Where>' -ForEach @(
+            @{ Scanner = 'betterleaks'; Source = 'History'; ExitCode = 3; Where = 'report' }
+            @{ Scanner = 'gitleaks'; Source = 'Files'; ExitCode = 3; Where = 'report' }
+            @{ Scanner = 'trufflehog'; Source = 'History'; ExitCode = 183; Where = 'output' }
+        ) {
+            $repository = & $newRepository
+            $scenario = & $newScenario -Scanner $Scanner
+            $scenario.ExitCode[$Source] = $ExitCode
+            $standIn = & $newStandIn -Scenario $scenario
+
+            $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
+
+            $word = $Source.ToLowerInvariant()
+            $expected = "*scan of the $word failed*exit code for a finding*$Where holds none*"
+            $result.Problem.Exception.Message | Should-BeLikeString $expected
+            $result.Findings.Count | Should-Be 0
         }
 
         It 'Fails on a clone that does not hold the whole history' {
@@ -478,6 +502,92 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $result.Findings | Should-BeCollection -Count 2
             $result.Findings[0].Fingerprint | Should-Be 'src/now.txt:Github:7'
             $result.Findings[1].Fingerprint | Should-Be 'other.txt:Stripe:2'
+        }
+    }
+
+    Context 'What the project leaves out of the scan' {
+        It 'Writes no warning when <Scanner> has no ignore file and no configuration' -ForEach $scannerCases {
+            $repository = & $newRepository
+            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner $Scanner)
+
+            $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
+
+            $result.Warnings.Count | Should-Be 0
+        }
+
+        It 'Says how many fingerprints <IgnoreFile> names' -ForEach @(
+            @{ Scanner = 'betterleaks'; IgnoreFile = '.betterleaksignore' }
+            @{ Scanner = 'gitleaks'; IgnoreFile = '.gitleaksignore' }
+        ) {
+            $repository = & $newRepository
+            $ignorePath = Join-Path -Path $repository -ChildPath $IgnoreFile
+            $ignoreLines = '# Placeholders in tests', 'old.txt:github-pat:3', '', 'now.txt:stripe-access-token:7'
+            Set-Content -LiteralPath $ignorePath -Value $ignoreLines -Encoding ascii
+            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner $Scanner)
+
+            $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
+
+            $result.Problem | Should-BeNull
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-BeLikeString "Left out of this scan:*2 fingerprint(s) in $IgnoreFile*"
+        }
+
+        It 'Says how many exceptions the default configuration of betterleaks holds' {
+            $repository = & $newRepository
+            $templatePath = Join-Path -Path $repositoryRoot -ChildPath 'Templates/CredentialScan/betterleaks.toml'
+            $configPath = Join-Path -Path $repository -ChildPath '.betterleaks.toml'
+            Copy-Item -LiteralPath $templatePath -Destination $configPath
+            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'betterleaks')
+
+            $result = & $invokeStandInScan -Scanner 'betterleaks' -Repository $repository -StandIn $standIn
+
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-BeLikeString '*2 exception(s) in .betterleaks.toml*'
+        }
+
+        It 'Writes no warning for the default configuration of <Scanner>, which leaves nothing out' -ForEach @(
+            @{ Scanner = 'gitleaks'; Template = 'gitleaks.toml' }
+            @{ Scanner = 'trufflehog'; Template = 'trufflehog-exclude.txt' }
+        ) {
+            $repository = & $newRepository
+            $templatePath = Join-Path -Path $repositoryRoot -ChildPath "Templates/CredentialScan/$Template"
+            Copy-Item -LiteralPath $templatePath -Destination (Join-Path -Path $repository -ChildPath ".$Template")
+            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner $Scanner)
+
+            $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
+
+            $result.Warnings.Count | Should-Be 0
+        }
+
+        It 'Says how many findings of trufflehog the ignore list left out, and how many paths are left out' {
+            $repository = & $newRepository
+            $commit = 'c' * 40
+            $ignorePath = Join-Path -Path $repository -ChildPath '.trufflehogignore'
+            $ignoreLines = "$($commit):old.txt:Github:3", 'never.txt:Stripe:1'
+            Set-Content -LiteralPath $ignorePath -Value $ignoreLines -Encoding ascii
+            $excludePath = Join-Path -Path $repository -ChildPath '.trufflehog-exclude.txt'
+            Set-Content -LiteralPath $excludePath -Value '# Generated output', '^out/' -Encoding ascii
+            $scenario = & $newScenario -Scanner 'trufflehog'
+            $scenario.History = @(& $newItem -Rule 'Github' -File 'old.txt' -Line 3 -Commit $commit)
+            $standIn = & $newStandIn -Scenario $scenario
+
+            $result = & $invokeStandInScan -Scanner 'trufflehog' -Repository $repository -StandIn $standIn
+
+            $result.Problem | Should-BeNull
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-BeLikeString '*1 finding(s) whose fingerprint is in .trufflehogignore*'
+            $result.Warnings[0] | Should-BeLikeString '*1 pattern(s) in .trufflehog-exclude.txt*'
+        }
+
+        It 'Does not count a fingerprint of .trufflehogignore that matches no finding' {
+            $repository = & $newRepository
+            $ignorePath = Join-Path -Path $repository -ChildPath '.trufflehogignore'
+            Set-Content -LiteralPath $ignorePath -Value 'never.txt:Stripe:1' -Encoding ascii
+            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'trufflehog')
+
+            $result = & $invokeStandInScan -Scanner 'trufflehog' -Repository $repository -StandIn $standIn
+
+            $result.Warnings.Count | Should-Be 0
         }
     }
 
@@ -725,6 +835,8 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
             $first.Findings | Should-BeCollection -Count 2
             $second.Problem | Should-BeNull
             $second.Findings.Count | Should-Be 0
+            $second.Warnings | Should-BeCollection -Count 1
+            $second.Warnings[0] | Should-BeLikeString "Left out of this scan:*$IgnoreFile*"
         }
     }
 
