@@ -1,0 +1,11 @@
+# Findings of the monthly credential scan that were read and are not credentials. The scan runs
+# trufflehog with Tools/Invoke-CredentialScan.ps1, and that script reads this file: trufflehog has
+# no ignore file of its own. A line is one finding: the commit that added the text, the file, the
+# detector, and the line number.
+#
+# Add a line only for a value that was read and is not a credential. A real credential is revoked
+# first: a commit that removes it leaves it in the history.
+
+# A connection string in the first security test template, made up for a test of error messages:
+# the server "secret.db.com" and the password "secret123". The text is not in the files today.
+72e7552fc58e10ed171affc811756cf5584dad6a:.github/instructions/pester-supporting-docs/security-test-template.md:SQLServer:311
