@@ -252,6 +252,10 @@ with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.99.9 on Linux, macOS,
   configuration can leave out more than was meant. The job therefore first has to find a value
   in the form of a key that it makes outside the repository, put together from parts so that no
   file holds it.
+- A scanner does not report every value that has the form of a key. On Linux, trufflehog left out
+  6 of 1,500 random values in the form of a Stripe key and 1 of 1,500 in the form of a GitHub
+  token, and reported each of them with `filtered_unverified` among its `--results`. The job
+  therefore makes several values of each form, and a rule has to report one of them.
 - A scanner is a release archive and not a module. Pin it by its version and by the SHA-256 of
   the archive, because a release tag can be moved to other content.
 - trufflehog writes every value that it finds into its output, as text and as JSON. betterleaks

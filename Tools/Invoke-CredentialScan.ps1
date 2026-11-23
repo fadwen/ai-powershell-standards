@@ -519,15 +519,18 @@ try {
     # --- The probe -----------------------------------------------------------------------------
 
     # The values are put together from parts, so that no file holds one, this script included.
-    $randomBytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(96)
-    $randomText = [System.Convert]::ToBase64String($randomBytes) -replace '[^A-Za-z0-9]', ''
+    # There are four values of each form, because a scanner leaves out a random value now and
+    # then: trufflehog 3.99.9 did not report 6 of 1,500 values of the first form and 1 of 1,500 of
+    # the second. A rule that reports one of its four values has shown that it works.
     $probePath = Join-Path -Path $workPath -ChildPath 'probe'
     $null = New-Item -Path $probePath -ItemType Directory -Force
-    $probeLines = @(
+    $probeLines = foreach ($index in 1..4) {
+        $randomBytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(96)
+        $randomText = [System.Convert]::ToBase64String($randomBytes) -replace '[^A-Za-z0-9]', ''
         'key: ' + 'sk_' + 'live_' + $randomText.Substring(0, 32)
         'token: ' + 'gh' + 'p_' + $randomText.Substring(32, 36)
         'password = "{0}"' -f [guid]::NewGuid().ToString('N')
-    )
+    }
     $probeFile = Join-Path -Path $probePath -ChildPath 'probe.txt'
     Set-Content -LiteralPath $probeFile -Value $probeLines -Encoding ascii
 

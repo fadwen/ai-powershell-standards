@@ -105,7 +105,14 @@ $isProbe = (Split-Path -Path (Get-Location).Path -Leaf) -eq 'probe'
 $source = if ($isProbe) { 'Probe' } elseif ($args[0] -eq 'git') { 'History' } else { 'Files' }
 $excludeIndex = [array]::IndexOf($args, '--exclude-paths')
 $excludeLines = if ($excludeIndex -ge 0) { @(Get-Content -LiteralPath $args[$excludeIndex + 1]) } else { @() }
-$call = [ordered]@{ Source = $source; Arguments = @($args); ExcludeLines = $excludeLines }
+# Only the name before each value of the probe is recorded, not the value.
+$probeNames = @()
+if ($isProbe) {
+    $probeNames = @(Get-Content -LiteralPath 'probe.txt' | ForEach-Object { ($_ -split '[:=]')[0].Trim() })
+}
+$call = [ordered]@{
+    Source = $source; Arguments = @($args); ExcludeLines = $excludeLines; ProbeNames = $probeNames
+}
 $callsPath = Join-Path -Path $folder -ChildPath 'calls.jsonl'
 $call | ConvertTo-Json -Depth 4 -Compress | Add-Content -LiteralPath $callsPath
 
@@ -223,6 +230,24 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $calls[0].Source | Should-Be 'Probe'
             $calls[1].Source | Should-Be 'History'
             $calls[2].Source | Should-Be 'Files'
+        }
+
+        It 'Plants four values of each form in the probe' {
+            # A scanner leaves out a random value now and then, so one value of a form is a probe
+            # that fails at random.
+            $repository = & $newRepository
+            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'trufflehog')
+
+            $null = & $invokeStandInScan -Scanner 'trufflehog' -Repository $repository -StandIn $standIn
+            $names = @((& $getCalls -StandInPath $standIn)[0].ProbeNames)
+
+            $names | Should-BeCollection -Count 12
+            $counts = @($names | Group-Object | Sort-Object -Property Name |
+                    ForEach-Object { "$($_.Name) $($_.Count)" })
+            $counts | Should-BeCollection -Count 3
+            $counts[0] | Should-Be 'key 4'
+            $counts[1] | Should-Be 'password 4'
+            $counts[2] | Should-Be 'token 4'
         }
 
         It 'Gives <Scanner> the option <Required> and not <Forbidden>' -ForEach @(
