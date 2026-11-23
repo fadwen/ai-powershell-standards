@@ -35,4 +35,6 @@ holds the rules, a pull request workflow, and a publishing workflow.
 
 Say which files you added or changed, what each job runs, and what you were able to run locally. A
 workflow is not verified until it has run on the CI system; say so, and do not claim that it passes.
-Do not add publishing, signing, or deployment steps unless the user asked for them.
+Do not add publishing, signing, or deployment steps unless the user asked for them. When the
+project has no credential scan (CIC-23), say so and name the `powershell-credential-scan` skill. Do
+not add a scan unasked: it uses the project's CI time, and the user chooses the scanner.

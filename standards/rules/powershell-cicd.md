@@ -39,6 +39,10 @@ repository that contains PowerShell code.
   the code that has performance tests (TST-43).
 - **CIC-14** A documentation gate validates the README. The pipeline SHOULD also generate a status
   report and a deployment summary for each run, and keep the runbooks current.
+- **CIC-23** A credential scan reads the history of every branch and tag as well as the files of
+  the checkout. It runs a scanner at a fixed version whose download is checked against a hash,
+  first finds a value that the job plants outside the repository, and writes no value that it
+  finds to the log.
 
 ### Jobs and triggers
 
@@ -216,7 +220,7 @@ Windows PowerShell 5.1 both read such files.
 
 The security gate is made of these scans:
 
-- Credential scanning, so that no secret is committed (SEC-01).
+- Credential scanning, so that no secret is committed (SEC-01, CIC-23).
 - Static analysis for security issues.
 - Dependency vulnerability scanning.
 - Container scanning, when the build runs in containers.
@@ -234,6 +238,38 @@ if ($findings.Count -gt 0) {
 The documentation gate validates the README and the other documentation the project keeps. The
 reports that the pipeline generates are a status report for each run, a deployment summary, and
 updates to the runbooks.
+
+### Credential scan (CIC-23)
+
+Each part of the rule answers a scan that passes while a credential is in the repository. Measured
+with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.99.9 on Linux, macOS, and Windows:
+
+- A credential stays in the history after the commit that removes it. All three scanners find it
+  there, also on a branch that was never merged and on a commit that only a tag holds. A checkout
+  of one commit hides it, so the job checks out with `fetch-depth: 0`.
+- No scanner's history scan reads what a merge commit itself added. The scan of the files does.
+- betterleaks and trufflehog end with exit code 0 for a folder that does not exist, and a
+  configuration can leave out more than was meant. The job therefore first has to find a value
+  in the form of a key that it makes outside the repository, put together from parts so that no
+  file holds it.
+- A scanner is a release archive and not a module. Pin it by its version and by the SHA-256 of
+  the archive, because a release tag can be moved to other content.
+- trufflehog writes every value that it finds into its output, as text and as JSON. betterleaks
+  and gitleaks write `REDACTED` in its place when `--redact` is given. The log of a public
+  repository is public (CIC-06).
+- trufflehog reads the `.git` folder as files unless that folder is left out, and then reports
+  again what its history scan reports.
+
+betterleaks and trufflehog can check a value against the service that it seems to belong to, with
+`--validation` and by default. The scan switches that off, with `--no-verification` for
+trufflehog. What such a check sends was not measured.
+
+The standards ship a scan that does all of this, for whichever of the three scanners the project
+chooses. It is installed only on request, because its workflow uses the project's CI time:
+`Install-CopilotStandards.ps1 -IncludeCredentialScan <scanner>` writes
+`.github/scripts/Invoke-CredentialScan.ps1`, a workflow that runs it, and a configuration for the
+scanner. The `powershell-credential-scan` skill adds the scan to a project and reads what its
+first run reports. A project whose own scan works keeps it.
 
 ### A workflow with several jobs (CIC-15 to CIC-17)
 

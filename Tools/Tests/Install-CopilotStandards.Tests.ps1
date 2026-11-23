@@ -535,6 +535,135 @@ Describe 'Install-CopilotStandards.ps1' -Tag 'Unit' {
             (Get-Content -LiteralPath $workflowPath -Raw).Trim() | Should-BeString 'name: tuned by the project'
         }
     }
+
+    Context 'The credential scan' {
+        BeforeAll {
+            $scanFiles = @(
+                '.github/scripts/Invoke-CredentialScan.ps1'
+                '.github/workflows/credential-scan.yml'
+                '.betterleaks.toml'
+                '.gitleaks.toml'
+                '.trufflehog-exclude.txt'
+            )
+        }
+
+        It 'Installs no file of the scan unless a scanner is named' {
+            $files = @(& $installScript -ProjectPath $projectPath -IncludeSyncWorkflow -IncludeAnalyzerSettings)
+
+            foreach ($scanFile in $scanFiles) {
+                & $testProjectFile -RelativePath $scanFile | Should-BeFalse
+            }
+            @($files | Where-Object { $_.Path -in $scanFiles }).Count | Should-Be 0
+        }
+
+        It 'Installs the script, the workflow, and only <ConfigFile> for <Scanner>' -ForEach @(
+            @{ Scanner = 'betterleaks'; ConfigFile = '.betterleaks.toml' }
+            @{ Scanner = 'gitleaks'; ConfigFile = '.gitleaks.toml' }
+            @{ Scanner = 'trufflehog'; ConfigFile = '.trufflehog-exclude.txt' }
+        ) {
+            $files = @(& $installScript -ProjectPath $projectPath -IncludeCredentialScan $Scanner)
+
+            $expected = $scanFiles[0], $scanFiles[1], $ConfigFile
+            foreach ($path in $expected) {
+                (& $selectResult -Files $files -Path $path -Status 'Installed') | Should-BeCollection -Count 1
+                & $testProjectFile -RelativePath $path | Should-BeTrue
+            }
+            $others = @($scanFiles | Where-Object { $_ -notin $expected })
+            $others | Should-BeCollection -Count 2
+            foreach ($path in $others) {
+                & $testProjectFile -RelativePath $path | Should-BeFalse
+            }
+        }
+
+        It 'Writes a workflow for <Scanner> that names a version and a hash, with every action pinned' -ForEach @(
+            @{ Scanner = 'betterleaks' }
+            @{ Scanner = 'gitleaks' }
+            @{ Scanner = 'trufflehog' }
+        ) {
+            $null = & $installScript -ProjectPath $projectPath -IncludeCredentialScan $Scanner
+            $workflowPath = & $getProjectFile -RelativePath '.github/workflows/credential-scan.yml'
+            $workflowText = Get-Content -LiteralPath $workflowPath -Raw
+            $actions = @([regex]::Matches($workflowText, '(?m)^\s*uses:\s*(?<action>\S+)') |
+                    ForEach-Object { $_.Groups['action'].Value })
+
+            $workflowText | Should-MatchString "(?m)^  CREDENTIAL_SCANNER: '$Scanner'$"
+            $workflowText | Should-MatchString "(?m)^  CREDENTIAL_SCANNER_VERSION: '\d+\.\d+\.\d+'$"
+            $workflowText | Should-MatchString "(?m)^  CREDENTIAL_SCANNER_SHA256: '[0-9a-f]{64}'$"
+            $workflowText | Should-NotMatchString '\{\{'
+            $workflowText | Should-MatchString 'fetch-depth: 0'
+            $workflowText | Should-MatchString '\./\.github/scripts/Invoke-CredentialScan\.ps1 @scan'
+            $actions.Count | Should-BeGreaterThan 0
+            $actions | Should-All { $_ -match '@[0-9a-f]{40}$' }
+        }
+
+        It 'Installs a script that parses, has its help, and says that it is installed' {
+            $null = & $installScript -ProjectPath $projectPath -IncludeCredentialScan gitleaks
+            $scriptPath = & $getProjectFile -RelativePath '.github/scripts/Invoke-CredentialScan.ps1'
+            $parseErrors = $null
+            $parser = [System.Management.Automation.Language.Parser]
+            $null = $parser::ParseFile($scriptPath, [ref]$null, [ref]$parseErrors)
+
+            @($parseErrors).Count | Should-Be 0
+            $firstLine = Get-Content -LiteralPath $scriptPath -TotalCount 1
+            $firstLine | Should-BeLikeString '# Generated from ai-powershell-standards*'
+            (Get-Help -Name $scriptPath).Synopsis | Should-BeLikeString 'Scans a git repository for credentials*'
+        }
+
+        It 'Replaces the script on a later run without the parameter, and installs nothing else of the scan' {
+            $null = & $installScript -ProjectPath $projectPath -IncludeCredentialScan gitleaks
+            $scriptPath = & $getProjectFile -RelativePath '.github/scripts/Invoke-CredentialScan.ps1'
+            Add-Content -LiteralPath $scriptPath -Value '# edited in the project'
+            Remove-Item -LiteralPath (& $getProjectFile -RelativePath '.gitleaks.toml')
+            Remove-Item -LiteralPath (& $getProjectFile -RelativePath '.github/workflows/credential-scan.yml')
+
+            $files = @(& $installScript -ProjectPath $projectPath)
+
+            (& $selectResult -Files $files -Path '.github/scripts/Invoke-CredentialScan.ps1' -Status 'Updated') |
+                Should-BeCollection -Count 1
+            Get-Content -LiteralPath $scriptPath -Raw | Should-NotMatchString 'edited in the project'
+            & $testProjectFile -RelativePath '.gitleaks.toml' | Should-BeFalse
+            & $testProjectFile -RelativePath '.github/workflows/credential-scan.yml' | Should-BeFalse
+        }
+
+        It 'Never replaces <FileName> that the project already has' -ForEach @(
+            @{ FileName = '.betterleaks.toml'; Scanner = 'betterleaks' }
+            @{ FileName = '.github/workflows/credential-scan.yml'; Scanner = 'betterleaks' }
+            @{ FileName = '.gitleaks.toml'; Scanner = 'gitleaks' }
+            @{ FileName = '.trufflehog-exclude.txt'; Scanner = 'trufflehog' }
+        ) {
+            $filePath = & $newProjectFile -RelativePath $FileName -Content '# tuned by the project'
+
+            $install = @{ ProjectPath = $projectPath; IncludeCredentialScan = $Scanner }
+            $null = & $installScript @install -WarningAction SilentlyContinue
+
+            (Get-Content -LiteralPath $filePath -Raw).Trim() | Should-BeString '# tuned by the project'
+        }
+
+        It 'Leaves a script of that name that the project wrote itself, and warns' {
+            $scriptName = '.github/scripts/Invoke-CredentialScan.ps1'
+            $scriptPath = & $newProjectFile -RelativePath $scriptName -Content '# the project''s own scan'
+
+            $install = @{ ProjectPath = $projectPath; IncludeCredentialScan = 'gitleaks' }
+            $files = @(& $installScript @install -WarningVariable warnings -WarningAction SilentlyContinue)
+
+            (& $selectResult -Files $files -Path $scriptName -Status 'Skipped') | Should-BeCollection -Count 1
+            (Get-Content -LiteralPath $scriptPath -Raw).Trim() | Should-BeString '# the project''s own scan'
+            @($warnings | Where-Object { "$_" -like "*$scriptName*" }).Count | Should-Be 1
+        }
+
+        It 'Writes nothing of the scan when -WhatIf is given' {
+            $null = & $installScript -ProjectPath $projectPath -IncludeCredentialScan trufflehog -WhatIf
+
+            foreach ($scanFile in $scanFiles) {
+                & $testProjectFile -RelativePath $scanFile | Should-BeFalse
+            }
+        }
+
+        It 'Rejects a scanner that the scan does not support' {
+            { & $installScript -ProjectPath $projectPath -IncludeCredentialScan 'otherscanner' } |
+                Should-Throw -ExceptionMessage '*IncludeCredentialScan*'
+        }
+    }
 }
 
 Describe 'Install-CopilotStandards.ps1 on Windows PowerShell 5.1' -Tag 'Integration' {

@@ -1,0 +1,18 @@
+# Configuration of the credential scan that .github/scripts/Invoke-CredentialScan.ps1 runs with
+# gitleaks. The script passes this file with --config.
+#
+# The rules are the built-in rules of the gitleaks version that the scan uses, and this file adds
+# nothing to them. Measured with gitleaks 8.30.1: an expression after a name such as $password,
+# for example [System.Security.SecureString]::new(), is not reported in a PowerShell file.
+#
+# Written for gitleaks 8.x, the major version that the scan script supports.
+#
+# Add an exception here only for a form that is never a credential. An [[allowlists]] entry names
+# the rules it applies to in targetRules, and gitleaks refuses a file that names a rule it does
+# not have. A single finding that was read and is not a credential goes into .gitleaksignore by
+# its fingerprint.
+
+title = 'Credential scan'
+
+[extend]
+useDefault = true
