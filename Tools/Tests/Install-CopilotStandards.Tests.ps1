@@ -613,7 +613,8 @@ Describe 'Install-CopilotStandards.ps1' -Tag 'Unit' {
             $null = & $installScript -ProjectPath $projectPath -IncludeCredentialScan gitleaks
             $scriptPath = & $getProjectFile -RelativePath '.github/scripts/Invoke-CredentialScan.ps1'
             Add-Content -LiteralPath $scriptPath -Value '# edited in the project'
-            Remove-Item -LiteralPath (& $getProjectFile -RelativePath '.gitleaks.toml')
+            # A file whose name starts with a dot is hidden on Linux and macOS, and needs -Force there.
+            Remove-Item -LiteralPath (& $getProjectFile -RelativePath '.gitleaks.toml') -Force
             Remove-Item -LiteralPath (& $getProjectFile -RelativePath '.github/workflows/credential-scan.yml')
 
             $files = @(& $installScript -ProjectPath $projectPath)

@@ -565,28 +565,30 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
         }
 
         # Each scanner is downloaded once, by the script, and used from that folder afterwards.
-        $toolFolders = @{}
-        $getScanner = {
-            param([string]$Scanner)
-
-            if (-not $toolFolders.ContainsKey($Scanner)) {
-                $toolFolder = Join-Path -Path $TestDrive -ChildPath "tool-$Scanner"
-                $clean = & $newRepository
-                $null = & $scanScript -Scanner $Scanner -RepositoryPath $clean -ToolPath $toolFolder
-                $toolFolders[$Scanner] = $toolFolder
-            }
-
-            $name = if ($IsWindows) { "$Scanner.exe" } else { $Scanner }
-            Join-Path -Path $toolFolders[$Scanner] -ChildPath $name
+        # It happens here and not in a test: Pester removes what a Context wrote to the test
+        # drive when the Context ends, and the tests run in a shuffled order.
+        $cleanRepository = & $newRepository
+        $executables = @{}
+        foreach ($name in 'betterleaks', 'gitleaks', 'trufflehog') {
+            $toolFolder = Join-Path -Path $TestDrive -ChildPath "tool-$name"
+            $null = & $scanScript -Scanner $name -RepositoryPath $cleanRepository -ToolPath $toolFolder
+            $fileName = if ($IsWindows) { "$name.exe" } else { $name }
+            $executables[$name] = Join-Path -Path $toolFolder -ChildPath $fileName
         }
 
         # Runs the scan of a repository with a scanner that was downloaded.
         $invokeRealScan = {
             param([string]$Scanner, [string]$Repository)
 
-            $executable = & $getScanner -Scanner $Scanner
+            $executable = $executables[$Scanner]
             $parameters = @{ Scanner = $Scanner; RepositoryPath = $Repository; ScannerPath = $executable }
-            & $invokeScan -Parameters $parameters
+            $result = & $invokeScan -Parameters $parameters
+            # A scan that could not run fails the test with its own message.
+            if ($result.Problem -and $result.Problem.Exception.Message -notlike '*may be credentials*') {
+                throw $result.Problem
+            }
+
+            $result
         }
 
         # Copies the default configuration of a scanner into a repository.
@@ -600,10 +602,16 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
     }
 
     Context 'The download' {
-        It 'Downloads <Scanner>, checks its hash, and finds nothing in a clean repository' -ForEach $scannerCases {
-            $executable = & $getScanner -Scanner $Scanner
+        It 'Has downloaded <Scanner> after its hash matched, and finds nothing in a clean repository' -ForEach @(
+            @{ Scanner = 'betterleaks' }
+            @{ Scanner = 'gitleaks' }
+            @{ Scanner = 'trufflehog' }
+        ) {
+            $result = & $invokeRealScan -Scanner $Scanner -Repository $cleanRepository
 
-            Test-Path -LiteralPath $executable -PathType Leaf | Should-BeTrue
+            Test-Path -LiteralPath $executables[$Scanner] -PathType Leaf | Should-BeTrue
+            $result.Problem | Should-BeNull
+            $result.Findings.Count | Should-Be 0
         }
 
         It 'Refuses an archive of <Scanner> whose hash is not the expected one' -ForEach @(
