@@ -84,6 +84,7 @@ BeforeAll {
             Probe = @($facts.ProbeRules | ForEach-Object { & $newItem -Rule $_ -File 'probe.txt' -Line 1 })
             History = @()
             Files = @()
+            Plain = @{ History = $null; Files = $null; ExitCode = $null }
             ExitCode = @{ Probe = $null; History = $null; Files = $null }
         }
     }
@@ -110,14 +111,23 @@ $probeNames = @()
 if ($isProbe) {
     $probeNames = @(Get-Content -LiteralPath 'probe.txt' | ForEach-Object { ($_ -split '[:=]')[0].Trim() })
 }
+$configIndex = [array]::IndexOf($args, '--config')
+$configName = if ($configIndex -ge 0) { Split-Path -Path $args[$configIndex + 1] -Leaf } else { '' }
 $call = [ordered]@{
     Source = $source; Arguments = @($args); ExcludeLines = $excludeLines; ProbeNames = $probeNames
+    Configuration = $configName
 }
 $callsPath = Join-Path -Path $folder -ChildPath 'calls.jsonl'
 $call | ConvertTo-Json -Depth 4 -Compress | Add-Content -LiteralPath $callsPath
 
 $items = @($scenario.$source)
 $override = $scenario.ExitCode.$source
+# A scan with the configuration that holds only the built-in rules is the second scan, which
+# measures the configuration of the project. It reports what the scenario names under Plain.
+if ($configName -eq 'built-in-rules.toml' -and $null -ne $scenario.Plain.$source) {
+    $items = @($scenario.Plain.$source)
+    $override = $scenario.Plain.ExitCode
+}
 if ($null -ne $override) {
     'the scanner could not run'
     exit $override
@@ -167,11 +177,19 @@ exit $(if ($items.Count -gt 0) { 183 } else { 0 })
         param([hashtable]$Parameters)
 
         $findings = [System.Collections.Generic.List[object]]::new()
+        $leftOutPlaces = [System.Collections.Generic.List[string]]::new()
         $problem = $null
         $scanWarnings = $null
+        $streams = @{ WarningVariable = 'scanWarnings'; WarningAction = 'SilentlyContinue'; Verbose = $true }
         try {
-            & $scanScript @Parameters -WarningVariable scanWarnings -WarningAction SilentlyContinue |
-                ForEach-Object { $findings.Add($_) }
+            # With -Verbose the scan names each place that a configuration leaves out.
+            & $scanScript @Parameters @streams 4>&1 | ForEach-Object {
+                if ($_ -isnot [System.Management.Automation.VerboseRecord]) {
+                    $findings.Add($_)
+                } elseif ($_.Message -like 'Left out by *') {
+                    $leftOutPlaces.Add($_.Message)
+                }
+            }
         } catch {
             $problem = $_
         }
@@ -180,6 +198,7 @@ exit $(if ($items.Count -gt 0) { 183 } else { 0 })
             Findings = $findings.ToArray()
             Problem = $problem
             Warnings = @($scanWarnings | ForEach-Object { "$_" })
+            LeftOutPlaces = $leftOutPlaces.ToArray()
         }
     }
 
@@ -557,7 +576,7 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $result.Warnings[0] | Should-BeLikeString "Left out of this scan:*2 fingerprint(s) in $IgnoreFile*"
         }
 
-        It 'Says how many exceptions the default configuration of betterleaks holds' {
+        It 'Scans twice with the default configuration of betterleaks, and writes no warning for a clean scan' {
             $repository = & $newRepository
             $templatePath = Join-Path -Path $repositoryRoot -ChildPath 'Templates/CredentialScan/betterleaks.toml'
             $configPath = Join-Path -Path $repository -ChildPath '.betterleaks.toml'
@@ -565,12 +584,14 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'betterleaks')
 
             $result = & $invokeStandInScan -Scanner 'betterleaks' -Repository $repository -StandIn $standIn
+            $calls = & $getCalls -StandInPath $standIn
 
-            $result.Warnings | Should-BeCollection -Count 1
-            $result.Warnings[0] | Should-BeLikeString '*2 exception(s) in .betterleaks.toml*'
+            $result.Problem | Should-BeNull
+            $result.Warnings.Count | Should-Be 0
+            $calls | Should-BeCollection -Count 5
         }
 
-        It 'Writes no warning for the default configuration of <Scanner>, which leaves nothing out' -ForEach @(
+        It 'Scans once with the default configuration of <Scanner>, which leaves nothing out' -ForEach @(
             @{ Scanner = 'gitleaks'; Template = 'gitleaks.toml' }
             @{ Scanner = 'trufflehog'; Template = 'trufflehog-exclude.txt' }
         ) {
@@ -582,86 +603,127 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
 
             $result.Warnings.Count | Should-Be 0
+            (& $getCalls -StandInPath $standIn) | Should-BeCollection -Count 3
         }
 
-        It 'Counts <Setting> in the configuration of <Scanner>' -ForEach @(
-            @{
-                Scanner = 'gitleaks'
-                Setting = 'two rules that are switched off, on several lines'
-                Lines = '[extend]', 'useDefault = true', 'disabledRules = [', "    'aws-access-token',",
-                '    # A comment between the entries', '    "generic-api-key"', ']'
-                Expected = 'what the 2 rule(s) that .gitleaks.toml switches off report'
-            }
-            @{
-                Scanner = 'betterleaks'
-                Setting = 'a rule that is switched off with a dotted key'
-                Lines = 'extend.useDefault = true', "extend.disabledRules = ['github-pat']"
-                Expected = 'what the 1 rule(s) that .betterleaks.toml switches off report'
-            }
-            @{
-                Scanner = 'gitleaks'
-                Setting = 'three rules that are switched off in an inline table'
-                Lines = @("extend = { useDefault = true, disabledRules = ['a-rule', `"b-rule`", 'c-rule'] }")
-                Expected = 'what the 3 rule(s) that .gitleaks.toml switches off report'
-            }
-            @{
-                Scanner = 'gitleaks'
-                Setting = 'two rules that the file defines, one with a path of its own'
-                Lines = '[extend]', 'useDefault = true', '', '[[rules]]', "id = 'github-pat'",
-                "regex = '''never'''", '', '[[rules]]', "id = 'own-rule'", "path = '''\.env$'''"
-                Expected = 'what the built-in rule of the same name reports, ' +
-                'for each of the 2 rule(s) that .gitleaks.toml defines'
-            }
-            @{
-                Scanner = 'gitleaks'
-                Setting = 'a file that it extends, named after another setting'
-                Lines = '[extend]', "disabledRules = ['a-rule']", "path = 'base.toml'"
-                Expected = 'what the 1 rule(s) that .gitleaks.toml switches off report; ' +
-                'what the file that .gitleaks.toml extends leaves out, which is not counted here'
-            }
-            @{
-                Scanner = 'betterleaks'
-                Setting = 'a file that it extends with a dotted key'
-                Lines = @("extend.path = 'base.toml'")
-                Expected = 'what the file that .betterleaks.toml extends leaves out, which is not counted here'
-            }
-            @{
-                Scanner = 'betterleaks'
-                Setting = 'two filters, one of them over several lines'
-                Lines = "prefilter = '''attributes[`"path`"] == `"docs`"'''", "filter = '''",
-                'filter.entropy(finding["secret"]) <= 3.0', "'''", '', '[extend]', 'useDefault = true'
-                Expected = 'what the 2 filter(s) in .betterleaks.toml discard'
-            }
-            @{
-                Scanner = 'gitleaks'
-                Setting = 'an exception, and not the settings that only a comment names'
-                Lines = '# disabledRules = ["a-rule"]', '  # [[rules]]', "# filter = '''true'''", '[extend]',
-                'useDefault = true', '# path = "base.toml"', '', '[[allowlists]]', "paths = ['''^docs/''']"
-                Expected = 'what the 1 exception(s) in .gitleaks.toml match'
-            }
+        It 'Counts by rule the places that <Scanner> reports only without its configuration' -ForEach @(
+            @{ Scanner = 'betterleaks' }
+            @{ Scanner = 'gitleaks' }
         ) {
             $repository = & $newRepository
-            $configPath = Join-Path -Path $repository -ChildPath ".$Scanner.toml"
-            Set-Content -LiteralPath $configPath -Value $Lines -Encoding ascii
-            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner $Scanner)
+            $configName = ".$Scanner.toml"
+            $configLines = '[extend]', 'useDefault = true', "disabledRules = ['aws-access-token']"
+            $configPath = Join-Path -Path $repository -ChildPath $configName
+            Set-Content -LiteralPath $configPath -Value $configLines -Encoding ascii
+            $commit = 'c' * 40
+            $scenario = & $newScenario -Scanner $Scanner
+            $scenario.Plain.History = @(
+                & $newItem -Rule 'github-pat' -File 'old.txt' -Line 3 -Commit $commit
+                & $newItem -Rule 'aws-access-token' -File 'leak.txt' -Line 1 -Commit $commit
+            )
+            $scenario.Plain.Files = @(& $newItem -Rule 'aws-access-token' -File 'leak.txt' -Line 1)
+            $standIn = & $newStandIn -Scenario $scenario
 
             $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
+            $calls = & $getCalls -StandInPath $standIn
 
             $result.Problem | Should-BeNull
+            $result.Findings.Count | Should-Be 0
             $result.Warnings | Should-BeCollection -Count 1
-            $result.Warnings[0] | Should-Be "Left out of this scan: $Expected."
+            $byRule = '2 by aws-access-token, 1 by github-pat'
+            $expected = "3 place(s) that $Scanner reports without $configName, $byRule"
+            $result.Warnings[0] | Should-Be "Left out of this scan: $expected."
+            $calls | Should-BeCollection -Count 5
+            $order = @($calls | ForEach-Object { '{0} with {1}' -f $_.Source, $_.Configuration })
+            $own = "with $configName"
+            $builtIn = 'with built-in-rules.toml'
+            $order -join ', ' | Should-Be "Probe $own, History $own, History $builtIn, Files $own, Files $builtIn"
         }
 
-        It 'Does not count a filter in the configuration of gitleaks, which does not know one' {
+        It 'Does not count a place that another rule still reports under the configuration' {
             $repository = & $newRepository
             $configPath = Join-Path -Path $repository -ChildPath '.gitleaks.toml'
-            $configLines = "filter = '''true'''", '[extend]', 'useDefault = true'
+            $configLines = '[extend]', 'useDefault = true', "disabledRules = ['github-pat']"
             Set-Content -LiteralPath $configPath -Value $configLines -Encoding ascii
-            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'gitleaks')
+            $commit = 'c' * 40
+            $scenario = & $newScenario -Scanner 'gitleaks'
+            $scenario.History = @(& $newItem -Rule 'generic-api-key' -File 'old.txt' -Line 3 -Commit $commit)
+            $scenario.Plain.History = @(& $newItem -Rule 'github-pat' -File 'old.txt' -Line 3 -Commit $commit)
+            $standIn = & $newStandIn -Scenario $scenario
 
             $result = & $invokeStandInScan -Scanner 'gitleaks' -Repository $repository -StandIn $standIn
 
+            $result.Findings | Should-BeCollection -Count 1
             $result.Warnings.Count | Should-Be 0
+        }
+
+        It 'Names each place that the configuration leaves out when -Verbose is given' {
+            $repository = & $newRepository
+            $configPath = Join-Path -Path $repository -ChildPath '.gitleaks.toml'
+            Set-Content -LiteralPath $configPath -Value '[[allowlists]]', "paths = ['''leak''']" -Encoding ascii
+            $scenario = & $newScenario -Scanner 'gitleaks'
+            $scenario.Plain.Files = @(& $newItem -Rule 'aws-access-token' -File 'leak.txt' -Line 7)
+            $standIn = & $newStandIn -Scenario $scenario
+
+            $result = & $invokeStandInScan -Scanner 'gitleaks' -Repository $repository -StandIn $standIn
+
+            $expected = 'Left out by .gitleaks.toml: Files, aws-access-token in leak.txt, line 7.'
+            $result.LeftOutPlaces | Should-BeCollection -Count 1
+            $result.LeftOutPlaces[0] | Should-Be $expected
+        }
+
+        It 'Scans twice when the configuration holds <Spelling>' -ForEach @(
+            @{ Spelling = 'a quoted key'; Lines = '[extend]', "`"disabledRules`" = ['a-rule']" }
+            @{ Spelling = 'a header with spaces'; Lines = '[ extend ]', 'useDefault = true' }
+            @{ Spelling = 'a rule under a header with spaces'; Lines = '[extend]', '[[ rules ]]' }
+            @{ Spelling = 'a dotted key'; Lines = 'extend.useDefault = true', "extend.disabledRules = ['a-rule']" }
+            @{ Spelling = 'an inline table'; Lines = @('extend = { useDefault = true }') }
+            @{ Spelling = 'a comment after a setting'; Lines = '[extend]', 'useDefault = true # built in' }
+            @{ Spelling = 'a title over several lines'; Lines = "title = '''", "'''", '[extend]' }
+            @{ Spelling = 'a setting that no scanner knows'; Lines = '[extend]', 'useDefault = true', 'other = 1' }
+        ) {
+            $repository = & $newRepository
+            $configPath = Join-Path -Path $repository -ChildPath '.gitleaks.toml'
+            Set-Content -LiteralPath $configPath -Value $Lines -Encoding ascii
+            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'gitleaks')
+
+            $null = & $invokeStandInScan -Scanner 'gitleaks' -Repository $repository -StandIn $standIn
+
+            (& $getCalls -StandInPath $standIn) | Should-BeCollection -Count 5
+        }
+
+        It 'Scans once when the configuration holds only <Content>' -ForEach @(
+            @{ Content = 'comments and blank lines'; Lines = '# A comment', '', '  # [[allowlists]]' }
+            @{
+                Content = 'a title and the built-in rules'
+                Lines = '# Scan', 'title = "Credential scan"', '', '[extend]', '    useDefault = true'
+            }
+        ) {
+            $repository = & $newRepository
+            $configPath = Join-Path -Path $repository -ChildPath '.gitleaks.toml'
+            Set-Content -LiteralPath $configPath -Value $Lines -Encoding ascii
+            $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'gitleaks')
+
+            $null = & $invokeStandInScan -Scanner 'gitleaks' -Repository $repository -StandIn $standIn
+
+            (& $getCalls -StandInPath $standIn) | Should-BeCollection -Count 3
+        }
+
+        It 'Fails when the scan without the configuration cannot run' {
+            $repository = & $newRepository
+            $configPath = Join-Path -Path $repository -ChildPath '.gitleaks.toml'
+            Set-Content -LiteralPath $configPath -Value '[[allowlists]]', "paths = ['''leak''']" -Encoding ascii
+            $scenario = & $newScenario -Scanner 'gitleaks'
+            $scenario.Plain.History = @()
+            $scenario.Plain.Files = @()
+            $scenario.Plain.ExitCode = 1
+            $standIn = & $newStandIn -Scenario $scenario
+
+            $result = & $invokeStandInScan -Scanner 'gitleaks' -Repository $repository -StandIn $standIn
+
+            $message = $result.Problem.Exception.Message
+            $message | Should-BeLikeString '*The scan of the history without the configuration failed*'
+            $message | Should-BeLikeString '*The scan of the files without the configuration failed*'
         }
 
         It 'Says how many findings of trufflehog the ignore list left out, and how many paths are left out' {
@@ -984,7 +1046,8 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
                 }
             }
 
-            # A configuration that keeps the built-in rules and leaves the value out in one way.
+            # A configuration that keeps the built-in rules and leaves the value out in one way. The
+            # last four are other spellings of the same settings, which TOML allows.
             $newConfiguration = {
                 param([string]$Setting, [string]$Rule)
 
@@ -1005,60 +1068,66 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
                     'a filter' {
                         @("filter = '''filter.containsAny(finding[`"secret`"], [`"ghp_`"])'''") + '' + $extend
                     }
+                    'disabledRules as a quoted key' {
+                        $extend + "`"disabledRules`" = ['$Rule']"
+                    }
+                    'a header with spaces and a key in single quotes' {
+                        '[ extend ]', 'useDefault = true', "'disabledRules' = ['$Rule']"
+                    }
+                    'a rule of the same name under a header with spaces' {
+                        $extend + '', '[[ rules ]]', "id = '$Rule'", "regex = '''never-there-zzzz'''"
+                    }
+                    'an exception under a header with spaces' {
+                        $extend + '', '[[ allowlists ]]', "paths = ['''leak\.txt''']"
+                    }
                 }
             }
         }
 
         It 'Passes with <Scanner> under <Setting>, and says what is left out' -ForEach @(
+            @{ Scanner = 'gitleaks'; Rule = 'aws-access-token'; Setting = 'disabledRules' }
+            @{ Scanner = 'gitleaks'; Rule = 'aws-access-token'; Setting = 'a rule of the same name' }
+            @{ Scanner = 'gitleaks'; Rule = 'aws-access-token'; Setting = 'an extended file' }
+            @{ Scanner = 'gitleaks'; Rule = 'aws-access-token'; Setting = 'disabledRules as a quoted key' }
             @{
                 Scanner = 'gitleaks'
                 Rule = 'aws-access-token'
-                Setting = 'disabledRules'
-                Expected = '1 rule(s) that .gitleaks.toml switches off'
-            }
-            @{
-                Scanner = 'gitleaks'
-                Rule = 'aws-access-token'
-                Setting = 'a rule of the same name'
-                Expected = '1 rule(s) that .gitleaks.toml defines'
+                Setting = 'a header with spaces and a key in single quotes'
             }
             @{
                 Scanner = 'gitleaks'
                 Rule = 'aws-access-token'
-                Setting = 'an extended file'
-                Expected = 'the file that .gitleaks.toml extends'
+                Setting = 'a rule of the same name under a header with spaces'
+            }
+            @{
+                Scanner = 'gitleaks'
+                Rule = 'aws-access-token'
+                Setting = 'an exception under a header with spaces'
+            }
+            @{ Scanner = 'betterleaks'; Rule = 'github-pat'; Setting = 'disabledRules' }
+            @{ Scanner = 'betterleaks'; Rule = 'github-pat'; Setting = 'a rule of the same name' }
+            @{ Scanner = 'betterleaks'; Rule = 'github-pat'; Setting = 'an extended file' }
+            @{ Scanner = 'betterleaks'; Rule = 'github-pat'; Setting = 'a filter' }
+            @{ Scanner = 'betterleaks'; Rule = 'github-pat'; Setting = 'disabledRules as a quoted key' }
+            @{
+                Scanner = 'betterleaks'
+                Rule = 'github-pat'
+                Setting = 'a header with spaces and a key in single quotes'
             }
             @{
                 Scanner = 'betterleaks'
                 Rule = 'github-pat'
-                Setting = 'disabledRules'
-                Expected = '1 rule(s) that .betterleaks.toml switches off'
+                Setting = 'a rule of the same name under a header with spaces'
             }
-            @{
-                Scanner = 'betterleaks'
-                Rule = 'github-pat'
-                Setting = 'a rule of the same name'
-                Expected = '1 rule(s) that .betterleaks.toml defines'
-            }
-            @{
-                Scanner = 'betterleaks'
-                Rule = 'github-pat'
-                Setting = 'an extended file'
-                Expected = 'the file that .betterleaks.toml extends'
-            }
-            @{
-                Scanner = 'betterleaks'
-                Rule = 'github-pat'
-                Setting = 'a filter'
-                Expected = '1 filter(s) in .betterleaks.toml'
-            }
+            @{ Scanner = 'betterleaks'; Rule = 'github-pat'; Setting = 'an exception under a header with spaces' }
         ) {
             $repository = & $newRepository
             $value = & $newOtherValue -Rule $Rule
             & $addCommit -Path $repository -FileName 'leak.txt' -Lines $value -Message 'add a value'
             $first = & $invokeRealScan -Scanner $Scanner -Repository $repository
-            $configPath = Join-Path -Path $repository -ChildPath ".$Scanner.toml"
+            $configName = ".$Scanner.toml"
             $configLines = & $newConfiguration -Setting $Setting -Rule $Rule
+            $configPath = Join-Path -Path $repository -ChildPath $configName
             Set-Content -LiteralPath $configPath -Value $configLines -Encoding ascii
 
             $second = & $invokeRealScan -Scanner $Scanner -Repository $repository
@@ -1069,7 +1138,8 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
             $second.Problem | Should-BeNull
             $second.Findings.Count | Should-Be 0
             $second.Warnings | Should-BeCollection -Count 1
-            $second.Warnings[0] | Should-BeLikeString "Left out of this scan:*$Expected*"
+            $expected = "2 place(s) that $Scanner reports without $configName, 2 by $Rule"
+            $second.Warnings[0] | Should-Be "Left out of this scan: $expected."
         }
 
         It 'Fails with <Scanner> when the configuration switches off a rule of the probe' -ForEach @(
@@ -1124,6 +1194,12 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
             $reportedFiles -join ',' | Should-Be 'Guide.md,Sample.ps1'
             $with.Problem | Should-BeNull
             $with.Findings.Count | Should-Be 0
+            # The fifth place is in the configuration itself, whose comment quotes the expression.
+            $expected = '5 place(s) that betterleaks reports without .betterleaks.toml, 5 by generic-password'
+            $with.Warnings | Should-BeCollection -Count 1
+            $with.Warnings[0] | Should-Be "Left out of this scan: $expected."
+            $leftOutFiles = @($with.LeftOutPlaces | ForEach-Object { ($_ -split ' in |, line ')[1] } | Sort-Object)
+            $leftOutFiles -join ',' | Should-Be '.betterleaks.toml,Guide.md,Guide.md,Sample.ps1,Sample.ps1'
         }
 
         It 'Still reports a quoted password with betterleaks under its default configuration' {

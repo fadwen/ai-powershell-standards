@@ -260,7 +260,9 @@ with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.99.9 on Linux, macOS,
   or gitleaks, `disabledRules` switches a built-in rule off, a rule that the file defines
   replaces the built-in rule of the same name, and a file that it extends brings exceptions of
   its own. betterleaks also takes a `filter`. Under each of them the scan passed over a value
-  while it still found the planted ones, so the scan counts these settings too.
+  while it still found the planted ones. TOML spells each in several ways, as a quoted key or
+  under a header with spaces, so the scan does not read the configuration for them: it scans
+  again without it and counts the places that only that scan reports.
 - A scanner is a release archive and not a module. Pin it by its version and by the SHA-256 of
   the archive, because a release tag can be moved to other content.
 - trufflehog writes every value that it finds into its output, as text and as JSON. betterleaks

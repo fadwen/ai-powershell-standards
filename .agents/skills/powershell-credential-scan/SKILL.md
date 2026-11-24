@@ -103,8 +103,9 @@ history.
 
 An entry in an ignore file or an exception in a configuration MUST NOT be added to make the scan
 pass. Each one is a finding that was read. A rule MUST NOT be switched off with `disabledRules`,
-replaced by a rule of the same name, or filtered for that either: the scan counts those settings
-in its warning. Show the user the list before it is committed: the user decides what is left out.
+replaced by a rule of the same name, or filtered for that either: the scan runs again without the
+configuration, and its warning counts every place that the configuration leaves out. Show the
+user the list before it is committed: the user decides what is left out.
 
 To change the scanner later, change the three `env` values of the workflow to the name, the
 version, and the SHA-256 of the archive for the runner, as the checksum file of that release gives

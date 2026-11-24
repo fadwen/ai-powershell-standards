@@ -40,9 +40,11 @@ two scanners use, commit:file:rule:line for the history and file:rule:line for t
 Both files come from the commit that is scanned, so a change can leave out the finding that it
 adds. The scan guards against an accident, not against an author who means to get past it. To
 keep what is left out in view, every run writes a warning that says how much the ignore file and
-the configuration leave out. For betterleaks and gitleaks it counts the settings of the
-configuration by name: an exception, a rule that is switched off, a rule that the file defines,
-a file that it extends, and for betterleaks a filter.
+the configuration leave out. For betterleaks and gitleaks the script does not read that from the
+text of the configuration, which can spell a setting in more than one way. It scans a second time
+without the configuration and counts the places that are reported only then, by rule. With
+-Verbose it names each of those places. A configuration that holds nothing but a title and the
+built-in rules is not scanned twice.
 
 .PARAMETER Scanner
 The scanner to run: betterleaks, gitleaks, or trufflehog.
@@ -402,7 +404,12 @@ try {
 
     # Runs one scan and returns its findings and, when it could not run, the reason.
     $invokeScan = {
-        param([string]$Source, [string]$WorkingDirectory, [string]$Target)
+        param(
+            [string]$Source,
+            [string]$WorkingDirectory,
+            [string]$Target,
+            [string]$ConfigurationPath = $configFile
+        )
 
         $findings = [System.Collections.Generic.List[object]]::new()
         $failure = $null
@@ -421,8 +428,8 @@ try {
                 '--log-level', 'error'
                 '--report-format', 'json'
                 '--report-path', $reportPath
-                if ($configFile) {
-                    '--config', $configFile
+                if ($ConfigurationPath) {
+                    '--config', $ConfigurationPath
                 }
                 if ($ignoreFile) {
                     '--gitleaks-ignore-path', $ignoreFile
@@ -555,7 +562,28 @@ try {
     # Both scans run, so that one run shows everything there is to see.
     $problems = [System.Collections.Generic.List[string]]::new()
     $allFindings = [System.Collections.Generic.List[object]]::new()
+    $configuredOut = [System.Collections.Generic.List[object]]::new()
     $ignoredTotal = 0
+
+    # What a configuration of betterleaks or gitleaks leaves out is measured and not read from its
+    # text: the same setting can be written as a quoted key, a dotted key, an inline table, or a
+    # table header with spaces, and each scanner has settings that the other does not know. A
+    # second scan without the configuration reports what the built-in rules find, and a place
+    # that only that scan reports is one that the configuration leaves out. A file whose every
+    # line is a title, the [extend] header, or useDefault = true leaves nothing out, so a
+    # project with such a file is not scanned twice.
+    #
+    # The second scan names a configuration of its own, which holds the built-in rules and
+    # nothing else. Without --config, gitleaks reads .gitleaks.toml from the folder that it
+    # scans, and the second scan would be the first one again.
+    $measureConfiguration = $false
+    $builtInRules = Join-Path -Path $workPath -ChildPath 'built-in-rules.toml'
+    Set-Content -LiteralPath $builtInRules -Value '[extend]', 'useDefault = true' -Encoding ascii
+    if ($isLeaksFamily -and $configFile) {
+        $plainLine = '^(?:#.*|title\s*=\s*(?:''[^'']*''|"[^"\\]*")|\[extend\]|useDefault\s*=\s*true)?$'
+        $otherLines = @(Get-Content -LiteralPath $configFile | Where-Object { $_.Trim() -notmatch $plainLine })
+        $measureConfiguration = $otherLines.Count -gt 0
+    }
     $historyTarget = if ($isLeaksFamily) { '.' } else { 'file://' + $repositoryRoot.Replace('\', '/') }
     foreach ($scan in @{ Source = 'History'; Target = $historyTarget }, @{ Source = 'Files'; Target = '.' }) {
         Write-Verbose "$Scanner, $($scan.Source)"
@@ -565,6 +593,28 @@ try {
         }
         $allFindings.AddRange($result.Findings)
         $ignoredTotal += $result.IgnoredCount
+        if (-not $measureConfiguration -or $result.Failure) {
+            continue
+        }
+
+        $plain = & $invokeScan @scan -WorkingDirectory $repositoryRoot -ConfigurationPath $builtInRules
+        if ($plain.Failure) {
+            $scanned = "the $($scan.Source.ToLowerInvariant()) without the configuration"
+            $problems.Add("The scan of $scanned failed. $($plain.Failure)")
+            continue
+        }
+
+        # A place counts as reported whichever rule reports it: with a specific rule switched off,
+        # a generic rule can still report the same line.
+        $reportedPlaces = [System.Collections.Generic.HashSet[string]]::new()
+        foreach ($finding in $result.Findings) {
+            $null = $reportedPlaces.Add("$($finding.Commit)|$($finding.File)|$($finding.Line)")
+        }
+        foreach ($finding in $plain.Findings) {
+            if (-not $reportedPlaces.Contains("$($finding.Commit)|$($finding.File)|$($finding.Line)")) {
+                $configuredOut.Add($finding)
+            }
+        }
     }
 
     # --- What the project leaves out -----------------------------------------------------------
@@ -594,44 +644,14 @@ try {
     if ($configFile) {
         $configName = Split-Path -Path $configFile -Leaf
         if ($isLeaksFamily) {
-            # The settings that leave a value out, each by its name in the file. Measured with
-            # gitleaks 8.30.1 and betterleaks 1.10.1: with each of them a scan passed over a value
-            # that it reports without it, and the probe still found its values. A rule that the
-            # file defines replaces the built-in rule of the same name. An extended file brings
-            # exceptions of its own, which are not read here. Only betterleaks knows a filter.
-            $settings = @(
-                @{
-                    Pattern = '(?m)^\s*\[\[?(?:rules\.)?allowlists?\]\]?'
-                    Text = 'what the {0} exception(s) in {1} match'
-                }
-                @{
-                    Pattern = '(?<=\bdisabledRules\s*=\s*\[[^\]]*)["''][^"''\r\n]+["'']'
-                    Text = 'what the {0} rule(s) that {1} switches off report'
-                }
-                @{
-                    Pattern = '(?m)^\s*\[\[rules\]\]'
-                    Text = 'what the built-in rule of the same name reports, ' +
-                    'for each of the {0} rule(s) that {1} defines'
-                }
-                @{
-                    Pattern = '(?m)^\s*\[extend\]\s*$(?:\n(?!\s*\[).*)*?\n\s*path\s*=|\bextend\b[^\n]*\bpath\s*='
-                    Text = 'what the file that {1} extends leaves out, which is not counted here'
-                }
-                if ($Scanner -eq 'betterleaks') {
-                    @{
-                        Pattern = '(?m)^\s*(?:pre)?filter\s*='
-                        Text = 'what the {0} filter(s) in {1} discard'
-                    }
-                }
-            )
-            # A comment can name a setting, so the comment lines are left out before the count.
-            $configLines = Get-Content -LiteralPath $configFile |
-                Where-Object { -not $_.TrimStart().StartsWith('#') }
-            $configText = $configLines -join "`n"
-            foreach ($setting in $settings) {
-                $settingCount = [regex]::Matches($configText, $setting.Pattern).Count
-                if ($settingCount -gt 0) {
-                    $leftOut.Add(($setting.Text -f $settingCount, $configName))
+            if ($configuredOut.Count -gt 0) {
+                $byRule = $configuredOut | Group-Object -Property Rule | Sort-Object -Property Name |
+                    ForEach-Object { '{0} by {1}' -f $_.Count, $_.Name }
+                $placeCount = "$($configuredOut.Count) place(s) that $Scanner reports without $configName"
+                $leftOut.Add("$placeCount, $($byRule -join ', ')")
+                foreach ($finding in $configuredOut) {
+                    $values = $configName, $finding.Source, $finding.Rule, $finding.File, $finding.Line
+                    Write-Verbose ('Left out by {0}: {1}, {2} in {3}, line {4}.' -f $values)
                 }
             }
         } else {
