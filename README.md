@@ -68,8 +68,9 @@ git clone https://github.com/fadwen/ai-powershell-standards.git
 ./ai-powershell-standards/Tools/Install-CopilotStandards.ps1 -ProjectPath 'C:\Projects\MyModule'
 ```
 
-This installs the files for all three agents. It writes one row for each file, 71 in a project that
-has none of them yet. The start and the end of the table:
+This installs the files for all three agents. It writes one row for each file, 71 for the command
+above in a project that has none of them yet. The options below change that number: `-Agent`
+installs fewer files, and each `-Include` option adds its own. The start and the end of the table:
 
 ```text
 Path                                                      Status

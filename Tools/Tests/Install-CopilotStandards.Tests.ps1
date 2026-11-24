@@ -94,7 +94,7 @@ Describe 'Install-CopilotStandards.ps1' -Tag 'Unit' {
             $table = [regex]::Match($section, '(?s)```text\n(.*?)\n```').Groups[1].Value
             $shownRows = @($table -split '\n' | Where-Object { $_ -notmatch '^(Path|----|\.\.\.)' } |
                     ForEach-Object { ($_ -split '\s+') -join ' ' })
-            $shownCount = [regex]::Match($section, 'one row for each file, (\d+) in a project').Groups[1].Value
+            $shownCount = [regex]::Match($section, 'one row for each file, (\d+) for the command').Groups[1].Value
 
             $files = @(& $installScript -ProjectPath $projectPath)
             $rows = @($files | ForEach-Object { '{0} {1}' -f $_.Path, $_.Status })
