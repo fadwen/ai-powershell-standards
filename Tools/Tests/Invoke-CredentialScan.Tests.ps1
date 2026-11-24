@@ -1323,6 +1323,24 @@ Describe 'The credential scan of this repository' -Tag 'Unit' {
         $configurations -join ',' | Should-Be "$own,$own,built-in-rules.toml,$own,built-in-rules.toml"
     }
 
+    It 'Scans with a default configuration whose content is the one that was read' {
+        # What this file says is left out of the scan of this repository and of every project that
+        # installs the file. The warning of a run counts only what the file leaves out of the
+        # repository as it is that day, and it is a line in a log. So the content is pinned: a
+        # change to the file, however it is spelled, fails here until the value below is changed
+        # in the same pull request, where a reader sees it beside the change. The line endings of
+        # a checkout do not count.
+        $templatePath = Join-Path -Path $repositoryRoot -ChildPath 'Templates/CredentialScan/betterleaks.toml'
+        $text = [System.IO.File]::ReadAllText($templatePath).Replace("`r`n", "`n")
+        $digest = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($text))
+        $contentSha256 = [System.Convert]::ToHexString($digest).ToLowerInvariant()
+
+        $whatToDo = 'read what the credential scan then writes after "Left out of this scan"'
+        $reason = "the default configuration of betterleaks changed: $whatToDo, and pin the new content"
+        $readSha256 = '117137a7fb9816a4fec433bd5d6f705b8f94765cf828c389470fc5cf0d2317cc'
+        $contentSha256 | Should-Be $readSha256 -Because $reason
+    }
+
     It 'Lists only fingerprints of a commit, each under a comment, in <IgnoreFile>' -ForEach @(
         @{ IgnoreFile = '.betterleaksignore' }
         @{ IgnoreFile = '.trufflehogignore' }
