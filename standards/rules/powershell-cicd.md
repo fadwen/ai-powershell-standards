@@ -256,6 +256,11 @@ with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.99.9 on Linux, macOS,
   6 of 1,500 random values in the form of a Stripe key and 1 of 1,500 in the form of a GitHub
   token, and reported each of them with `filtered_unverified` among its `--results`. The job
   therefore makes several values of each form, and a rule has to report one of them.
+- An exception is not the only setting that leaves a value out. In a configuration of betterleaks
+  or gitleaks, `disabledRules` switches a built-in rule off, a rule that the file defines
+  replaces the built-in rule of the same name, and a file that it extends brings exceptions of
+  its own. betterleaks also takes a `filter`. Under each of them the scan passed over a value
+  while it still found the planted ones, so the scan counts these settings too.
 - A scanner is a release archive and not a module. Pin it by its version and by the SHA-256 of
   the archive, because a release tag can be moved to other content.
 - trufflehog writes every value that it finds into its output, as text and as JSON. betterleaks

@@ -40,7 +40,9 @@ two scanners use, commit:file:rule:line for the history and file:rule:line for t
 Both files come from the commit that is scanned, so a change can leave out the finding that it
 adds. The scan guards against an accident, not against an author who means to get past it. To
 keep what is left out in view, every run writes a warning that says how much the ignore file and
-the configuration leave out.
+the configuration leave out. For betterleaks and gitleaks it counts the settings of the
+configuration by name: an exception, a rule that is switched off, a rule that the file defines,
+a file that it extends, and for betterleaks a filter.
 
 .PARAMETER Scanner
 The scanner to run: betterleaks, gitleaks, or trufflehog.
@@ -592,10 +594,45 @@ try {
     if ($configFile) {
         $configName = Split-Path -Path $configFile -Leaf
         if ($isLeaksFamily) {
-            $configText = Get-Content -LiteralPath $configFile -Raw
-            $exceptionCount = [regex]::Matches($configText, '(?m)^\s*\[\[?(?:rules\.)?allowlists?\]\]?').Count
-            if ($exceptionCount -gt 0) {
-                $leftOut.Add("what the $exceptionCount exception(s) in $configName match")
+            # The settings that leave a value out, each by its name in the file. Measured with
+            # gitleaks 8.30.1 and betterleaks 1.10.1: with each of them a scan passed over a value
+            # that it reports without it, and the probe still found its values. A rule that the
+            # file defines replaces the built-in rule of the same name. An extended file brings
+            # exceptions of its own, which are not read here. Only betterleaks knows a filter.
+            $settings = @(
+                @{
+                    Pattern = '(?m)^\s*\[\[?(?:rules\.)?allowlists?\]\]?'
+                    Text = 'what the {0} exception(s) in {1} match'
+                }
+                @{
+                    Pattern = '(?<=\bdisabledRules\s*=\s*\[[^\]]*)["''][^"''\r\n]+["'']'
+                    Text = 'what the {0} rule(s) that {1} switches off report'
+                }
+                @{
+                    Pattern = '(?m)^\s*\[\[rules\]\]'
+                    Text = 'what the built-in rule of the same name reports, ' +
+                    'for each of the {0} rule(s) that {1} defines'
+                }
+                @{
+                    Pattern = '(?m)^\s*\[extend\]\s*$(?:\n(?!\s*\[).*)*?\n\s*path\s*=|\bextend\b[^\n]*\bpath\s*='
+                    Text = 'what the file that {1} extends leaves out, which is not counted here'
+                }
+                if ($Scanner -eq 'betterleaks') {
+                    @{
+                        Pattern = '(?m)^\s*(?:pre)?filter\s*='
+                        Text = 'what the {0} filter(s) in {1} discard'
+                    }
+                }
+            )
+            # A comment can name a setting, so the comment lines are left out before the count.
+            $configLines = Get-Content -LiteralPath $configFile |
+                Where-Object { -not $_.TrimStart().StartsWith('#') }
+            $configText = $configLines -join "`n"
+            foreach ($setting in $settings) {
+                $settingCount = [regex]::Matches($configText, $setting.Pattern).Count
+                if ($settingCount -gt 0) {
+                    $leftOut.Add(($setting.Text -f $settingCount, $configName))
+                }
             }
         } else {
             $patternCount = & $countEntries -Path $configFile
