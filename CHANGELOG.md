@@ -4,6 +4,12 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- The README shows what the installer writes: the start and the end of its table, with the number of
+  rows in a new project, and a filter that lists only the files that a run changed. A test compares
+  both with the installer's real output.
+
 ## [2.0.0] - 2026-11-24
 
 Version 2.0.0 is a rewrite of the standards. The rules are now written once under `standards/` and

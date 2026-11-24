@@ -85,6 +85,40 @@ Describe 'Install-CopilotStandards.ps1' -Tag 'Unit' {
             @(Get-ChildItem -LiteralPath $projectPath -Force).Count | Should-Be 0
         }
 
+        It 'Writes the table that the README shows under the install command' {
+            # The README shows the start and the end of the table and gives the number of rows. Its
+            # rows are compared with the output in their order, and its number with the count.
+            $readmePath = Join-Path -Path $repositoryRoot -ChildPath 'README.md'
+            $readmeText = [System.IO.File]::ReadAllText($readmePath).Replace("`r`n", "`n")
+            $section = [regex]::Match($readmeText, '(?s)\n## Install in a project\n(.*?)\n## ').Groups[1].Value
+            $table = [regex]::Match($section, '(?s)```text\n(.*?)\n```').Groups[1].Value
+            $shownRows = @($table -split '\n' | Where-Object { $_ -notmatch '^(Path|----|\.\.\.)' } |
+                    ForEach-Object { ($_ -split '\s+') -join ' ' })
+            $shownCount = [regex]::Match($section, 'one row for each file, (\d+) in a project').Groups[1].Value
+
+            $files = @(& $installScript -ProjectPath $projectPath)
+            $rows = @($files | ForEach-Object { '{0} {1}' -f $_.Path, $_.Status })
+
+            $shownRows | Should-BeCollection -Count 4
+            $rows.Count | Should-Be ([int]$shownCount)
+            $rows[0..1] -join '|' | Should-Be ($shownRows[0..1] -join '|')
+            $rows[-2..-1] -join '|' | Should-Be ($shownRows[2..3] -join '|')
+        }
+
+        It 'Shows only what changed with the filter that the README gives' {
+            # The added line keeps the notice of the installer in the file, as an older copy has it.
+            $null = & $installScript -ProjectPath $projectPath
+            $agentsPath = & $getProjectFile -RelativePath 'AGENTS.md'
+            Add-Content -LiteralPath $agentsPath -Value 'Stale line.' -Encoding ascii
+
+            $changed = @(& $installScript -ProjectPath $projectPath |
+                    Where-Object -Property Status -NE -Value 'Unchanged')
+
+            $changed | Should-BeCollection -Count 1
+            $changed[0].Path | Should-Be 'AGENTS.md'
+            $changed[0].Status | Should-Be 'Updated'
+        }
+
         It 'Fails when the project folder does not exist' {
             $missingPath = Join-Path -Path $projectPath -ChildPath 'absent'
 
