@@ -4,9 +4,11 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-These changes make up version 2.0.0, a rewrite of the standards. The rules are now written once
-under `standards/` and generated into the files that GitHub Copilot, Claude Code, and Codex read. A
-project that installed an earlier version runs the installer with `-RemoveLegacyFiles`.
+## [2.0.0] - 2026-11-24
+
+Version 2.0.0 is a rewrite of the standards. The rules are now written once under `standards/` and
+generated into the files that GitHub Copilot, Claude Code, and Codex read. A project that installed
+an earlier version runs the installer with `-RemoveLegacyFiles`.
 
 ### Added
 
@@ -223,3 +225,6 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
   and `Enterprise-Extensions.md`, which repeated or contradicted the rules.
 - The installer parameters `-StandardsType` and `-LinkType`, and the compliance checker parameters
   `-Detailed`, `-OutputFormat`, and `-OutputPath`.
+
+[Unreleased]: https://github.com/fadwen/ai-powershell-standards/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/fadwen/ai-powershell-standards/releases/tag/v2.0.0

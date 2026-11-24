@@ -209,7 +209,8 @@ anything changed. Two things to know before the first run:
   Actions to create and approve pull requests**. Without it the workflow cannot open the pull
   request.
 - `STANDARDS_REF` in the workflow file names the branch, tag, or commit to install from. It starts
-  as `main`; set it to a tag or a commit to decide when updates arrive.
+  as `main`; set it to a release tag, such as `v2.0.0`, or to a commit to decide when updates
+  arrive. [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
 
 [Templates/Workflows](Templates/Workflows/README.md) describes the workflow's other settings and
 what it replaces.
