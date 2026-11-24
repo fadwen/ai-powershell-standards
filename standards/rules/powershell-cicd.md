@@ -254,7 +254,9 @@ with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.99.9 on Linux, macOS,
   file holds it.
 - A scanner does not report every value that has the form of a key. On Linux, trufflehog left out
   6 of 1,500 random values in the form of a Stripe key and 1 of 1,500 in the form of a GitHub
-  token, and reported each of them with `filtered_unverified` among its `--results`. The job
+  token, and reported each of them with `filtered_unverified` among its `--results`. Such a value
+  holds a word: with `code`, `user`, or `hash` in it, in any letter case, none of 100 values was
+  reported, and each of 3,000 values in which no three letters stand together was. The job
   therefore makes several values of each form, and a rule has to report one of them.
 - An exception is not the only setting that leaves a value out. In a configuration of betterleaks
   or gitleaks, `disabledRules` switches a built-in rule off, a rule that the file defines
