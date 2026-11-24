@@ -68,8 +68,30 @@ git clone https://github.com/fadwen/ai-powershell-standards.git
 ./ai-powershell-standards/Tools/Install-CopilotStandards.ps1 -ProjectPath 'C:\Projects\MyModule'
 ```
 
-This installs the files for all three agents. Run it again at any time to update them. Add
-`-WhatIf` to see what would change first.
+This installs the files for all three agents. It writes one row for each file, 71 for the command
+above in a project that has none of them yet. The options below change that number: `-Agent`
+installs fewer files, and each `-Include` option adds its own. The start and the end of the table:
+
+```text
+Path                                                      Status
+----                                                      ------
+.github/instructions/powershell-style.instructions.md     Installed
+.github/instructions/powershell-functions.instructions.md Installed
+...
+.agents/skills/powershell-credential-scan/SKILL.md        Installed
+.github/powershell-attribution.md                         Installed
+```
+
+Run it again at any time to update the files. A file that is already current is listed as
+`Unchanged`, and one that the standards changed since the last run as `Updated`. Each row is an
+object with `Path` and `Status`, so this shows only what a run changed:
+
+```powershell
+./ai-powershell-standards/Tools/Install-CopilotStandards.ps1 -ProjectPath 'C:\Projects\MyModule' |
+    Where-Object -Property Status -NE -Value 'Unchanged'
+```
+
+Add `-WhatIf` to see what would change first.
 
 | Parameter | Effect |
 | --- | --- |
