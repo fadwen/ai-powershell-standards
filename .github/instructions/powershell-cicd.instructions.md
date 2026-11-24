@@ -47,6 +47,10 @@ repository that contains PowerShell code.
   the code that has performance tests (TST-43).
 - **CIC-14** A documentation gate validates the README. The pipeline SHOULD also generate a status
   report and a deployment summary for each run, and keep the runbooks current.
+- **CIC-23** A credential scan reads the history of every branch and tag as well as the files of
+  the checkout. It runs a scanner at a fixed version whose download is checked against a hash,
+  first finds a value that the job plants outside the repository, and writes no value that it
+  finds to the log.
 
 ### Jobs and triggers
 
@@ -266,7 +270,7 @@ Windows PowerShell 5.1 both read such files.
 
 The security gate is made of these scans:
 
-- Credential scanning, so that no secret is committed (SEC-01).
+- Credential scanning, so that no secret is committed (SEC-01, CIC-23).
 - Static analysis for security issues.
 - Dependency vulnerability scanning.
 - Container scanning, when the build runs in containers.
@@ -284,6 +288,63 @@ if ($findings.Count -gt 0) {
 The documentation gate validates the README and the other documentation the project keeps. The
 reports that the pipeline generates are a status report for each run, a deployment summary, and
 updates to the runbooks.
+
+### Credential scan (CIC-23)
+
+Each part of the rule answers a scan that passes while a credential is in the repository. Measured
+with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.99.9 on Linux, macOS, and Windows:
+
+- A credential stays in the history after the commit that removes it. All three scanners find it
+  there, also on a branch that was never merged and on a commit that only a tag holds. A checkout
+  of one commit hides it, so the job checks out with `fetch-depth: 0`.
+- No scanner's history scan reads what a merge commit itself added. The scan of the files does.
+- betterleaks and trufflehog end with exit code 0 for a folder that does not exist, and a
+  configuration can leave out more than was meant. The job therefore first has to find a value
+  in the form of a key that it makes outside the repository, put together from parts so that no
+  file holds it.
+- A scanner does not report every value that has the form of a key. On Linux, trufflehog left out
+  6 of 1,500 random values in the form of a Stripe key and 1 of 1,500 in the form of a GitHub
+  token, and reported each of them with `filtered_unverified` among its `--results`. Such a value
+  holds a word: with `code`, `user`, or `hash` in it, in any letter case, none of 100 values was
+  reported, and each of 3,000 values in which no three letters stand together was. The job
+  therefore makes several values of each form, and a rule has to report one of them.
+- An exception is not the only setting that leaves a value out. In a configuration of betterleaks
+  or gitleaks, `disabledRules` switches a built-in rule off, a rule that the file defines
+  replaces the built-in rule of the same name, and a file that it extends brings exceptions of
+  its own. betterleaks also takes a `filter`. Under each of them the scan passed over a value
+  while it still found the planted ones. TOML spells each in several ways, as a quoted key or
+  under a header with spaces, so the scan does not read the configuration for them: it scans
+  again without it and counts the places that only that scan reports.
+- A scanner is a release archive and not a module. Pin it by its version and by the SHA-256 of
+  the archive, because a release tag can be moved to other content.
+- trufflehog writes every value that it finds into its output, as text and as JSON. betterleaks
+  and gitleaks write `REDACTED` in its place when `--redact` is given. The log of a public
+  repository is public (CIC-06).
+- trufflehog reads the `.git` folder as files unless that folder is left out, and then reports
+  again what its history scan reports.
+
+betterleaks and trufflehog can check a value against the service that it seems to belong to, with
+`--validation` and by default. The scan switches that off, with `--no-verification` for
+trufflehog. What such a check sends was not measured.
+
+The scan reads its ignore file, its configuration, and its own script from the commit that it
+scans, which on a pull request is the pull request's own copy. A change can therefore leave out
+the finding that it adds. The scan guards against an accident, not against an author who means to
+get past it. Two things keep what is left out in view. The scan says in every run how much the
+ignore file and the configuration leave out. And a change to one of those files, or to the
+workflow, is reviewed as a change to what the scan reports: where a project has a second reader,
+it requires one for those paths, for example with CODEOWNERS entries and the branch rule "Require
+review from Code Owners". GitHub's documentation says that an entry requires nothing without that
+rule, that the code owners are taken from the base branch, and that an author cannot approve
+their own pull request. In a repository with one maintainer no rule binds the author, and the
+line that the scan writes is the check to read.
+
+The standards ship a scan that does all of this, for whichever of the three scanners the project
+chooses. It is installed only on request, because its workflow uses the project's CI time:
+`Install-CopilotStandards.ps1 -IncludeCredentialScan <scanner>` writes
+`.github/scripts/Invoke-CredentialScan.ps1`, a workflow that runs it, and a configuration for the
+scanner. The `powershell-credential-scan` skill adds the scan to a project and reads what its
+first run reports. A project whose own scan works keeps it.
 
 ### A workflow with several jobs (CIC-15 to CIC-17)
 

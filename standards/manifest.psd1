@@ -103,6 +103,7 @@
         'powershell-ci-pipeline'
         'powershell-module-help'
         'powershell-logging'
+        'powershell-credential-scan'
     )
 
     # Files that ship unchanged because rule files refer to them.

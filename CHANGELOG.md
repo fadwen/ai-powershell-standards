@@ -11,6 +11,15 @@ project that installed an earlier version runs the installer with `-RemoveLegacy
 ### Added
 
 - Every rule has an ID and states whether it is a requirement (MUST) or a default (SHOULD).
+- A credential scan that a project turns on by naming a scanner:
+  `Install-CopilotStandards.ps1 -IncludeCredentialScan betterleaks`, `gitleaks`, or `trufflehog`.
+  It installs `.github/scripts/Invoke-CredentialScan.ps1`, a workflow that runs it, and a
+  configuration for the scanner. The scan reads the history of every branch and tag and the files,
+  pins the scanner by version and by the SHA-256 of its archive, finds a planted value before it
+  trusts a result, never writes a value that it finds, and says in every run how much its ignore
+  file and its configuration leave out (CIC-23). Nothing of it is installed
+  without the parameter, and a workflow or configuration that the project already has is never
+  replaced. The `powershell-credential-scan` skill installs it and reads its first findings.
 - A way to record a deliberate departure from a rule (DOC-22): a comment directly above the
   statement, `# Exception to ERR-11: <reason>`. The user decides an exception, and an agent leaves
   a recorded one as it is. `Tools/Test-StandardsCompliance.ps1` reports the excused finding with

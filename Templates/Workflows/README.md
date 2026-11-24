@@ -59,3 +59,42 @@ Both are pinned to a commit, with the release in a comment beside it:
 
 - `actions/checkout` v7.0.1
 - `peter-evans/create-pull-request` v8.1.3
+
+## credential-scan.yml
+
+Scans a project for credentials on every pull request and every push to `main`. It runs
+`.github/scripts/Invoke-CredentialScan.ps1` with the scanner that the project chose: betterleaks,
+gitleaks, or trufflehog. The file here is a template with three placeholders. The installer fills
+them in, so install it with the installer and do not copy it by hand.
+
+### Install
+
+```powershell
+./Tools/Install-CopilotStandards.ps1 -ProjectPath 'C:\Projects\MyModule' -IncludeCredentialScan gitleaks
+```
+
+The installer writes the workflow, the scan script, and the configuration of the scanner from
+[Templates/CredentialScan](../CredentialScan). It installs none of them without the parameter, and
+it never replaces a workflow or a configuration that the project already has. The scan script is
+the exception: it belongs to the standards, and every later installation or sync replaces it.
+
+### Configuration
+
+| Value | Meaning |
+| --- | --- |
+| `SCANNER` | The scanner: `betterleaks`, `gitleaks`, or `trufflehog`. |
+| `SCANNER_VERSION` | The version to download. The installer writes the one that the scan script was tested with. |
+| `SCANNER_SHA256` | The SHA-256 of the release archive of that version for the runner, as the checksum file of the release gives it. |
+
+Change the version and the hash together, and read what the new version reports in the same change:
+the built-in rules of a scanner belong to its version. The script supports betterleaks 1.x,
+gitleaks 8.x, and trufflehog 3.x, and refuses another major version.
+
+The job checks out with `fetch-depth: 0`. The script refuses a clone that does not hold the whole
+history, because a scan of one commit passes while a credential is in an earlier one.
+
+### What it uses
+
+- `actions/checkout` v7.0.1, pinned to a commit.
+- The release archive of the scanner, downloaded from the scanner's repository on GitHub and
+  compared with the hash above before it is unpacked.

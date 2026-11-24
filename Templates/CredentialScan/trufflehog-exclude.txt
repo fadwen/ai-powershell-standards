@@ -1,0 +1,7 @@
+# Paths that the credential scan leaves out when .github/scripts/Invoke-CredentialScan.ps1 runs
+# trufflehog. One regular expression on a line, matched against the path of a file. The script
+# removes the lines that start with # and always leaves out the .git folder itself.
+#
+# Leave a path out only when nothing in it can be a credential, such as generated output. A single
+# finding that was read and is not a credential goes into .trufflehogignore by its fingerprint,
+# which the script reads: trufflehog has no such file of its own.

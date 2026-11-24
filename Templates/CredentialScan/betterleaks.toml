@@ -1,0 +1,38 @@
+# Configuration of the credential scan that .github/scripts/Invoke-CredentialScan.ps1 runs with
+# betterleaks. The script passes this file with --config; betterleaks does not load it by itself.
+#
+# The rules are the built-in rules of the betterleaks version that the scan uses. This file adds
+# two exceptions to one of them, 'generic-password', which reports a value that is assigned to a
+# name ending in "password". For the languages that rule knows, it leaves out a value without
+# quotes, because such a value is an expression and not a string literal. PowerShell is not among
+# those languages. Measured with betterleaks 1.10.1: without these exceptions,
+# $password = [System.Security.SecureString]::new() is reported in a script and in a code block
+# of a Markdown file, and with them it is not, while $password = 'a literal' still is.
+#
+# Written for betterleaks 1.x, the major version that the scan script supports.
+#
+# Add an exception here only for a form that is never a credential. A single finding that was
+# read and is not a credential goes into .betterleaksignore by its fingerprint.
+
+title = 'Credential scan'
+
+[extend]
+useDefault = true
+
+# A string literal in a PowerShell file is quoted. What follows the assignment without a quote
+# is a variable, a type or a command. The pattern is the one the built-in rule uses for the
+# languages it knows.
+[[allowlists]]
+description = 'An unquoted value in a PowerShell file is an expression, not a string literal'
+targetRules = ['generic-password']
+condition = 'AND'
+paths = ['''(?i)\.(?:ps1|psm1|psd1)$''']
+regexTarget = 'match'
+regexes = ['''^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]''']
+
+# PowerShell in a code block of a Markdown file has no file extension to go by. A static member
+# of a .NET type is recognized by its form in any file.
+[[allowlists]]
+description = 'A static member of a .NET type, as PowerShell writes it'
+targetRules = ['generic-password']
+regexes = ['''^\[[A-Za-z_][A-Za-z0-9_.]*(?:\[\])?\]::[A-Za-z_]''']

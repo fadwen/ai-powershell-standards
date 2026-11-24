@@ -67,7 +67,9 @@ It runs every test, including the comparison of the generated files with their s
 compliance check of this repository's own PowerShell, and fails below 80 percent coverage. The
 tests of the logging examples that write a real log file also need PSFramework 1.15.479. They are
 skipped where it is not installed or is not allowed to load, as under Windows Smart App Control,
-and CI runs them. Markdown is checked separately:
+and CI runs them. The tests of the credential scan that download and run betterleaks, gitleaks, and
+trufflehog run in CI as well. On your own computer they run only when the environment variable
+`CREDENTIAL_SCAN_INTEGRATION` is `1`. Markdown is checked separately:
 
 ```bash
 markdownlint-cli2 "**/*.md" "!**/docs/*/*.md"    # uses .markdownlint.json, 120-column lines
