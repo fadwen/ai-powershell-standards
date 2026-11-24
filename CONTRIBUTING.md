@@ -75,9 +75,20 @@ trufflehog run in CI as well. On your own computer they run only when the enviro
 markdownlint-cli2 "**/*.md" "!**/docs/*/*.md"    # uses .markdownlint.json, 120-column lines
 ```
 
-CI runs the gate on Windows, Linux, and macOS, and lints the Markdown. All four checks are required
-for `main`: a pull request cannot be merged until each of them has passed, and the ruleset lets no
-one bypass that.
+CI runs the gate on Windows, Linux, and macOS, lints the Markdown, and scans the repository for
+credentials. All five checks are required for `main`: a pull request cannot be merged until each of
+them has passed, and the ruleset lets no one bypass that.
+
+The scan is the script that the repository ships, `Tools/Invoke-CredentialScan.ps1`: with
+betterleaks on every pull request and every push to `main`, which is the required check "Credential
+scan", and with trufflehog once a month. Both read the history of every branch and tag, so a branch
+that holds a reported line fails the check of every pull request until the branch is deleted or the
+line is read and listed in `.betterleaksignore`. The monthly run belongs to no pull request. When it
+fails, it opens an issue with the title "The monthly credential scan failed" that links to the run,
+or adds a comment to that issue while it is open. A finding names a place and never a value. Read
+it as the `powershell-credential-scan` skill says: a real credential is revoked first, and a
+fingerprint goes into `.betterleaksignore` or `.trufflehogignore` only for a value that was read
+and is not a credential, under a comment that says what it is.
 
 ## Pull requests
 

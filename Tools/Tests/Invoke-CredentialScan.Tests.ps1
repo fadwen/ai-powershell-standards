@@ -1262,3 +1262,127 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
         }
     }
 }
+
+Describe 'The credential scan of this repository' -Tag 'Unit' {
+    BeforeDiscovery {
+        $workflowCases = @(
+            @{ Workflow = 'credential-scan.yml'; Scanner = 'betterleaks'; HashKey = 'linux_x64' }
+            @{ Workflow = 'credential-scan-monthly.yml'; Scanner = 'trufflehog'; HashKey = 'linux_amd64' }
+        )
+    }
+
+    BeforeAll {
+        $workflowFolder = Join-Path -Path $repositoryRoot -ChildPath '.github/workflows'
+        $scriptText = Get-Content -LiteralPath $scanScript -Raw
+    }
+
+    It 'Pins every action of <Workflow> to a commit and checks out the whole history' -ForEach $workflowCases {
+        $workflowText = Get-Content -LiteralPath (Join-Path -Path $workflowFolder -ChildPath $Workflow) -Raw
+        $actions = @([regex]::Matches($workflowText, '(?m)^\s*uses:\s*(?<action>\S+)') |
+                ForEach-Object { $_.Groups['action'].Value })
+
+        $actions.Count | Should-BeGreaterThan 0
+        $actions | Should-All { $_ -match '@[0-9a-f]{40}$' }
+        $workflowText | Should-MatchString 'fetch-depth: 0'
+    }
+
+    It 'Pins <Scanner> in <Workflow> to the version and the hash that the script holds' -ForEach $workflowCases {
+        $workflowText = Get-Content -LiteralPath (Join-Path -Path $workflowFolder -ChildPath $Workflow) -Raw
+        $block = [regex]::Match($scriptText, "(?s)\n    $Scanner = @\{.*?\n    \}").Value
+        $heldVersion = [regex]::Match($block, "Version = '(?<value>[^']+)'").Groups['value'].Value
+        $heldHash = [regex]::Match($block, "'$HashKey' = '(?<value>[0-9a-f]{64})'").Groups['value'].Value
+        $versionMatch = [regex]::Match($workflowText, "SCANNER_VERSION: '(?<value>[^']+)'")
+        $hashMatch = [regex]::Match($workflowText, "SCANNER_SHA256: '(?<value>[^']+)'")
+
+        $heldVersion | Should-MatchString '^\d+\.\d+\.\d+$'
+        $versionMatch.Groups['value'].Value | Should-Be $heldVersion
+        $hashMatch.Groups['value'].Value | Should-Be $heldHash
+        $workflowText | Should-MatchString "Scanner = '$Scanner'"
+    }
+
+    It 'Scans with the configuration that the standards install, and measures it' -Skip:(-not $hasGit) {
+        # A setting that is added to that file leaves something out here and in every project
+        # that installs the file. Each run scans a second time with the built-in rules alone, so
+        # its warning counts what the file leaves out, however the setting is spelled.
+        $configOption = "ConfigPath = './Templates/CredentialScan/betterleaks.toml'"
+        $workflowPath = Join-Path -Path $workflowFolder -ChildPath 'credential-scan.yml'
+        $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'betterleaks')
+        $parameters = @{
+            Scanner = 'betterleaks'
+            RepositoryPath = & $newRepository
+            ScannerPath = $standIn
+            ConfigPath = Join-Path -Path $repositoryRoot -ChildPath 'Templates/CredentialScan/betterleaks.toml'
+        }
+
+        $result = & $invokeScan -Parameters $parameters
+        $configurations = @((& $getCalls -StandInPath $standIn) | ForEach-Object { $_.Configuration })
+
+        Get-Content -LiteralPath $workflowPath -Raw | Should-MatchString ([regex]::Escape($configOption))
+        $result.Problem | Should-BeNull
+        $own = 'betterleaks.toml'
+        $configurations -join ',' | Should-Be "$own,$own,built-in-rules.toml,$own,built-in-rules.toml"
+    }
+
+    It 'Scans with a default configuration whose content is the one that was read' {
+        # What this file says is left out of the scan of this repository and of every project that
+        # installs the file. The warning of a run counts only what the file leaves out of the
+        # repository as it is that day, and it is a line in a log. So the content is pinned: a
+        # change to the file, however it is spelled, fails here until the value below is changed
+        # in the same pull request, where a reader sees it beside the change. The line endings of
+        # a checkout do not count.
+        $templatePath = Join-Path -Path $repositoryRoot -ChildPath 'Templates/CredentialScan/betterleaks.toml'
+        $text = [System.IO.File]::ReadAllText($templatePath).Replace("`r`n", "`n")
+        $digest = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($text))
+        $contentSha256 = [System.Convert]::ToHexString($digest).ToLowerInvariant()
+
+        $whatToDo = 'read what the credential scan then writes after "Left out of this scan"'
+        $reason = "the default configuration of betterleaks changed: $whatToDo, and pin the new content"
+        $readSha256 = '117137a7fb9816a4fec433bd5d6f705b8f94765cf828c389470fc5cf0d2317cc'
+        $contentSha256 | Should-Be $readSha256 -Because $reason
+    }
+
+    It 'Reports the required check from a job that no filter and no condition leaves out' {
+        # The ruleset for main requires the check by the name of the job. A filter on the pull
+        # request trigger leaves a pull request without the check, and a job that an if: skips
+        # counts as passed.
+        $workflowPath = Join-Path -Path $workflowFolder -ChildPath 'credential-scan.yml'
+        $workflowText = Get-Content -LiteralPath $workflowPath -Raw
+        $settings = @($workflowText -split '\r?\n' | Where-Object { $_ -notmatch '^\s*#' })
+        $conditions = @($settings | Where-Object { $_ -match '^\s*(?:if|paths|paths-ignore|branches-ignore):' })
+
+        $workflowText | Should-MatchString '(?m)^    name: Credential scan\r?$'
+        $workflowText | Should-MatchString '(?m)^  pull_request:\r?\n  push:\r?\n    branches: \[main\]\r?$'
+        $conditions.Count | Should-Be 0
+    }
+
+    It 'Lets only the job that opens an issue write, and only issues, in the monthly workflow' {
+        $workflowPath = Join-Path -Path $workflowFolder -ChildPath 'credential-scan-monthly.yml'
+        $workflowText = Get-Content -LiteralPath $workflowPath -Raw
+        $settings = @($workflowText -split '\r?\n' | Where-Object { $_ -notmatch '^\s*#' })
+        $writes = @($settings | Where-Object { $_ -match ':\s*write\s*$' })
+        $report = [regex]::Match($workflowText, '(?s)\n  report:.*').Value
+        $scan = $workflowText.Substring(0, $workflowText.Length - $report.Length)
+
+        $workflowText | Should-MatchString '(?m)^permissions:\r?\n  contents: read\r?$'
+        $writes | Should-BeCollection -Count 1
+        $writes[0].Trim() | Should-Be 'issues: write'
+        $scan | Should-NotMatchString 'issues: write'
+        $report | Should-MatchString 'needs: credentials'
+        $report | Should-MatchString 'if: \$\{\{ failure\(\) \}\}'
+        # It checks nothing out and runs no scanner, so it holds no action and no script of the scan.
+        $report | Should-NotMatchString 'uses:|Invoke-CredentialScan'
+    }
+
+    It 'Lists only fingerprints of a commit, each under a comment, in <IgnoreFile>' -ForEach @(
+        @{ IgnoreFile = '.betterleaksignore' }
+        @{ IgnoreFile = '.trufflehogignore' }
+    ) {
+        $lines = @(Get-Content -LiteralPath (Join-Path -Path $repositoryRoot -ChildPath $IgnoreFile))
+        $entries = @($lines | Where-Object { $_.Trim() -and -not $_.StartsWith('#') })
+        $commentCount = @($lines | Where-Object { $_.StartsWith('#') }).Count
+
+        $entries.Count | Should-BeGreaterThan 0
+        $entries | Should-All { $_ -match '^[0-9a-f]{40}:[^:]+:[A-Za-z-]+:\d+$' }
+        $commentCount | Should-BeGreaterThan 0
+    }
+}

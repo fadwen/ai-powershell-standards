@@ -1,0 +1,30 @@
+# Findings of the credential scan that were read and are not credentials. The 'Credential scan'
+# workflow runs betterleaks with Tools/Invoke-CredentialScan.ps1, which passes this file to it.
+# A line is one finding: the commit that added the text, the file, the rule, and the line number.
+#
+# Every entry is a line of a commit that was made before the scan existed, and none of the text
+# is in the files today. A commit does not change, so an entry stays valid.
+#
+# Add a line only for a value that was read and is not a credential, and prefer changing the
+# value so that the scan does not report it. A real credential is revoked first: a commit that
+# removes it leaves it in the history, where the scan and everyone else still find it.
+
+# Passwords of test accounts in the first security test template: "TestPassword123!",
+# "wrongpassword", and "UserPassword123!".
+72e7552fc58e10ed171affc811756cf5584dad6a:.github/instructions/pester-supporting-docs/security-test-template.md:generic-password:37
+72e7552fc58e10ed171affc811756cf5584dad6a:.github/instructions/pester-supporting-docs/security-test-template.md:generic-password:41
+72e7552fc58e10ed171affc811756cf5584dad6a:.github/instructions/pester-supporting-docs/security-test-template.md:generic-password:244
+
+# The default password 'TestPassword123!' of a New-TestCredential helper in the test data guide.
+72e7552fc58e10ed171affc811756cf5584dad6a:.github/instructions/pester-supporting-docs/test-data-guide.md:generic-password:406
+
+# A regular expression that looked for a hard-coded password, in an earlier quality gate workflow.
+1dbe6b4bf8470b48ffcc5a406635a49ec88d4765:.github/workflows/quality-gates-pr.yml:generic-password:194
+
+# The anti-pattern example, which showed a hard-coded password on purpose: "admin123" as a
+# parameter default and "MySecretPassword123" in a variable.
+17f69a2efab304456d615215bc757cf58b5a4a68:Documentation/Examples/Test-QualityGates.ps1:generic-password:43
+17f69a2efab304456d615215bc757cf58b5a4a68:Documentation/Examples/Test-QualityGates.ps1:generic-password:56
+
+# A fixture of the compliance tests: a made-up word and number under the key password.
+c2317005ebb0cbd03ef408e3d43a62d3f71fa02a:Tools/Tests/Test-StandardsCompliance.Tests.ps1:generic-password:117
