@@ -1341,6 +1341,38 @@ Describe 'The credential scan of this repository' -Tag 'Unit' {
         $contentSha256 | Should-Be $readSha256 -Because $reason
     }
 
+    It 'Reports the required check from a job that no filter and no condition leaves out' {
+        # The ruleset for main requires the check by the name of the job. A filter on the pull
+        # request trigger leaves a pull request without the check, and a job that an if: skips
+        # counts as passed.
+        $workflowPath = Join-Path -Path $workflowFolder -ChildPath 'credential-scan.yml'
+        $workflowText = Get-Content -LiteralPath $workflowPath -Raw
+        $settings = @($workflowText -split '\r?\n' | Where-Object { $_ -notmatch '^\s*#' })
+        $conditions = @($settings | Where-Object { $_ -match '^\s*(?:if|paths|paths-ignore|branches-ignore):' })
+
+        $workflowText | Should-MatchString '(?m)^    name: Credential scan\r?$'
+        $workflowText | Should-MatchString '(?m)^  pull_request:\r?\n  push:\r?\n    branches: \[main\]\r?$'
+        $conditions.Count | Should-Be 0
+    }
+
+    It 'Lets only the job that opens an issue write, and only issues, in the monthly workflow' {
+        $workflowPath = Join-Path -Path $workflowFolder -ChildPath 'credential-scan-monthly.yml'
+        $workflowText = Get-Content -LiteralPath $workflowPath -Raw
+        $settings = @($workflowText -split '\r?\n' | Where-Object { $_ -notmatch '^\s*#' })
+        $writes = @($settings | Where-Object { $_ -match ':\s*write\s*$' })
+        $report = [regex]::Match($workflowText, '(?s)\n  report:.*').Value
+        $scan = $workflowText.Substring(0, $workflowText.Length - $report.Length)
+
+        $workflowText | Should-MatchString '(?m)^permissions:\r?\n  contents: read\r?$'
+        $writes | Should-BeCollection -Count 1
+        $writes[0].Trim() | Should-Be 'issues: write'
+        $scan | Should-NotMatchString 'issues: write'
+        $report | Should-MatchString 'needs: credentials'
+        $report | Should-MatchString 'if: \$\{\{ failure\(\) \}\}'
+        # It checks nothing out and runs no scanner, so it holds no action and no script of the scan.
+        $report | Should-NotMatchString 'uses:|Invoke-CredentialScan'
+    }
+
     It 'Lists only fingerprints of a commit, each under a comment, in <IgnoreFile>' -ForEach @(
         @{ IgnoreFile = '.betterleaksignore' }
         @{ IgnoreFile = '.trufflehogignore' }
