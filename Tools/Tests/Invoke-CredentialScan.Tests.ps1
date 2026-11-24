@@ -1189,6 +1189,26 @@ Describe 'The credential scan of this repository' -Tag 'Unit' {
         $workflowText | Should-MatchString "Scanner = '$Scanner'"
     }
 
+    It 'Leaves out only what the two exceptions of the default configuration match' -Skip:(-not $hasGit) {
+        # The workflow scans with the configuration that the standards install. A setting that is
+        # added to that file changes this line, here and in every project that installs the file.
+        $configOption = "ConfigPath = './Templates/CredentialScan/betterleaks.toml'"
+        $workflowPath = Join-Path -Path $workflowFolder -ChildPath 'credential-scan.yml'
+        $parameters = @{
+            Scanner = 'betterleaks'
+            RepositoryPath = & $newRepository
+            ScannerPath = & $newStandIn -Scenario (& $newScenario -Scanner 'betterleaks')
+            ConfigPath = Join-Path -Path $repositoryRoot -ChildPath 'Templates/CredentialScan/betterleaks.toml'
+        }
+
+        $result = & $invokeScan -Parameters $parameters
+
+        Get-Content -LiteralPath $workflowPath -Raw | Should-MatchString ([regex]::Escape($configOption))
+        $result.Problem | Should-BeNull
+        $result.Warnings | Should-BeCollection -Count 1
+        $result.Warnings[0] | Should-Be 'Left out of this scan: what the 2 exception(s) in betterleaks.toml match.'
+    }
+
     It 'Lists only fingerprints of a commit, each under a comment, in <IgnoreFile>' -ForEach @(
         @{ IgnoreFile = '.betterleaksignore' }
         @{ IgnoreFile = '.trufflehogignore' }
