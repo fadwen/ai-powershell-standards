@@ -684,4 +684,10 @@ if ($problems.Count -gt 0) {
     throw ($problems -join "`n")
 }
 
+# Every exit code of a scanner was acted on above. A scan that passes can still have ended with a
+# scanner that reported something: a finding that the ignore list names, or a place that only the
+# scan with the built-in rules reports. A job step ends with the exit code that the last program
+# left, so a step that runs this script would fail without a message.
+$global:LASTEXITCODE = 0
+
 Write-Verbose "$Scanner found no credential in the history or in the files of '$repositoryRoot'."

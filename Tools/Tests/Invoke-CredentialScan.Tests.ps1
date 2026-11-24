@@ -756,6 +756,34 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
 
             $result.Warnings.Count | Should-Be 0
         }
+
+        It 'Leaves no exit code of <Scanner> behind when the scan passes over <LeftOut>' -ForEach @(
+            @{ Scanner = 'gitleaks'; LeftOut = 'what the configuration leaves out' }
+            @{ Scanner = 'trufflehog'; LeftOut = 'a finding of the ignore list' }
+        ) {
+            # A job step ends with the exit code of the last program that it ran. The last program
+            # of a scan that passes can be a scanner that ended with the exit code for a finding.
+            $repository = & $newRepository
+            $scenario = & $newScenario -Scanner $Scanner
+            if ($Scanner -eq 'gitleaks') {
+                $configPath = Join-Path -Path $repository -ChildPath '.gitleaks.toml'
+                $configLines = '[[allowlists]]', "paths = ['''leak''']"
+                Set-Content -LiteralPath $configPath -Value $configLines -Encoding ascii
+                $scenario.Plain.Files = @(& $newItem -Rule 'aws-access-token' -File 'leak.txt' -Line 7)
+            } else {
+                $ignorePath = Join-Path -Path $repository -ChildPath '.trufflehogignore'
+                Set-Content -LiteralPath $ignorePath -Value 'leak.txt:Stripe:7' -Encoding ascii
+                $scenario.Files = @(& $newItem -Rule 'Stripe' -File 'leak.txt' -Line 7)
+            }
+            $standIn = & $newStandIn -Scenario $scenario
+
+            $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
+            $exitCodeLeft = $LASTEXITCODE
+
+            $result.Problem | Should-BeNull
+            $result.Warnings | Should-BeCollection -Count 1
+            $exitCodeLeft | Should-Be 0
+        }
     }
 
     Context 'The exception for PowerShell in the default configuration of betterleaks' {
