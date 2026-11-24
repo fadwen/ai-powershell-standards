@@ -861,12 +861,19 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
 
 Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -Skip:(-not $runRealScanners) {
     BeforeAll {
-        # A value in the form of a key, put together from parts so that this file holds none.
+        # A value in the form of a key, put together from parts so that this file holds none. Every
+        # third character is a digit, so that no word fits in. trufflehog 3.99.9 does not report a
+        # value that holds a word such as code or user, in any letter case: 3 of 1,500 random
+        # values were left out, and none of 3,000 values that are built this way.
         $newKey = {
             param([string]$Kind)
 
-            $bytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(96)
-            $random = [System.Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]', ''
+            $letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+            $characters = foreach ($index in 1..36) {
+                $from = if ($index % 3 -eq 0) { '0123456789' } else { $letters }
+                $from[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32($from.Length)]
+            }
+            $random = -join $characters
             if ($Kind -eq 'stripe') {
                 'key: ' + 'sk_' + 'live_' + $random.Substring(0, 32)
             } else {
