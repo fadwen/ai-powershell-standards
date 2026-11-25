@@ -56,23 +56,28 @@ decides where the messages go.
 | `Write-Debug`, diagnostics | `Write-PSFMessage -Level Debug` |
 | `Write-Warning`, a condition the caller should know about | `Write-PSFMessage -Level Warning` |
 | `Write-Host` or `Write-Information` with status text | `Write-PSFMessage -Level Verbose` |
-| A failure, in `catch` | `Write-PSFMessage -Level Error -ErrorRecord $_` with `3>$null`, then the error as ERR-10 or ERR-13 says |
+| A failure, in `catch` | `Write-PSFMessage -Level Error` with `3>$null` and the type of `$_.Exception` in the message, then the error as ERR-10 or ERR-13 says |
 
 - These four levels are the only ones for a function or a module. PSFramework writes `Critical`,
   `Important`, `Host`, `Output`, and `Significant` straight to the console, where the caller can
   neither capture nor silence them (ERR-31). It has no level named `Information`.
 - A `Verbose` message is shown when the caller passes `-Verbose`, and a `Warning` message follows
   `-WarningAction`. Every message goes to the log whether it is shown or not, `Debug` included.
-- Logging does not replace error handling. `-Level Error` writes a warning, not an error, and
-  `-ErrorRecord` does not end the function. Log the failure, then call `$PSCmdlet.WriteError()` or
+- Logging does not replace error handling. `-Level Error` writes a warning, not an error, and it
+  does not end the function. Log the failure, then call `$PSCmdlet.WriteError()` or
   `$PSCmdlet.ThrowTerminatingError()`. `Stop-PSFFunction` and `-EnableException` MUST NOT be used.
 - Discard the warning of the `Error` level with `3>$null` on that call. The caller then gets the
   failure once, as an error. Without it the caller also gets a warning, which
   `-ErrorAction SilentlyContinue` does not silence.
 - Put the item being processed in `-Target`, as its name or ID and not as a whole object, and a
   category in `-Tag`. Secrets and personal data MUST NOT go into the message, the target, the
-  tags, or `-Data` (SEC-06). With `-ErrorRecord`, PSFramework adds the exception's message to the
-  logged message.
+  tags, or `-Data` (SEC-06).
+- Do not pass `-ErrorRecord` for a failure. PSFramework adds the exception's message to the logged
+  message, and that message can hold what SEC-06 keeps out. The message of a file system error
+  holds the resolved path, with the user name under a profile, even when the caller gave a
+  relative path: measured with an access-denied folder on PowerShell 7.6.10 and Windows
+  PowerShell 5.1. Name the type of the exception in the message instead. The caller still gets
+  the whole error from `$PSCmdlet.WriteError($_)`.
 - Do not write a message for every item of a large input. One call took between 16 microseconds
   and 1.5 milliseconds on the computers measured, whether the message was shown or not. Write one
   for each step or batch.
@@ -134,10 +139,11 @@ function Get-FolderSize {
                 $fullPath = Convert-Path -LiteralPath $item -ErrorAction Stop
                 $files = @(Get-ChildItem -LiteralPath $fullPath -File -ErrorAction Stop)
             } catch {
+                # The message of a file system error holds the resolved path, which can hold the
+                # user name. The log gets the type of the exception, and the caller the whole error.
                 $failure = @{
                     Level = 'Error'
-                    Message = "Could not measure '$item'."
-                    ErrorRecord = $_
+                    Message = "Could not measure '$item': $($_.Exception.GetType().Name)."
                     Target = $item
                     Tag = 'measure', 'failure'
                 }

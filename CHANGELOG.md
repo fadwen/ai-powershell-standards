@@ -15,6 +15,10 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The `Get-FolderSize` example of the `powershell-logging` skill names an empty folder in its warning
   as the caller gave the path. It wrote the resolved path, which can hold the user name, into the log
   file that the skill keeps free of personal data (SEC-06).
+- The `powershell-logging` skill no longer logs a failure with `-ErrorRecord`. PSFramework adds the
+  exception's message to the logged message, and the message of a file system error, such as access
+  denied, holds the resolved path. The logged message names the type of the exception instead, and
+  the caller still gets the whole error.
 
 ## [2.0.0] - 2026-11-24
 
