@@ -12,6 +12,9 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The "What is in it" table of the README counts ten skills, not nine, and links the thirteen Pester
+  guides in `.github/instructions/pester-supporting-docs/`, which it named without saying where they
+  are.
 - The `Get-FolderSize` example of the `powershell-logging` skill names an empty folder in its warning
   as the caller gave the path. It wrote the resolved path, which can hold the user name, into the log
   file that the skill keeps free of personal data (SEC-06).

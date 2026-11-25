@@ -27,8 +27,8 @@ the features that differ between versions, and the changes in behaviour.
 | --- | --- |
 | Core rules | A short file that every agent always loads: how to apply the rules, the rules that matter in almost every file, and a function template that is tested code. |
 | Topic rules | Twelve files, each loaded when an agent works on a matching file: style, functions, error handling, security, help, versions, modules, Pester, PlatyPS, CI, README files, and pull requests. |
-| Skills | Nine procedures for common tasks, such as writing a function with its tests or reviewing code. |
-| Pester guides | Thirteen longer reference guides that the Pester rules point to. |
+| Skills | Ten procedures for common tasks, such as writing a function with its tests or reviewing code. |
+| Pester guides | [Thirteen longer reference guides](.github/instructions/pester-supporting-docs/) that the Pester rules point to. |
 | Templates | A module to copy that has working code and tests, two reference layouts, and a workflow that keeps a project's copy of the standards up to date. |
 | Worked examples | A function, a module with compiled help, and their tests, all passing every check. |
 | Analyzer settings | A PSScriptAnalyzer settings file that checks the layout rules. |
