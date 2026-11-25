@@ -40,7 +40,13 @@ These rules apply to every `.ps1` and `.psm1` file.
 - **SEC-11** Treat input from outside the script as untrusted, and validate it at every entry
   point. Constrain it at the parameter with an allow-list (`ValidateSet`, or an anchored
   `ValidatePattern`), not by removing bad characters. Sanitize data that an allow-list cannot
-  constrain before it reaches a path, a command, or a query (SEC-10, SEC-12, SEC-13).
+  constrain before it reaches a path, a command, or a query (SEC-10, SEC-12, SEC-13). This rule,
+  SEC-18, and SEC-19 cover input that the code puts into a command, a query, or a path that it
+  builds. A command line that the caller hands over to be run as given, such as an install
+  command under test, is passed whole to the program that runs it, without a token check or
+  sanitizing, when all of these hold: it runs with the caller's own rights and never across a
+  privilege boundary, the help says that the value is run as a command, and no PowerShell is
+  built from it (SEC-10).
 - **SEC-12** Before using a path that comes from input, resolve it to a full path and confirm that it
   stays inside the folder it is allowed in.
 - **SEC-13** Send values to SQL, LDAP, and similar query languages as parameters. Input MUST NOT be
@@ -50,16 +56,18 @@ These rules apply to every `.ps1` and `.psm1` file.
 - **SEC-15** Access controls MUST follow the principle of least privilege. Code MUST NOT change the
   execution policy or require elevation that the task does not need. Declare a real need for
   elevation with `#requires -RunAsAdministrator`.
-- **SEC-16** Limit the length of text input such as a name, a path, or an address. A value longer
-  than 1000 characters MUST be rejected.
+- **SEC-16** Limit the length of text input such as a name, an ID, or an address. A value longer
+  than 1000 characters MUST be rejected. A path is not held to this limit: the platform sets its
+  own maximum, and a path longer than that fails when it is used.
 - **SEC-17** Check a file name that comes from input against
   `[System.IO.Path]::GetInvalidFileNameChars()`, and reject it when it contains one of them.
 - **SEC-18** Check input for common injection tokens, and reject a value that contains one: `;`,
   `&`, `|`, `<`, `>`, a backtick, `$(`, `Invoke-`, `iex`, `Remove-`, or `Format-`. An allow-list
   (SEC-11) that admits none of them already makes this check. The check never replaces SEC-10.
+  SEC-11 says which input it covers.
 - **SEC-19** Input that does not arrive through a parameter, such as a line of a file or a field of
   a reply, MUST be validated in the function body before it is used, by one helper function that
-  applies these checks.
+  applies these checks. SEC-11 says which input they cover.
 
 ### Security assessment
 
@@ -240,6 +248,13 @@ param(
     [string]$FileName
 )
 ```
+
+A path parameter carries no length limit (SEC-16). Measured on PowerShell 7.6.10 and Windows
+PowerShell 5.1: a path of 40,000 characters fails with an error when it is read or written.
+
+**SEC-11.** The exception for a command line run as given rests on its rights: the user who
+supplies it could run it themselves. A service, a scheduled task, or an endpoint that runs a value
+from another account crosses a privilege boundary, and the rules apply in full there.
 
 **SEC-18, SEC-19.** One helper applies the checks to input that has no parameter. `-like` cannot
 make the token check: in a wildcard pattern a backtick escapes the next character, so the pattern

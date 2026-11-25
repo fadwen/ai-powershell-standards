@@ -9,6 +9,12 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The README shows what the installer writes: the start and the end of its table, with the number of
   rows in a new project, and a filter that lists only the files that a run changed. A test compares
   both with the installer's real output.
+- SEC-16 no longer limits a path to 1,000 characters. The limit stays for names, IDs, addresses,
+  and other text, and the platform sets the maximum length of a path.
+- SEC-11, SEC-18, and SEC-19 cover input that code puts into a command, a query, or a path that it
+  builds. A command line that the caller hands over to be run as given, such as an install command
+  under test, is not checked for injection tokens when it runs with the caller's own rights, the
+  help says that it is run as a command, and no PowerShell is built from it.
 
 ### Fixed
 
