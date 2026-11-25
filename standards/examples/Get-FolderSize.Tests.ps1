@@ -128,6 +128,19 @@ Describe 'Get-FolderSize' -Tag 'Unit', 'Public' {
             }
         }
 
+        It 'Names the folder in the warning as the caller gave it, not as a resolved path' {
+            Push-Location -LiteralPath $TestDrive
+            try {
+                $null = Get-FolderSize -LiteralPath './empty'
+            } finally {
+                Pop-Location
+            }
+
+            Should-Invoke -CommandName Write-PSFMessage -Times 1 -Exactly -ParameterFilter {
+                $Level -eq 'Warning' -and $Message -eq "'./empty' contains no files."
+            }
+        }
+
         It 'Uses no level that PSFramework writes straight to the console' {
             $folders = $reportFolder, $emptyFolder, $missingFolder
 

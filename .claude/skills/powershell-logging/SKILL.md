@@ -154,7 +154,8 @@ function Get-FolderSize {
             }
 
             if ($files.Count -eq 0) {
-                $message = "'$fullPath' contains no files."
+                # The path as the caller gave it. The resolved path can hold the user name.
+                $message = "'$item' contains no files."
                 Write-PSFMessage -Level Warning -Message $message -Target $item -Tag 'measure'
             }
 
