@@ -128,6 +128,19 @@ Describe 'Get-FolderSize' -Tag 'Unit', 'Public' {
             }
         }
 
+        It 'Names the folder in the warning as the caller gave it, not as a resolved path' {
+            Push-Location -LiteralPath $TestDrive
+            try {
+                $null = Get-FolderSize -LiteralPath './empty'
+            } finally {
+                Pop-Location
+            }
+
+            Should-Invoke -CommandName Write-PSFMessage -Times 1 -Exactly -ParameterFilter {
+                $Level -eq 'Warning' -and $Message -eq "'./empty' contains no files."
+            }
+        }
+
         It 'Uses no level that PSFramework writes straight to the console' {
             $folders = $reportFolder, $emptyFolder, $missingFolder
 
@@ -150,7 +163,29 @@ Describe 'Get-FolderSize' -Tag 'Unit', 'Public' {
             $sizes | Should-BeCollection -Count 1
             $sizes[0].FileCount | Should-Be 2
             Should-Invoke -CommandName Write-PSFMessage -Times 1 -Exactly -ParameterFilter {
-                $Level -eq 'Error' -and $Target -eq $missingFolder -and $null -ne $ErrorRecord
+                $Level -eq 'Error' -and $Target -eq $missingFolder -and
+                $Message -eq "Could not measure '$missingFolder': ItemNotFoundException."
+            }
+        }
+
+        Context 'When a folder cannot be read' {
+            BeforeEach {
+                Mock -CommandName Get-ChildItem -MockWith {
+                    $deniedPath = 'C:\Users\someone\private'
+                    throw [System.UnauthorizedAccessException]::new("Access to the path '$deniedPath' is denied.")
+                }
+            }
+
+            It 'Logs the type of the exception and not its message, which holds the resolved path' {
+                $output = Get-FolderSize -LiteralPath $reportFolder -ErrorAction Continue 2>&1
+                $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+
+                $errors | Should-BeCollection -Count 1
+                $errors[0].Exception | Should-HaveType ([System.UnauthorizedAccessException])
+                Should-Invoke -CommandName Write-PSFMessage -Times 1 -Exactly -ParameterFilter {
+                    $Level -eq 'Error' -and $null -eq $ErrorRecord -and
+                    $Message -eq "Could not measure '$reportFolder': UnauthorizedAccessException."
+                }
             }
         }
     }

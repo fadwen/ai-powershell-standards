@@ -192,7 +192,7 @@ Describe 'Invoke-FolderSizeReport.ps1' -Tag 'Integration' -Skip:(-not $canRun) {
 
             $failures | Should-BeCollection -Count 1
             $failures[0].TargetObject | Should-Be $missingFolder
-            $failures[0].Message | Should-BeLikeString "Could not measure '*'. | *"
+            $failures[0].Message | Should-Be "Could not measure '$missingFolder': ItemNotFoundException."
             $failures[0].Tags | Should-Be 'measure,failure'
         }
 

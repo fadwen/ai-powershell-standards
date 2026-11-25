@@ -47,10 +47,11 @@ function Get-FolderSize {
                 $fullPath = Convert-Path -LiteralPath $item -ErrorAction Stop
                 $files = @(Get-ChildItem -LiteralPath $fullPath -File -ErrorAction Stop)
             } catch {
+                # The message of a file system error holds the resolved path, which can hold the
+                # user name. The log gets the type of the exception, and the caller the whole error.
                 $failure = @{
                     Level = 'Error'
-                    Message = "Could not measure '$item'."
-                    ErrorRecord = $_
+                    Message = "Could not measure '$item': $($_.Exception.GetType().Name)."
                     Target = $item
                     Tag = 'measure', 'failure'
                 }
@@ -67,7 +68,8 @@ function Get-FolderSize {
             }
 
             if ($files.Count -eq 0) {
-                $message = "'$fullPath' contains no files."
+                # The path as the caller gave it. The resolved path can hold the user name.
+                $message = "'$item' contains no files."
                 Write-PSFMessage -Level Warning -Message $message -Target $item -Tag 'measure'
             }
 
