@@ -45,8 +45,9 @@ These rules apply to every `.ps1` and `.psm1` file.
   builds. A command line that the caller hands over to be run as given, such as an install
   command under test, is passed whole to the program that runs it, without a token check or
   sanitizing, when all of these hold: it runs with the caller's own rights and never across a
-  privilege boundary, the help says that the value is run as a command, and no PowerShell is
-  built from it (SEC-10).
+  privilege boundary, the help says that the value is run as a command, and the code does not put
+  it into PowerShell that it builds itself (SEC-10). Passing the whole value as the command of
+  `cmd.exe /c` or `powershell.exe -Command` is the case this covers.
 - **SEC-12** Before using a path that comes from input, resolve it to a full path and confirm that it
   stays inside the folder it is allowed in.
 - **SEC-13** Send values to SQL, LDAP, and similar query languages as parameters. Input MUST NOT be
@@ -58,7 +59,7 @@ These rules apply to every `.ps1` and `.psm1` file.
   elevation with `#requires -RunAsAdministrator`.
 - **SEC-16** Limit the length of text input such as a name, an ID, or an address. A value longer
   than 1000 characters MUST be rejected. A path is not held to this limit: the platform sets its
-  own maximum, and a path longer than that fails when it is used.
+  own maximum, and a file-system command fails on a path longer than that.
 - **SEC-17** Check a file name that comes from input against
   `[System.IO.Path]::GetInvalidFileNameChars()`, and reject it when it contains one of them.
 - **SEC-18** Check input for common injection tokens, and reject a value that contains one: `;`,

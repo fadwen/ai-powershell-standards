@@ -13,8 +13,10 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and other text, and the platform sets the maximum length of a path.
 - SEC-11, SEC-18, and SEC-19 cover input that code puts into a command, a query, or a path that it
   builds. A command line that the caller hands over to be run as given, such as an install command
-  under test, is not checked for injection tokens when it runs with the caller's own rights, the
-  help says that it is run as a command, and no PowerShell is built from it.
+  under test, is passed whole, without a token check or sanitizing, when it runs with the caller's
+  own rights, the help says that it is run as a command, and the code does not put it into
+  PowerShell that it builds itself. Passing it as the command of `cmd.exe /c` or
+  `powershell.exe -Command` is that case.
 
 ### Fixed
 
