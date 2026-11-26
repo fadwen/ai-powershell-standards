@@ -39,9 +39,11 @@ two scanners use, commit:file:rule:line for the history and file:rule:line for t
 
 Both files come from the commit that is scanned, so a change can leave out the finding that it
 adds. The scan guards against an accident, not against an author who means to get past it. To
-keep what is left out in view, every run writes a warning that says how much the ignore file and
-the configuration leave out. For betterleaks and gitleaks the script does not read that from the
-text of the configuration, which can spell a setting in more than one way. It scans a second time
+keep what is left out in view, every run that completes writes a warning that says how much the
+ignore file and the configuration leave out, "nothing" included. A run in which a scan fails
+writes none, because the count would miss what that scan reports, and its error says why. For
+betterleaks and gitleaks the script does not read the count from the text of the configuration,
+which can spell a setting in more than one way. It scans a second time
 without the configuration and counts the places that are reported only then, by rule. With
 -Verbose it names each of those places. A configuration that holds nothing but a title and the
 built-in rules is not scanned twice.
@@ -665,8 +667,13 @@ try {
     Remove-Item -LiteralPath $workPath -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-if ($leftOut.Count -gt 0) {
-    Write-Warning "Left out of this scan: $($leftOut -join '; ')."
+# A run that left nothing out writes the line too. Without it the log of a passing run is empty,
+# and a reader cannot tell a scan that left nothing out from a step that did nothing. After a
+# failed scan the count misses what that scan would have reported, so no count is written, and the
+# error that follows says why.
+if ($problems.Count -eq 0) {
+    $summary = if ($leftOut.Count -gt 0) { $leftOut -join '; ' } else { 'nothing' }
+    Write-Warning "Left out of this scan: $summary."
 }
 
 $allFindings
