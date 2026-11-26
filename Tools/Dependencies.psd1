@@ -125,7 +125,7 @@
             Commit = '3ffccacd46053766916f087ce41d627c0b8cf2d1'
         }
         @{
-            Name = 'actions/checkout in the rules'
+            Name = 'actions/checkout (rule examples)'
             Source = 'GitHub'
             Repository = 'actions/checkout'
             Version = '7'
@@ -134,7 +134,7 @@
             }
         }
         @{
-            Name = 'actions/upload-artifact in the rules'
+            Name = 'actions/upload-artifact (rule examples)'
             Source = 'GitHub'
             Repository = 'actions/upload-artifact'
             Version = '7'
@@ -143,7 +143,7 @@
             }
         }
         @{
-            Name = 'actions/download-artifact in the rules'
+            Name = 'actions/download-artifact (rule examples)'
             Source = 'GitHub'
             Repository = 'actions/download-artifact'
             Version = '8'
@@ -152,7 +152,7 @@
             }
         }
         @{
-            Name = 'DavidAnson/markdownlint-cli2-action in the rules'
+            Name = 'DavidAnson/markdownlint-cli2-action (rule examples)'
             Source = 'GitHub'
             Repository = 'DavidAnson/markdownlint-cli2-action'
             Version = '25'
