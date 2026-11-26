@@ -1,0 +1,19 @@
+# Opens a pull request each month for a GitHub Action in .github/workflows that has a newer
+# release. Each action is pinned by its commit with the tag in a comment (CIC-09), and Dependabot
+# moves both. It reads only .github/workflows: the actions that Templates/Workflows pins are
+# checked by .github/workflows/dependency-versions.yml, with the other pins.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    # One pull request for all of them, since the quality gate runs once for each.
+    groups:
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: ci
+    labels:
+      - enhancement

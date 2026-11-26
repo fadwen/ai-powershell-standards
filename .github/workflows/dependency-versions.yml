@@ -1,0 +1,101 @@
+name: Dependency versions
+
+# Looks up, twice a month, whether the modules and tools that this repository pins have a newer
+# release, and opens an issue that lists them, or updates the one that is open. The pins, and the
+# text in each file that holds one, are in Tools/Dependencies.psd1. The GitHub Actions in
+# .github/workflows are left to Dependabot (.github/dependabot.yml), which opens a pull request.
+#
+# This opens an issue and not a pull request because a rule that names a version says what was
+# measured on it. A claim is tested again on the new release before the pin and the rule move.
+#
+# GitHub sends a notice when a scheduled run fails to the person who last changed the schedule.
+
+on:
+  schedule:
+    # The 1st and the 15th of every month, 05:23 UTC.
+    - cron: '23 5 1,15 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Look up the latest releases
+    runs-on: ubuntu-latest
+    outputs:
+      report: ${{ steps.find.outputs.report }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Find the pins that have a newer release
+        id: find
+        shell: pwsh
+        env:
+          # Raises the rate limit of the GitHub API, which a shared runner can reach without it.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $updates = @(./Tools/Find-DependencyUpdate.ps1)
+          $updates | Format-Table -Property Name, Pinned, Latest -AutoSize | Out-String | Write-Output
+
+          $report = ''
+          if ($updates.Count -gt 0) {
+              $rows = foreach ($update in $updates) {
+                  $files = ($update.PinnedIn | ForEach-Object { "``$_``" }) -join ', '
+                  '| {0} | {1} | {2} | {3} |' -f $update.Name, $update.Pinned, $update.Latest, $files
+              }
+              $report = (@('| Pin | Pinned | Latest | Pinned in |', '| --- | --- | --- | --- |') + $rows) -join "`n"
+          }
+
+          $delimiter = "REPORT_$([guid]::NewGuid().ToString('N'))"
+          $lines = "report<<$delimiter", $report, $delimiter
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value $lines -Encoding utf8
+
+  report:
+    name: Open or update the issue
+    needs: check
+    if: ${{ needs.check.outputs.report != '' }}
+    runs-on: ubuntu-latest
+    # Only this job may write, and only issues. It checks nothing out.
+    permissions:
+      issues: write
+
+    steps:
+      - name: Open an issue, or update the one that is open
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REPORT: ${{ needs.check.outputs.report }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $title = 'Newer releases of pinned dependencies'
+          $body = @(
+              'These pins have a newer release:'
+              ''
+              $env:REPORT
+              ''
+              'A rule that names a version says what was measured on it. Test each such claim again on the new release, then move the pin in every file that the last column names and in `Tools/Dependencies.psd1`.'
+              ''
+              "Found by $env:RUN_URL"
+          ) -join "`n"
+
+          $found = & gh issue list --state open --search "$title in:title" --json number,title
+          if ($LASTEXITCODE -ne 0) {
+              throw "gh issue list failed with exit code $LASTEXITCODE."
+          }
+          $open = @($found | ConvertFrom-Json | Where-Object { $_.title -eq $title })
+          if ($open.Count -gt 0) {
+              & gh issue edit $open[0].number --body $body
+          } else {
+              & gh issue create --title $title --body $body --label enhancement
+          }
+          if ($LASTEXITCODE -ne 0) {
+              throw "gh could not write the issue. Exit code $LASTEXITCODE."
+          }

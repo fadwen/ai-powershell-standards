@@ -32,7 +32,7 @@ the features that differ between versions, and the changes in behaviour.
 | Templates | A module to copy that has working code and tests, two reference layouts, a workflow that keeps a project's copy of the standards up to date, and the workflow and scanner configurations of the [credential scan](#scan-for-credentials). |
 | Worked examples | A function, a module with compiled help, and their tests, all passing every check. |
 | Analyzer settings | A PSScriptAnalyzer settings file that checks the layout rules. |
-| Tools | An installer, a script that checks code against the rules, the generator, the quality gate, and the credential scan that the installer can add to a project. |
+| Tools | An installer, a script that checks code against the rules, the generator, the quality gate, the credential scan that the installer can add to a project, and a check for newer releases of the pinned modules and tools. |
 
 Every rule has an ID, such as `ERR-10`, and says whether it is a requirement (MUST) or a default
 (SHOULD). The rules are written to be checked against the code in front of the reader, and each
@@ -414,6 +414,7 @@ Tools/
     Test-StandardsCompliance.ps1   checks code against the rules
     Invoke-QualityGate.ps1         runs the tests and the coverage gate
     Invoke-CredentialScan.ps1      the credential scan that a project can have installed
+    Find-DependencyUpdate.ps1      lists the pins in Dependencies.psd1 that have a newer release
 .github/copilot-instructions.md, AGENTS.md                   generated
 .github/instructions/powershell-*.instructions.md            generated
 .claude/rules/powershell-standards/, and the three skills folders   generated
