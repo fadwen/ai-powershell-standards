@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       report: ${{ steps.find.outputs.report }}
+      failure: ${{ steps.find.outputs.failure }}
 
     steps:
       - name: Check out the repository
@@ -53,7 +54,9 @@ jobs:
           }
           $updates | Format-Table -Property Name, Pinned, Latest -AutoSize | Out-String | Write-Output
 
-          $sections = [System.Collections.Generic.List[string]]::new()
+          # The table and the failure are two outputs, so that a failure alone does not replace
+          # the table of the open issue.
+          $report = ''
           if ($updates.Count -gt 0) {
               $rows = foreach ($update in $updates) {
                   $files = ($update.PinnedIn | ForEach-Object { "``$_``" }) -join ', '
@@ -61,14 +64,15 @@ jobs:
                   '| {0} | {1} | {2} | {3} |' -f $update.Name, $update.Pinned, $latest, $files
               }
               $table = @('| Pin | Pinned | Latest | Pinned in |', '| --- | --- | --- | --- |') + $rows
-              $sections.Add((@('These pins have a newer release:', '') + $table) -join "`n")
+              $report = (@('These pins have a newer release:', '') + $table) -join "`n"
           }
+          $failure = ''
           if ($null -ne $lookupError) {
-              $sections.Add("Some pins could not be looked up, so this list may be incomplete. $($lookupError.Exception.Message)")
+              $failure = "Some pins could not be looked up, so this list may be incomplete. $($lookupError.Exception.Message)"
           }
 
           $delimiter = "REPORT_$([guid]::NewGuid().ToString('N'))"
-          $lines = "report<<$delimiter", ($sections -join "`n`n"), $delimiter
+          $lines = "report<<$delimiter", $report, $delimiter, "failure<<$delimiter", $failure, $delimiter
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value $lines -Encoding utf8
           if ($null -ne $lookupError) {
               throw $lookupError
@@ -91,6 +95,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REPORT: ${{ needs.check.outputs.report }}
+          FAILURE: ${{ needs.check.outputs.failure }}
           CHECK_RESULT: ${{ needs.check.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -104,7 +109,8 @@ jobs:
 
           if ([string]::IsNullOrWhiteSpace($env:REPORT)) {
               # An empty report means that every pin is current only when the check succeeded. A
-              # check that failed before it wrote the report leaves the issue as it is.
+              # check that failed, with no newer release found, leaves the issue as it is: the
+              # failed run says why.
               if ($env:CHECK_RESULT -eq 'success' -and $open.Count -gt 0) {
                   & gh issue close $open[0].number --comment "Every pin is current, as $env:RUN_URL found."
                   if ($LASTEXITCODE -ne 0) {
@@ -114,9 +120,11 @@ jobs:
               return
           }
 
+          $failureParagraph = if ([string]::IsNullOrWhiteSpace($env:FAILURE)) { @() } else { $env:FAILURE, '' }
           $body = @(
               $env:REPORT
               ''
+              $failureParagraph
               'A version that a rule names is often the one that a statement was measured on. Test each such statement again on the new release before it moves.'
               ''
               'Then move the pin in `Tools/Dependencies.psd1` and in each file of the last column. Those are the places that install or require the version. Search for the old version, for example with `git grep -n -F ''<pinned version>''`, to find the other mentions. For an action that moves with its commit, look up the commit of the new tag and change it as well.'
