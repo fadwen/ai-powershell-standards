@@ -10,7 +10,8 @@ Find-PSResource in the PowerShell Gallery, and anything else in the releases of 
 repository. Emits one object for each pin that has a newer release, and nothing for a pin that is
 current. Prereleases and drafts do not count, and neither does a GitHub tag that is not a version
 of three numbers. A pin with a Track counts only the releases whose major and minor version match
-it, such as the PowerShell 7.6 LTS line.
+it, such as the PowerShell 7.6 LTS line. A pin of one number, such as 7 for an action written as
+@v7, is behind only when a newer major version is released.
 
 When the environment variable GH_TOKEN is set, the GitHub requests carry it, which raises the rate
 limit that a shared runner would otherwise reach. No request follows a redirect, so the token goes
@@ -36,8 +37,9 @@ Shows the same list as a table.
 None.
 
 .OUTPUTS
-PowerShellStandards.DependencyUpdate. An object with Name, Source, Pinned, Latest, and PinnedIn,
-the files that hold the pin.
+PowerShellStandards.DependencyUpdate. An object with Name, Source, Pinned, Latest, PinnedIn (the
+files that hold the pin), and MovesCommit, which is true for an action that is pinned by a commit
+whose ID has to move with the version.
 #>
 [CmdletBinding()]
 [OutputType('PowerShellStandards.DependencyUpdate')]
@@ -62,7 +64,10 @@ if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
 $failures = [System.Collections.Generic.List[string]]::new()
 foreach ($dependency in $data['Dependencies']) {
     $name = $dependency['Name']
-    $pinned = [version]$dependency['Version']
+    # A pin of one number, such as the @v7 of an action in a rule example, names a major version.
+    $pinnedText = [string]$dependency['Version']
+    $majorOnly = -not $pinnedText.Contains('.')
+    $pinned = if ($majorOnly) { [version]"$pinnedText.0" } else { [version]$pinnedText }
     $track = if ($dependency.ContainsKey('Track')) { [version]$dependency['Track'] } else { $null }
     try {
         if ($dependency['Source'] -eq 'PSGallery') {
@@ -106,14 +111,16 @@ foreach ($dependency in $data['Dependencies']) {
     }
 
     $latest = $versions | Sort-Object -Descending | Select-Object -First 1
-    if ($latest -gt $pinned) {
+    $isNewer = if ($majorOnly) { $latest.Major -gt $pinned.Major } else { $latest -gt $pinned }
+    if ($isNewer) {
         [PSCustomObject]@{
             PSTypeName = 'PowerShellStandards.DependencyUpdate'
             Name = $name
             Source = $dependency['Source']
-            Pinned = $pinned
+            Pinned = $pinnedText
             Latest = $latest
             PinnedIn = @($dependency['PinnedIn'].Keys | Sort-Object)
+            MovesCommit = $dependency.ContainsKey('Commit')
         }
     }
 }

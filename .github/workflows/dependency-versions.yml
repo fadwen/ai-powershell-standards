@@ -1,7 +1,9 @@
 name: Dependency versions
 
 # Looks up, twice a month, whether the modules and tools that this repository pins have a newer
-# release, and opens an issue that lists them, or updates the one that is open. The pins, and the
+# release, and opens an issue that lists them, or updates the one that is open. Once every pin is
+# current, a run that succeeds closes that issue. A lookup that fails still lets the pins that were
+# found reach the issue, then fails the run. The pins, and the
 # text in each file that holds one, are in Tools/Dependencies.psd1. The GitHub Actions in
 # .github/workflows are left to Dependabot (.github/dependabot.yml), which opens a pull request.
 #
@@ -40,57 +42,87 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $updates = @(./Tools/Find-DependencyUpdate.ps1)
+          $updates = [System.Collections.Generic.List[object]]::new()
+          $lookupError = $null
+          try {
+              ./Tools/Find-DependencyUpdate.ps1 | ForEach-Object -Process { $updates.Add($_) }
+          } catch {
+              # The updates that were found before the failure still go into the report. The step
+              # fails once the report is written.
+              $lookupError = $_
+          }
           $updates | Format-Table -Property Name, Pinned, Latest -AutoSize | Out-String | Write-Output
 
-          $report = ''
+          $sections = [System.Collections.Generic.List[string]]::new()
           if ($updates.Count -gt 0) {
               $rows = foreach ($update in $updates) {
                   $files = ($update.PinnedIn | ForEach-Object { "``$_``" }) -join ', '
-                  '| {0} | {1} | {2} | {3} |' -f $update.Name, $update.Pinned, $update.Latest, $files
+                  $latest = if ($update.MovesCommit) { "$($update.Latest), with its commit" } else { "$($update.Latest)" }
+                  '| {0} | {1} | {2} | {3} |' -f $update.Name, $update.Pinned, $latest, $files
               }
-              $report = (@('| Pin | Pinned | Latest | Pinned in |', '| --- | --- | --- | --- |') + $rows) -join "`n"
+              $table = @('| Pin | Pinned | Latest | Pinned in |', '| --- | --- | --- | --- |') + $rows
+              $sections.Add((@('These pins have a newer release:', '') + $table) -join "`n")
+          }
+          if ($null -ne $lookupError) {
+              $sections.Add("Some pins could not be looked up, so this list may be incomplete. $($lookupError.Exception.Message)")
           }
 
           $delimiter = "REPORT_$([guid]::NewGuid().ToString('N'))"
-          $lines = "report<<$delimiter", $report, $delimiter
+          $lines = "report<<$delimiter", ($sections -join "`n`n"), $delimiter
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value $lines -Encoding utf8
+          if ($null -ne $lookupError) {
+              throw $lookupError
+          }
 
   report:
-    name: Open or update the issue
+    name: Open, update, or close the issue
     needs: check
-    if: ${{ needs.check.outputs.report != '' }}
+    # Also after a failed lookup, so that the pins that were found still reach the issue.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     # Only this job may write, and only issues. It checks nothing out.
     permissions:
       issues: write
 
     steps:
-      - name: Open an issue, or update the one that is open
+      - name: Write the issue
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REPORT: ${{ needs.check.outputs.report }}
+          CHECK_RESULT: ${{ needs.check.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           $ErrorActionPreference = 'Stop'
           $title = 'Newer releases of pinned dependencies'
-          $body = @(
-              'These pins have a newer release:'
-              ''
-              $env:REPORT
-              ''
-              'A rule that names a version says what was measured on it. Test each such claim again on the new release, then move the pin in every file that the last column names and in `Tools/Dependencies.psd1`.'
-              ''
-              "Found by $env:RUN_URL"
-          ) -join "`n"
-
           $found = & gh issue list --state open --search "$title in:title" --json number,title
           if ($LASTEXITCODE -ne 0) {
               throw "gh issue list failed with exit code $LASTEXITCODE."
           }
           $open = @($found | ConvertFrom-Json | Where-Object { $_.title -eq $title })
+
+          if ([string]::IsNullOrWhiteSpace($env:REPORT)) {
+              # An empty report means that every pin is current only when the check succeeded. A
+              # check that failed before it wrote the report leaves the issue as it is.
+              if ($env:CHECK_RESULT -eq 'success' -and $open.Count -gt 0) {
+                  & gh issue close $open[0].number --comment "Every pin is current, as $env:RUN_URL found."
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "gh could not close the issue. Exit code $LASTEXITCODE."
+                  }
+              }
+              return
+          }
+
+          $body = @(
+              $env:REPORT
+              ''
+              'A version that a rule names is often the one that a statement was measured on. Test each such statement again on the new release before it moves.'
+              ''
+              'Then move the pin in `Tools/Dependencies.psd1` and in each file of the last column. Those are the places that install or require the version. Search for the old version, for example with `git grep -n -F ''<pinned version>''`, to find the other mentions. For an action that moves with its commit, look up the commit of the new tag and change it as well.'
+              ''
+              "Found by $env:RUN_URL"
+          ) -join "`n"
           if ($open.Count -gt 0) {
               & gh issue edit $open[0].number --body $body
           } else {

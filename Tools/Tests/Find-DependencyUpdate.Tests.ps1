@@ -83,9 +83,9 @@ Describe 'Tools/Dependencies.psd1' -Tag 'Unit', 'Tools' {
         $content.Contains($Text) | Should-BeTrue -Because "'$File' should hold '$Text'"
     }
 
-    It 'Describes <Name> with a known source and a version of three numbers' -ForEach $dependencyCases {
+    It 'Describes <Name> with a known source and a version' -ForEach $dependencyCases {
         @('PSGallery', 'GitHub') | Should-ContainCollection $Dependency['Source']
-        $Dependency['Version'] | Should-MatchString '^\d+\.\d+\.\d+$'
+        $Dependency['Version'] | Should-MatchString '^\d+(\.\d+\.\d+)?$'
         $Dependency['PinnedIn'].Count | Should-BeGreaterThan 0
         if ($Dependency['Source'] -eq 'GitHub') {
             $Dependency['Repository'] | Should-MatchString '^[\w.-]+/[\w.-]+$'
@@ -109,9 +109,10 @@ Describe 'Find-DependencyUpdate.ps1' -Tag 'Unit', 'Tools' {
             $result.Updates | Should-BeCollection -Count 1
             $result.Updates[0] | Should-HaveType 'PowerShellStandards.DependencyUpdate'
             $result.Updates[0].Name | Should-Be 'Pester'
-            $result.Updates[0].Pinned | Should-Be ([version]'6.2.0')
+            $result.Updates[0].Pinned | Should-Be '6.2.0'
             $result.Updates[0].Latest | Should-Be ([version]'6.3.0')
             $result.Updates[0].PinnedIn -join ',' | Should-Be 'a.yml'
+            $result.Updates[0].MovesCommit | Should-BeFalse
             Should-Invoke -CommandName Find-PSResource -Times 1 -Exactly -ParameterFilter {
                 $Name -eq 'Pester' -and $Repository -eq 'PSGallery'
             }
@@ -181,6 +182,48 @@ Describe 'Find-DependencyUpdate.ps1' -Tag 'Unit', 'Tools' {
 
             $result.Updates | Should-BeCollection -Count 1
             $result.Updates[0].Latest | Should-Be ([version]'7.6.11')
+        }
+
+        It 'Reports a pin of a major version only when a newer major version is released' -ForEach @(
+            @{ Tags = 'v7.9.0', 'v7.0.1'; Expected = 0 }
+            @{ Tags = 'v8.0.0', 'v7.9.0'; Expected = 1 }
+        ) {
+            $releases = foreach ($tag in $Tags) {
+                & $newRelease -Tag $tag
+            }
+            Mock -CommandName Invoke-RestMethod -MockWith { , @($releases) }
+            $pin = @'
+@{
+    Name = 'actions/upload-artifact in the rules'; Source = 'GitHub'; Repository = 'actions/upload-artifact'
+    Version = '7'; PinnedIn = @{ 'e.md' = 'v' }
+}
+'@
+            $pinPath = & $newPinFile -Entries $pin
+
+            $result = & $invokeCheck -PinPath $pinPath
+
+            $result.Problem | Should-BeNull
+            $result.Updates | Should-BeCollection -Count $Expected
+            if ($Expected -gt 0) {
+                $result.Updates[0].Pinned | Should-Be '7'
+                $result.Updates[0].Latest | Should-Be ([version]'8.0.0')
+            }
+        }
+
+        It 'Says that the commit moves with an action that is pinned by its commit' {
+            Mock -CommandName Invoke-RestMethod -MockWith { , @(& $newRelease -Tag 'v7.1.0') }
+            $pin = @'
+@{
+    Name = 'actions/checkout'; Source = 'GitHub'; Repository = 'actions/checkout'; Version = '7.0.1'
+    PinnedIn = @{ 'f.yml' = 'u' }; Commit = '3d3c42e5aac5ba805825da76410c181273ba90b1'
+}
+'@
+            $pinPath = & $newPinFile -Entries $pin
+
+            $result = & $invokeCheck -PinPath $pinPath
+
+            $result.Updates | Should-BeCollection -Count 1
+            $result.Updates[0].MovesCommit | Should-BeTrue
         }
 
         It 'Asks the releases of the repository, and follows no redirect' {

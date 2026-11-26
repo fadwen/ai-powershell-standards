@@ -7,10 +7,11 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - A check for newer releases of what the repository pins. `Tools/Dependencies.psd1` lists each pin
-  and the text in each file that holds it, and `Tools/Find-DependencyUpdate.ps1` looks up the latest
-  release in the PowerShell Gallery or on GitHub. A workflow runs it on the 1st and 15th of each
-  month and opens an issue that lists the newer releases, or updates the open one. Dependabot opens
-  a monthly pull request for the GitHub Actions in `.github/workflows`.
+  and the text in each file that installs or requires it, and `Tools/Find-DependencyUpdate.ps1`
+  looks up the latest release in the PowerShell Gallery or on GitHub. A workflow runs it on the 1st
+  and 15th of each month and opens an issue that lists the newer releases, updates the open one, or
+  closes it once every pin is current. Dependabot opens a monthly pull request for the GitHub
+  Actions in `.github/workflows`.
 
 ### Changed
 
