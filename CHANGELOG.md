@@ -16,6 +16,11 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The credential scan runs trufflehog 3.100.1, pinned by the SHA-256 of each of its six release
+  archives, and a scan that the installer adds with `-IncludeCredentialScan trufflehog` gets the same
+  pin. The statements of the CI rules and the `powershell-credential-scan` skill about trufflehog
+  were measured again on 3.100.1 on Linux, macOS, and Windows, and hold as written; only the share
+  of random values that it leaves out is restated from the new runs.
 - The README shows what the installer writes: the start and the end of its table, with the number of
   rows in a new project, and a filter that lists only the files that a run changed. A test compares
   both with the installer's real output.

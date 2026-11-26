@@ -97,7 +97,7 @@
             Name = 'trufflehog'
             Source = 'GitHub'
             Repository = 'trufflesecurity/trufflehog'
-            Version = '3.99.9'
+            Version = '3.100.1'
             PinnedIn = @{
                 'Tools/Invoke-CredentialScan.ps1' = "Version = '{0}'"
                 '.github/workflows/credential-scan-monthly.yml' = "SCANNER_VERSION: '{0}'"

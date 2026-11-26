@@ -180,7 +180,7 @@ $scanners = @{
         }
     }
     trufflehog = @{
-        Version = '3.99.9'
+        Version = '3.100.1'
         ReleaseUri = 'https://github.com/trufflesecurity/trufflehog/releases/download/v{0}'
         Archive = 'trufflehog_{0}_{1}_{2}.{3}'
         Architecture = @{ X64 = 'amd64'; Arm64 = 'arm64' }
@@ -189,12 +189,12 @@ $scanners = @{
         IgnoreFile = '.trufflehogignore'
         ProbeRules = 'Github', 'Stripe'
         Hashes = @{
-            'darwin_amd64' = '1f18f69a49a8cfb9d59e730bace971722dfdf79266d9b8cf71e59ac161eb19ae'
-            'darwin_arm64' = '1d85e5c9c7eddbf12ae2714eb89317ba2cbbbf59be4e161e4b2ff396adbaa3a8'
-            'linux_amd64' = '12050095c8063bf4d34f9f6cbce6ba9fa8d0deea9d503d0570364feba093658e'
-            'linux_arm64' = '778b1913196dc9b9234e8fd366f64387efeb08c01930a1d2110dcb2ffd07e68b'
-            'windows_amd64' = 'da6754ea6f16be84fbda9860bdc49492edfa7a141eddc3ac900047fe88d16648'
-            'windows_arm64' = 'e1872ac23e3310245d924ed365f7a04c08e9f181c552eb8b11989ac28bc6ace6'
+            'darwin_amd64' = '928cb350c72861077e1e05cca1570513418c54ad22a4fd61141f9fc97634c62f'
+            'darwin_arm64' = 'baf7600403c029adcaabbc7efd262c5e26b7c654fb88d7334eb56682aaa2f000'
+            'linux_amd64' = 'b2460688116f29ce33f1afe16d14fef3fa3db928e74ba55a6c9fed392c60ad69'
+            'linux_arm64' = '017b4f2124199c164579caff85c07839be1c79f6e5908b0f1dd3bccc775c6452'
+            'windows_amd64' = 'c09bf4660d3d38adb270932bb5cd58ee572867b315cf70dccfe3d217654016ea'
+            'windows_arm64' = 'cc7014d631b900836db8fc0892aa4dd4dc5a8674240ecc50185d740948935ed4'
         }
     }
 }
@@ -531,8 +531,9 @@ try {
 
     # The values are put together from parts, so that no file holds one, this script included.
     # There are four values of each form, because a scanner leaves out a random value now and
-    # then: trufflehog 3.99.9 did not report 6 of 1,500 values of the first form and 1 of 1,500 of
-    # the second. A rule that reports one of its four values has shown that it works.
+    # then: trufflehog 3.100.1 did not report 2 to 7 of 1,500 values of the first form and 1 to 4
+    # of 1,500 of the second, in four runs. A rule that reports one of its four values has shown
+    # that it works.
     $probePath = Join-Path -Path $workPath -ChildPath 'probe'
     $null = New-Item -Path $probePath -ItemType Directory -Force
     $probeLines = foreach ($index in 1..4) {
