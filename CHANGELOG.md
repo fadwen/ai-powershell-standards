@@ -10,7 +10,7 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and the text in each file that installs or requires it, and `Tools/Find-DependencyUpdate.ps1`
   looks up the latest release in the PowerShell Gallery or on GitHub. A workflow runs it on the 1st
   and 15th of each month and keeps one issue open for each pinned dependency that is behind, titled
-  "Move the <pin> pin to <version>", so that each release is tested and moved on its own. The issue
+  `Move the <pin> pin to <version>`, so that each release is tested and moved on its own. The issue
   moves to a still newer release, and closes once the pin is current. Dependabot opens a monthly
   pull request for the GitHub Actions in `.github/workflows`.
 

@@ -25,12 +25,19 @@ on:
 permissions:
   contents: read
 
+# A manual run that overlaps a scheduled one waits for it, so that two runs cannot each open an
+# issue for the same pin.
+concurrency:
+  group: dependency-versions
+  cancel-in-progress: false
+
 jobs:
   check:
     name: Look up the latest releases
     runs-on: ubuntu-latest
     outputs:
       updates: ${{ steps.find.outputs.updates }}
+      pins: ${{ steps.find.outputs.pins }}
 
     steps:
       - name: Check out the repository
@@ -58,16 +65,25 @@ jobs:
           $updates | Format-Table -Property Name, Pinned, Latest -AutoSize | Out-String | Write-Output
 
           $records = foreach ($update in $updates) {
+              # A pin of a major version, such as @v7 in a rule example, moves to the next major
+              # version, and its issue stays as it is through that version's patch releases.
+              $majorOnly = -not $update.Pinned.Contains('.')
               [PSCustomObject]@{
                   Name = $update.Name
                   Pinned = $update.Pinned
-                  Latest = $update.Latest.ToString()
+                  Latest = if ($majorOnly) { "$($update.Latest.Major)" } else { $update.Latest.ToString() }
+                  Search = if ($majorOnly) { "@v$($update.Pinned)" } else { $update.Pinned }
                   PinnedIn = @($update.PinnedIn)
                   MovesCommit = $update.MovesCommit
               }
           }
           $json = ConvertTo-Json -InputObject @($records) -Compress -Depth 3
-          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "updates=$json" -Encoding utf8
+          # The names of all the pins, so that an issue of a pin that was removed or renamed is
+          # closed as no longer tracked, and not as current.
+          $names = @((Import-PowerShellDataFile -LiteralPath ./Tools/Dependencies.psd1)['Dependencies'] |
+                  ForEach-Object { $_['Name'] })
+          $pins = ConvertTo-Json -InputObject $names -Compress
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "updates=$json", "pins=$pins" -Encoding utf8
           if ($null -ne $lookupError) {
               throw $lookupError
           }
@@ -89,11 +105,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           UPDATES: ${{ needs.check.outputs.updates }}
+          PINS: ${{ needs.check.outputs.pins }}
           CHECK_RESULT: ${{ needs.check.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           $ErrorActionPreference = 'Stop'
           $updates = if ([string]::IsNullOrWhiteSpace($env:UPDATES)) { @() } else { @($env:UPDATES | ConvertFrom-Json) }
+          $pins = if ([string]::IsNullOrWhiteSpace($env:PINS)) { @() } else { @($env:PINS | ConvertFrom-Json) }
 
           # Only the issues that this workflow opened are read, updated, or closed. gh finds them
           # by the login github-actions[bot]; app/github-actions, as GitHub shows it, finds none.
@@ -103,11 +121,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
               throw "gh issue list failed with exit code $LASTEXITCODE."
           }
-          $open = @($found | ConvertFrom-Json | Where-Object { $_.title -match $titlePattern })
+          $open = @($found | ConvertFrom-Json | Where-Object { $_.title -match $titlePattern } |
+                  Sort-Object -Property number)
+
+          # The oldest open issue of a pin is kept. Another one, from runs that overlapped before
+          # the concurrency group, is closed as its duplicate.
           $openByPin = @{}
           foreach ($issue in $open) {
               $null = $issue.title -match $titlePattern
-              $openByPin[$Matches[1]] = $issue.number
+              $pin = $Matches[1]
+              if ($openByPin.ContainsKey($pin)) {
+                  & gh issue close $issue.number --comment "Duplicate of #$($openByPin[$pin])."
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "gh could not close the duplicate issue #$($issue.number). Exit code $LASTEXITCODE."
+                  }
+                  continue
+              }
+              $openByPin[$pin] = $issue.number
           }
 
           foreach ($update in $updates) {
@@ -128,7 +158,7 @@ jobs:
                   $commit
                   'A version that a rule names is often the one that a statement was measured on. Test each such statement again on the new release before it moves.'
                   ''
-                  "Then move the pin in ``Tools/Dependencies.psd1`` and in each file above. Search for the old version, for example with ``git grep -n -F '$($update.Pinned)'``, to find the other mentions."
+                  "Then move the pin in ``Tools/Dependencies.psd1`` and in each file above. Search for the old version, for example with ``git grep -n -F '$($update.Search)'``, to find the other mentions."
                   ''
                   "Found by $env:RUN_URL"
               ) -join "`n"
@@ -150,10 +180,16 @@ jobs:
           }
           $behind = @($updates | ForEach-Object { $_.Name })
           foreach ($pin in $openByPin.Keys) {
-              if ($pin -notin $behind) {
-                  & gh issue close $openByPin[$pin] --comment "The $pin pin is current, as $env:RUN_URL found."
-                  if ($LASTEXITCODE -ne 0) {
-                      throw "gh could not close the issue for $pin. Exit code $LASTEXITCODE."
-                  }
+              if ($pin -in $behind) {
+                  continue
+              }
+              $comment = if ($pin -in $pins) {
+                  "The $pin pin is current, as $env:RUN_URL found."
+              } else {
+                  "Tools/Dependencies.psd1 no longer has a pin named $pin, so this check no longer tracks it."
+              }
+              & gh issue close $openByPin[$pin] --comment $comment
+              if ($LASTEXITCODE -ne 0) {
+                  throw "gh could not close the issue for $pin. Exit code $LASTEXITCODE."
               }
           }
