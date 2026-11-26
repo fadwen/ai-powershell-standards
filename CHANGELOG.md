@@ -34,8 +34,8 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the caller still gets the whole error.
 - The credential scan writes `Left out of this scan: nothing.` on a clean run, as its help and its
   workflow say that every run does. A passing run wrote nothing to the log before, so a reader could
-  not tell a scan that left nothing out from a step that did nothing. A scan that fails does not
-  write it, because what it left out is not known.
+  not tell a scan that left nothing out from a step that did nothing. A run in which a scan fails
+  writes no count, not even a partial one, because it would miss what the failed scan reports.
 
 ## [2.0.0] - 2026-11-24
 

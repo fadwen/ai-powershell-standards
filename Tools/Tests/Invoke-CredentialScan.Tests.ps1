@@ -300,9 +300,11 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             Copy-Item -LiteralPath $scanScript -Destination $copy
             $standIn = & $newStandIn -Scenario (& $newScenario -Scanner 'gitleaks')
 
-            $null = & $copy -Scanner gitleaks -ScannerPath $standIn
+            $streams = @{ WarningVariable = 'copyWarnings'; WarningAction = 'SilentlyContinue' }
+            $null = & $copy -Scanner gitleaks -ScannerPath $standIn @streams
 
             (& $getCalls -StandInPath $standIn) | Should-BeCollection -Count 3
+            @($copyWarnings | ForEach-Object { "$_" }) -join '; ' | Should-Be 'Left out of this scan: nothing.'
         }
     }
 
@@ -732,6 +734,22 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $message = $result.Problem.Exception.Message
             $message | Should-BeLikeString '*The scan of the history without the configuration failed*'
             $message | Should-BeLikeString '*The scan of the files without the configuration failed*'
+            $result.Warnings.Count | Should-Be 0
+        }
+
+        It 'Writes no count of what .trufflehogignore leaves out when a scan of trufflehog failed' {
+            $repository = & $newRepository
+            $ignorePath = Join-Path -Path $repository -ChildPath '.trufflehogignore'
+            Set-Content -LiteralPath $ignorePath -Value 'old.txt:Github:3' -Encoding ascii
+            $scenario = & $newScenario -Scanner 'trufflehog'
+            $scenario.Files = @(& $newItem -Rule 'Github' -File 'old.txt' -Line 3)
+            $scenario.ExitCode.History = 1
+            $standIn = & $newStandIn -Scenario $scenario
+
+            $result = & $invokeStandInScan -Scanner 'trufflehog' -Repository $repository -StandIn $standIn
+
+            $result.Problem.Exception.Message | Should-BeLikeString '*scan of the history failed. Exit code 1*'
+            $result.Warnings.Count | Should-Be 0
         }
 
         It 'Says how many findings of trufflehog the ignore list left out, and how many paths are left out' {
@@ -925,7 +943,8 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
         $executables = @{}
         foreach ($name in 'betterleaks', 'gitleaks', 'trufflehog') {
             $toolFolder = Join-Path -Path $TestDrive -ChildPath "tool-$name"
-            $null = & $scanScript -Scanner $name -RepositoryPath $cleanRepository -ToolPath $toolFolder
+            $download = @{ Scanner = $name; RepositoryPath = $cleanRepository; ToolPath = $toolFolder }
+            $null = & $scanScript @download -WarningAction SilentlyContinue
             $fileName = if ($IsWindows) { "$name.exe" } else { $name }
             $executables[$name] = Join-Path -Path $toolFolder -ChildPath $fileName
         }
