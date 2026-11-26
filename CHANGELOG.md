@@ -32,6 +32,10 @@ This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   exception's message to the logged message, and the message of a file system error, such as access
   denied, holds the resolved path. The logged message names the type of the exception instead, and
   the caller still gets the whole error.
+- The credential scan writes `Left out of this scan: nothing.` on a clean run, as its help and its
+  workflow say that every run does. A passing run wrote nothing to the log before, so a reader could
+  not tell a scan that left nothing out from a step that did nothing. A scan that fails does not
+  write it, because what it left out is not known.
 
 ## [2.0.0] - 2026-11-24
 

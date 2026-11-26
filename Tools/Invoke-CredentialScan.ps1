@@ -667,6 +667,11 @@ try {
 
 if ($leftOut.Count -gt 0) {
     Write-Warning "Left out of this scan: $($leftOut -join '; ')."
+} elseif ($problems.Count -eq 0) {
+    # A clean run writes the line too. Without it the log of a passing run is empty, and a reader
+    # cannot tell a scan that left nothing out from a step that did nothing. After a failed scan
+    # the count is not known, and the error that follows says why.
+    Write-Warning 'Left out of this scan: nothing.'
 }
 
 $allFindings

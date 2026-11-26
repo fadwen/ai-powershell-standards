@@ -228,7 +228,7 @@ AfterAll {
 
 Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
     Context 'When the scan finds nothing in the repository' {
-        It 'Writes nothing and does not fail for <Scanner>' -ForEach $scannerCases {
+        It 'Writes only that nothing is left out, and does not fail, for <Scanner>' -ForEach $scannerCases {
             $repository = & $newRepository
             $standIn = & $newStandIn -Scenario (& $newScenario -Scanner $Scanner)
 
@@ -236,6 +236,8 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
 
             $result.Problem | Should-BeNull
             $result.Findings.Count | Should-Be 0
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-Be 'Left out of this scan: nothing.'
         }
 
         It 'Scans the probe, then the history, then the files for <Scanner>' -ForEach $scannerCases {
@@ -385,6 +387,8 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $expected = "*scan of the $($Source.ToLowerInvariant()) failed. Exit code 1*"
             $result.Problem.Exception.Message | Should-BeLikeString $expected
             (& $getCalls -StandInPath $standIn) | Should-BeCollection -Count 3
+            # What a failed scan leaves out is not known, so it does not say that nothing is.
+            $result.Warnings.Count | Should-Be 0
         }
 
         It 'Fails when the scanner cannot scan the probe' {
@@ -550,13 +554,14 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
     }
 
     Context 'What the project leaves out of the scan' {
-        It 'Writes no warning when <Scanner> has no ignore file and no configuration' -ForEach $scannerCases {
+        It 'Leaves nothing out when <Scanner> has no ignore file and no configuration' -ForEach $scannerCases {
             $repository = & $newRepository
             $standIn = & $newStandIn -Scenario (& $newScenario -Scanner $Scanner)
 
             $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
 
-            $result.Warnings.Count | Should-Be 0
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-Be 'Left out of this scan: nothing.'
         }
 
         It 'Says how many fingerprints <IgnoreFile> names' -ForEach @(
@@ -576,7 +581,7 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $result.Warnings[0] | Should-BeLikeString "Left out of this scan:*2 fingerprint(s) in $IgnoreFile*"
         }
 
-        It 'Scans twice with the default configuration of betterleaks, and writes no warning for a clean scan' {
+        It 'Scans twice with the default configuration of betterleaks, and leaves nothing out' {
             $repository = & $newRepository
             $templatePath = Join-Path -Path $repositoryRoot -ChildPath 'Templates/CredentialScan/betterleaks.toml'
             $configPath = Join-Path -Path $repository -ChildPath '.betterleaks.toml'
@@ -587,7 +592,8 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $calls = & $getCalls -StandInPath $standIn
 
             $result.Problem | Should-BeNull
-            $result.Warnings.Count | Should-Be 0
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-Be 'Left out of this scan: nothing.'
             $calls | Should-BeCollection -Count 5
         }
 
@@ -602,7 +608,8 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
 
             $result = & $invokeStandInScan -Scanner $Scanner -Repository $repository -StandIn $standIn
 
-            $result.Warnings.Count | Should-Be 0
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-Be 'Left out of this scan: nothing.'
             (& $getCalls -StandInPath $standIn) | Should-BeCollection -Count 3
         }
 
@@ -654,7 +661,8 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
             $result = & $invokeStandInScan -Scanner 'gitleaks' -Repository $repository -StandIn $standIn
 
             $result.Findings | Should-BeCollection -Count 1
-            $result.Warnings.Count | Should-Be 0
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-Be 'Left out of this scan: nothing.'
         }
 
         It 'Names each place that the configuration leaves out when -Verbose is given' {
@@ -754,7 +762,8 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
 
             $result = & $invokeStandInScan -Scanner 'trufflehog' -Repository $repository -StandIn $standIn
 
-            $result.Warnings.Count | Should-Be 0
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-Be 'Left out of this scan: nothing.'
         }
 
         It 'Leaves no exit code of <Scanner> behind when the scan passes over <LeftOut>' -ForEach @(
@@ -957,6 +966,8 @@ Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -
             Test-Path -LiteralPath $executables[$Scanner] -PathType Leaf | Should-BeTrue
             $result.Problem | Should-BeNull
             $result.Findings.Count | Should-Be 0
+            $result.Warnings | Should-BeCollection -Count 1
+            $result.Warnings[0] | Should-Be 'Left out of this scan: nothing.'
         }
 
         It 'Refuses an archive of <Scanner> whose hash is not the expected one' -ForEach @(
