@@ -889,8 +889,8 @@ Describe 'Invoke-CredentialScan.ps1' -Tag 'Unit' -Skip:(-not $hasGit) {
 Describe 'Invoke-CredentialScan.ps1 with the real scanners' -Tag 'Integration' -Skip:(-not $runRealScanners) {
     BeforeAll {
         # A value in the form of a key, put together from parts so that this file holds none. Every
-        # third character is a digit, so that no word fits in. trufflehog 3.99.9 does not report a
-        # value that holds a word such as code or user, in any letter case: 3 of 1,500 random
+        # third character is a digit, so that no word fits in. trufflehog 3.100.1 does not report a
+        # value that holds a word such as code or user, in any letter case: up to 7 of 1,500 random
         # values were left out, and none of 3,000 values that are built this way.
         $newKey = {
             param([string]$Kind)

@@ -242,7 +242,7 @@ updates to the runbooks.
 ### Credential scan (CIC-23)
 
 Each part of the rule answers a scan that passes while a credential is in the repository. Measured
-with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.99.9 on Linux, macOS, and Windows:
+with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.100.1 on Linux, macOS, and Windows:
 
 - A credential stays in the history after the commit that removes it. All three scanners find it
   there, also on a branch that was never merged and on a commit that only a tag holds. A checkout
@@ -252,9 +252,10 @@ with betterleaks 1.10.1, gitleaks 8.30.1, and trufflehog 3.99.9 on Linux, macOS,
   configuration can leave out more than was meant. The job therefore first has to find a value
   in the form of a key that it makes outside the repository, put together from parts so that no
   file holds it.
-- A scanner does not report every value that has the form of a key. On Linux, trufflehog left out
-  6 of 1,500 random values in the form of a Stripe key and 1 of 1,500 in the form of a GitHub
-  token, and reported each of them with `filtered_unverified` among its `--results`. Such a value
+- A scanner does not report every value that has the form of a key. In four runs on Linux, macOS,
+  and Windows, trufflehog left out 2 to 7 of 1,500 random values in the form of a Stripe key and 1
+  to 4 of 1,500 in the form of a GitHub token, and reported each of them with
+  `filtered_unverified` among its `--results`. Such a value
   holds a word: with `code`, `user`, or `hash` in it, in any letter case, none of 100 values was
   reported, and each of 3,000 values in which no three letters stand together was. The job
   therefore makes several values of each form, and a rule has to report one of them.

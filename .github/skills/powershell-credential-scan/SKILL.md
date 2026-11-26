@@ -16,7 +16,7 @@ Read these first, unless they are already loaded:
 - `.github/instructions/powershell-security.instructions.md`
 
 Every statement about a scanner below was measured with betterleaks 1.10.1, gitleaks 8.30.1, and
-trufflehog 3.99.9 on Linux, macOS, and Windows.
+trufflehog 3.100.1 on Linux, macOS, and Windows.
 
 ## Steps
 
